@@ -138,6 +138,7 @@ func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionL
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
 		log.Println("IP has failed too many challenges; blocking them")
 		updateExpiringDecisionLists(config, ip, decisionLists, now, NginxBlock)
+                (*failedChallengeStates)[ip].NumHits = 0  // XXX should it be 1?...
 		return true
 	}
 

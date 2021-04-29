@@ -87,6 +87,7 @@ func consumeLine(line *tail.Line, ipToStates *IpToStates, banner BannerInterface
 		if (*(*ipToStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
 			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 			banner.BanOrChallengeIp(config, ipString, regex_with_rate)
+                        (*(*ipToStates)[ipString])[regex_with_rate.Rule].NumHits = 0  // XXX should it be 1?...
 		}
 	}
 
