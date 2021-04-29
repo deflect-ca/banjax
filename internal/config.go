@@ -33,6 +33,8 @@ type Config struct {
 	ExpiringDecisionTtlSeconds             int                 `yaml:"expiring_decision_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
+	PasswordCookieTtlSeconds               int                 `yaml:"password_cookie_ttl_seconds"`
+	ShaInvCookieTtlSeconds                 int                 `yaml:"sha_inv_cookie_ttl_seconds"`
 }
 
 type RegexWithRate struct {

@@ -63,3 +63,5 @@ server_log_file: /var/log/banjax-next/banjax-next-format.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
+password_cookie_ttl_seconds: 3600
+sha_inv_cookie_ttl_seconds: 3600

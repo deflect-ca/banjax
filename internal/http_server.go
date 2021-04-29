@@ -101,21 +101,21 @@ func accessDenied(c *gin.Context) {
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, pageBytes *[]byte, cookieName string) {
+func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int) {
 	newCookie := NewChallengeCookie(time.Now(), c.Request.Header.Get("X-Client-IP"))
 	log.Println("Serving new cookie: ", newCookie)
-	c.SetCookie(cookieName, newCookie, 3600, "/", c.Request.Header.Get("X-Requested-Host"), false, false) // XXX config
-	c.Header("Cache-Control", "public,max-age=5")
+	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
+	c.Header("Cache-Control", "no-cache,no-store")
 	c.Data(401, "text/html", *pageBytes)
 	c.Abort() // XXX is this still needed, or was it just for my old middleware approach?
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.PasswordPageBytes, "deflect_password")
+	challenge(c, &config.PasswordPageBytes, "deflect_password", config.PasswordCookieTtlSeconds)
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.ChallengerBytes, "deflect_challenge")
+	challenge(c, &config.ChallengerBytes, "deflect_challenge", config.ShaInvCookieTtlSeconds)
 }
 
 // XXX this is very close to how the regex rate limits work
@@ -138,7 +138,7 @@ func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionL
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
 		log.Println("IP has failed too many challenges; blocking them")
 		updateExpiringDecisionLists(config, ip, decisionLists, now, NginxBlock)
-                (*failedChallengeStates)[ip].NumHits = 0  // XXX should it be 1?...
+		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
 		return true
 	}
 
