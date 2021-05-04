@@ -6,7 +6,7 @@
 
 Our edge architecture at Deflect for many years was Apache Trafficserver and a custom plugin called Banjax. This plugin did some basic rate-limiting on incoming requests according to a configurable set of regex patterns. If a rate-limit was exceeded, we could block further requests from that IP address, or we could serve a challenge-response page (JS-based proof-of-work, or password-based authentication).
 
-Banjax-go is a rewrite of this which performs the same functionality, but as a standalone process rather than a plugin. We're also using it with Nginx now instead of Trafficserver, but the idea should work with any reverse proxy that supports X-Accel-Redirect. Instead of doing the regex matching on incoming requests in the Nginx/Trafficserver process, we are tailing access logs similarly to fail2ban.
+Banjax-go is a rewrite of this which performs the same functionality, but as a separate process rather than a plugin. We're also using it with Nginx now instead of Trafficserver, but the idea should work with any reverse proxy that supports X-Accel-Redirect. Instead of doing the regex matching on incoming requests in the Nginx/Trafficserver process, we are tailing access logs similarly to fail2ban.
 
 The relationship between Nginx and banjax-go is probably best understood with a sample Nginx configuration:
 
