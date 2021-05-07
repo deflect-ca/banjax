@@ -170,6 +170,7 @@ func banIp(config *Config, ip string) {
 	ipt, err := iptables.New()
 
 	ruleSpec := ipAndTimestampToRuleSpec(ip, time.Now().Unix())
+    log.Println("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
 	err = ipt.Append("filter", "INPUT", ruleSpec...)
 	if err != nil {
 		//log.Println("Append failed")
