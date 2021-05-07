@@ -17,9 +17,20 @@ import (
 	"regexp"
 	"sync"
 	"syscall"
+	"time"
 )
 
-func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string) {
+func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
+    config.RestartTime = restartTime
+    config.ReloadTime = int(time.Now().Unix())  // XXX
+
+    hostname, err := os.Hostname()
+    if err != nil {
+        log.Println("couldn't get hostname! using dummy")
+        hostname = "unknown-hostname"
+    }
+    config.Hostname = hostname
+
 	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
 		panic("couldn't read config file!")
@@ -60,10 +71,12 @@ func main() {
 	configFilenamePtr := flag.String("config-file", "/etc/banjax-next/banjax-next-config.yaml", "config file")
 	flag.Parse()
 
+    restartTime := int(time.Now().Unix())  // XXX
+
 	log.Println("config file: ", *configFilenamePtr)
 
 	config := internal.Config{}
-	load_config(&config, standaloneTestingPtr, configFilenamePtr)
+	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
 
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
@@ -74,7 +87,7 @@ func main() {
 	go func() {
 		for _ = range sighup_channel {
 			log.Println("got SIGHUP; reloading config")
-			load_config(&config, standaloneTestingPtr, configFilenamePtr)
+			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
 		}
 	}()
 
@@ -118,7 +131,18 @@ func main() {
 	// go internal.RunKafkaReader(&config, &decisionLists, &wg)
 
 	// wg.Add(1)
-	// go internal.RunKafkaWriter(&config, &wg)
+	// go internal.RunKafkaWriter(&config, &decisionLists, &wg)
+
+    // statusTicker := time.NewTicker(5 * time.Second)
+    // go func() {
+    //     for {
+    //         select {
+    //         case <-statusTicker.C:
+    //             log.Println("calling ReportStatusMessage")
+    //             internal.ReportStatusMessage(&config, &decisionLists)
+    //         }
+    //     }
+    // }()
 
 	wg.Wait()
 }

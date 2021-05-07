@@ -147,7 +147,7 @@ func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionL
 
 func sendOrValidateChallenge(config *Config, c *gin.Context, failedChallengeStates *FailedChallengeStates, decisionLists *DecisionLists) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
-	// requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	challengeCookie, err := c.Cookie("deflect_challenge")
 	if err == nil {
 		err := ValidateShaInvCookie("password", challengeCookie, time.Now(), clientIp, 10) // XXX config
@@ -156,10 +156,12 @@ func sendOrValidateChallenge(config *Config, c *gin.Context, failedChallengeStat
 			log.Println(err)
 		} else {
 			accessGranted(c)
+            ReportChallengePassedOrFailed(config, true, clientIp, requestedHost)
 			log.Println("Sha-inverse challenge passed")
 			return
 		}
 	}
+    ReportChallengePassedOrFailed(config, false, clientIp, requestedHost)
 	if tooManyFailedChallenges(config, clientIp, decisionLists, failedChallengeStates) {
 		accessDenied(c)
 		return
@@ -186,10 +188,12 @@ func sendOrValidatePassword(config *Config, passwordProtectedPaths *PasswordProt
 			log.Println(err)
 		} else {
 			accessGranted(c)
+            ReportChallengePassedOrFailed(config, true, clientIp, requestedHost)
 			log.Println("Password challenge passed")
 			return
 		}
 	}
+    ReportChallengePassedOrFailed(config, false, clientIp, requestedHost)
 	if tooManyFailedChallenges(config, clientIp, decisionLists, failedChallengeStates) {
 		accessDenied(c)
 		return

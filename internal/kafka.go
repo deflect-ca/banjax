@@ -21,7 +21,7 @@ type commandMessage struct {
 	Value string
 }
 
-func RunKafkaReader(config Config, ipsToChallenge *map[string]bool, wg *sync.WaitGroup) {
+func RunKafkaReader(config *Config, decisionLists *DecisionLists, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// XXX this infinite loop is so we reconnect if we get dropped.
@@ -31,6 +31,7 @@ func RunKafkaReader(config Config, ipsToChallenge *map[string]bool, wg *sync.Wai
 			GroupID: uuid.New().String(),
 			Topic:   "banjax_next_command_topic",
 		})
+		r.SetOffset(kafka.LastOffset)
 		defer r.Close()
 
 		log.Printf("NewReader started")
@@ -44,7 +45,7 @@ func RunKafkaReader(config Config, ipsToChallenge *map[string]bool, wg *sync.Wai
 			if err != nil {
 				log.Println("r.ReadMessage() failed")
 				log.Println(err.Error())
-				break // XXX what to do here?
+				continue // XXX what to do here?
 			}
 
 			log.Printf("message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
@@ -53,30 +54,120 @@ func RunKafkaReader(config Config, ipsToChallenge *map[string]bool, wg *sync.Wai
 			err = json.Unmarshal(m.Value, &command)
 			if err != nil {
 				log.Println("json.Unmarshal() failed")
+				continue
 			}
 
-			handleCommand(command, ipsToChallenge)
+			handleCommand(config, command, decisionLists)
 		}
 
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func handleCommand(command commandMessage, ipsToChallenge *map[string]bool) {
-	if command.Name == "challenge_ip" {
-		// XXX check it's a good ip here?
+// XXX maybe make a nicer command unmarshalling thing instead of these if/else checks
+func handleCommand(config *Config, command commandMessage, decisionLists *DecisionLists) {
+	switch command.Name {
+	case "challenge_ip":
+		// XXX do a real valid IP check?
 		if len(command.Value) > 4 {
-			(*ipsToChallenge)[command.Value] = true
-			log.Println("ipsToChallenge: ", ipsToChallenge)
+			updateExpiringDecisionLists(config, command.Value, decisionLists, time.Now(), Challenge)
+			log.Printf("kafka added added to global challenge lists: Challenge %s\n", command.Value)
 		} else {
-			log.Println("bad command value?")
+			log.Printf("kafka command value looks malformed: %s\n", command.Value)
 		}
-	} else {
+	case "challenge_host":
+		// XXX check it's a valid host?
+		if len(command.Value) > 3 {
+			// (*decisionLists).PerSiteDecisionLists[command.Value] = Challenge
+			log.Printf("!!! received challenge_host command, but need to implement it\n")
+		} else {
+			log.Printf("kafka command value looks malformed: %s\n", command.Value)
+		}
+	default:
 		log.Println("unrecognized command name")
 	}
 }
 
-func RunKafkaWriter(config Config, wg *sync.WaitGroup) {
+type StatusMessage struct {
+	Id                   string `json:"id"`
+	Name                 string `json:"name"`
+	NumOfHostChallenges  int    `json:num_of_host_challenges"`
+	NumOfIpChallenges    int    `json:num_of_ip_challenges"`
+	Timestamp            int    `json:timestamp"`
+	RestartTime          int    `json:restart_time"`
+	ReloadTime           int    `json:reload_time"`
+	SwabberIpDbSize      int    `json:swabber_ip_db_size"`
+	ChallengerIpDbSize   int    `json:challenger_ip_db_size"`
+	RegexManagerIpDbSize int    `json:regex_manager_ip_db_size"`
+}
+
+func ReportStatusMessage(config *Config, decisionLists *DecisionLists) {
+	message := StatusMessage{
+		Id:                   config.Hostname,
+		Name:                 "status",
+		NumOfHostChallenges:  0,                      // XXX legacy
+		NumOfIpChallenges:    0,                      // XXX legacy
+		Timestamp:            int(time.Now().Unix()), // XXX
+		RestartTime:          config.RestartTime,
+		ReloadTime:           config.ReloadTime,
+		SwabberIpDbSize:      0, // XXX legacy
+		ChallengerIpDbSize:   0, // XXX legacy
+		RegexManagerIpDbSize: 0, // XXX legacy
+	}
+
+    bytes, err := json.Marshal(message)
+    if err != nil {
+        log.Printf("error marshalling status message")
+        return
+    }
+    sendBytesToMessageChan(bytes)
+}
+
+type ChallengePassFailMessage struct {
+	Id                string `json:"id"`
+	Name              string `json:"name"`
+	ValueIp           string `json:"value_ip"`
+	ValueSite         string `json:"value_site"`
+	ValueChallengerDb int `json:"value_challenger_db"`
+}
+
+func ReportChallengePassedOrFailed(config *Config, passed bool, ip string, site string) {
+    name := "ip_passed_challenge"
+    if !passed {
+        name = "ip_failed_challenge"
+    }
+
+    message := ChallengePassFailMessage{
+        Id: config.Hostname,
+        Name: name,
+        ValueIp: ip,
+        ValueSite: site,
+        ValueChallengerDb: 0,  // XXX legacy
+    }
+
+    bytes, err := json.Marshal(message)
+    if err != nil {
+        log.Printf("error marshalling ip_{passed,failed}_challenge message")
+        return
+    }
+    sendBytesToMessageChan(bytes)
+}
+
+func sendBytesToMessageChan(bytes []byte) {
+    log.Println("putting message on messageChan")
+    once.Do(func() {
+        log.Println("once 2")
+        messageChan = make(chan []byte)
+    })
+    messageChan <- bytes
+}
+
+// XXX weird?
+var once sync.Once
+var messageChan chan []byte
+
+// current commands: status, ip_{passed,failed}_challenge, ip_banned, ip_in_database
+func RunKafkaWriter(config *Config, decisionLists *DecisionLists, wg *sync.WaitGroup) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		w := kafka.NewWriter(kafka.WriterConfig{
@@ -87,15 +178,16 @@ func RunKafkaWriter(config Config, wg *sync.WaitGroup) {
 
 		log.Printf("NewWriter started")
 
-		for {
-			command := commandMessage{"challenge_ip", "1.2.3.4"}
-			msgBytes, err := json.Marshal(command)
-			if err != nil {
-				log.Println("json.Marshal() failed")
-				continue
-			}
+        once.Do(func() {
+            log.Println("once 3")
+            messageChan = make(chan []byte)
+        })
 
-			err = w.WriteMessages(context.Background(),
+		for {
+            msgBytes := <-messageChan
+            log.Println("got message from messageChan")
+
+            err := w.WriteMessages(context.Background(),
 				kafka.Message{
 					Key:   []byte("some-key"),
 					Value: msgBytes,
@@ -109,7 +201,7 @@ func RunKafkaWriter(config Config, wg *sync.WaitGroup) {
 
 			log.Println("WriteMessages() succeeded")
 
-			time.Sleep(2 * time.Second) // XXX just for testing at the moment
+			// time.Sleep(2 * time.Second) // XXX just for testing at the moment
 		}
 
 		time.Sleep(5 * time.Second) // try to reconnect if we get dropped

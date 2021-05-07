@@ -96,7 +96,7 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 					continue
 				}
 
-				// log.Println("Delete succeeded")
+				log.Println("Delete succeeded")
 			}
 			// i++
 			// if i > 100 {
