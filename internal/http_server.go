@@ -17,12 +17,16 @@ import (
 	"time"
 )
 
-func RunHttpServer(config *Config,
+func RunHttpServer(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	ipToStates *IpToStates,
+	rateLimitMutex *sync.Mutex,
+	ipToRegexStates *IpToRegexStates,
 	failedChallengeStates *FailedChallengeStates,
-	wg *sync.WaitGroup) {
+	wg *sync.WaitGroup,
+) {
 	defer wg.Done()
 
 	r := gin.Default()
@@ -51,7 +55,16 @@ func RunHttpServer(config *Config,
 		})
 	}
 
-	r.Any("/auth_request", decisionForNginx(config, decisionLists, passwordProtectedPaths, failedChallengeStates))
+	r.Any("/auth_request",
+		decisionForNginx(
+			config,
+			decisionListsMutex,
+			decisionLists,
+			passwordProtectedPaths,
+			rateLimitMutex,
+			failedChallengeStates,
+		),
+	)
 
 	r.GET("/info", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -65,15 +78,19 @@ func RunHttpServer(config *Config,
 				(*decisionLists).PerSiteDecisionLists,
 				(*decisionLists).GlobalDecisionLists,
 				(*decisionLists).ExpiringDecisionLists,
-			))
+			),
+		)
 	})
 
 	r.GET("/rate_limit_states", func(c *gin.Context) {
+		rateLimitMutex.Lock()
 		c.String(200,
 			fmt.Sprintf("regexes:\n%v\nfailed challenges:\n%v",
-				ipToStates.String(),
+				ipToRegexStates.String(),
 				failedChallengeStates.String(),
-			))
+			),
+		)
+		rateLimitMutex.Unlock()
 	})
 
 	r.Run("127.0.0.1:8081") // XXX config
@@ -119,7 +136,17 @@ func shaInvChallenge(c *gin.Context, config *Config) {
 }
 
 // XXX this is very close to how the regex rate limits work
-func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionLists, failedChallengeStates *FailedChallengeStates) bool {
+func tooManyFailedChallenges(
+	config *Config,
+	ip string,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+) bool {
+	rateLimitMutex.Lock()
+	defer rateLimitMutex.Unlock()
+
 	now := time.Now()
 	state, ok := (*failedChallengeStates)[ip]
 	if !ok {
@@ -137,7 +164,14 @@ func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionL
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
 		log.Println("IP has failed too many challenges; blocking them")
-		updateExpiringDecisionLists(config, ip, decisionLists, now, NginxBlock)
+		updateExpiringDecisionLists(
+			config,
+			ip,
+			decisionListsMutex,
+			decisionLists,
+			now,
+			NginxBlock,
+		)
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
 		return true
 	}
@@ -145,7 +179,14 @@ func tooManyFailedChallenges(config *Config, ip string, decisionLists *DecisionL
 	return false
 }
 
-func sendOrValidateChallenge(config *Config, c *gin.Context, failedChallengeStates *FailedChallengeStates, decisionLists *DecisionLists) {
+func sendOrValidateChallenge(
+	config *Config,
+	c *gin.Context,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	challengeCookie, err := c.Cookie("deflect_challenge")
@@ -156,13 +197,21 @@ func sendOrValidateChallenge(config *Config, c *gin.Context, failedChallengeStat
 			log.Println(err)
 		} else {
 			accessGranted(c)
-            ReportChallengePassedOrFailed(config, true, clientIp, requestedHost)
+			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			log.Println("Sha-inverse challenge passed")
 			return
 		}
 	}
-    ReportChallengePassedOrFailed(config, false, clientIp, requestedHost)
-	if tooManyFailedChallenges(config, clientIp, decisionLists, failedChallengeStates) {
+	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
+	if tooManyFailedChallenges(
+		config,
+		clientIp,
+		decisionListsMutex,
+		decisionLists,
+		rateLimitMutex,
+		failedChallengeStates,
+	) {
+		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 		accessDenied(c)
 		return
 	}
@@ -171,7 +220,15 @@ func sendOrValidateChallenge(config *Config, c *gin.Context, failedChallengeStat
 
 // XXX does it make sense to have separate password auth cookies and sha-inv cookies?
 // maybe someday, we'd like behavior like "never serve sha-inv to someone with an admin cookie"
-func sendOrValidatePassword(config *Config, passwordProtectedPaths *PasswordProtectedPaths, c *gin.Context, failedChallengeStates *FailedChallengeStates, decisionLists *DecisionLists) {
+func sendOrValidatePassword(
+	config *Config,
+	passwordProtectedPaths *PasswordProtectedPaths,
+	c *gin.Context,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	passwordCookie, err := c.Cookie("deflect_password")
@@ -188,23 +245,35 @@ func sendOrValidatePassword(config *Config, passwordProtectedPaths *PasswordProt
 			log.Println(err)
 		} else {
 			accessGranted(c)
-            ReportChallengePassedOrFailed(config, true, clientIp, requestedHost)
+			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			log.Println("Password challenge passed")
 			return
 		}
 	}
-    ReportChallengePassedOrFailed(config, false, clientIp, requestedHost)
-	if tooManyFailedChallenges(config, clientIp, decisionLists, failedChallengeStates) {
+	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
+	if tooManyFailedChallenges(
+		config,
+		clientIp,
+		decisionListsMutex,
+		decisionLists,
+		rateLimitMutex,
+		failedChallengeStates,
+	) {
+		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 		accessDenied(c)
 		return
 	}
 	passwordChallenge(c, config)
 }
 
-func decisionForNginx(config *Config,
+func decisionForNginx(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	failedChallengeStates *FailedChallengeStates) gin.HandlerFunc {
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIp := c.Request.Header.Get("X-Client-IP")
 		requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -216,13 +285,24 @@ func decisionForNginx(config *Config,
 
 		pathToBool, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
 		if ok && pathToBool[requestedPath] {
-			sendOrValidatePassword(config, passwordProtectedPaths, c, failedChallengeStates, decisionLists)
+			sendOrValidatePassword(
+				config,
+				passwordProtectedPaths,
+				c,
+				decisionListsMutex,
+				decisionLists,
+				rateLimitMutex,
+				failedChallengeStates,
+			)
 			log.Println("password-protected path")
 			return
 		}
 
+		// XXX ugh this locking is awful
 		// i got bit by just checking against the zero value here, which is a valid iota enum
+		decisionListsMutex.Lock()
 		decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
+		decisionListsMutex.Unlock()
 		if !ok {
 			log.Println("no mention in per-site lists")
 		} else {
@@ -233,7 +313,14 @@ func decisionForNginx(config *Config,
 				return
 			case Challenge:
 				log.Println("challenge from per-site lists")
-				sendOrValidateChallenge(config, c, failedChallengeStates, decisionLists)
+				sendOrValidateChallenge(
+					config,
+					c,
+					decisionListsMutex,
+					decisionLists,
+					rateLimitMutex,
+					failedChallengeStates,
+				)
 				return
 			case NginxBlock, IptablesBlock:
 				accessDenied(c)
@@ -242,7 +329,9 @@ func decisionForNginx(config *Config,
 			}
 		}
 
+		decisionListsMutex.Lock()
 		decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
+		decisionListsMutex.Unlock()
 		if !ok {
 			log.Println("no mention in global lists")
 		} else {
@@ -253,7 +342,14 @@ func decisionForNginx(config *Config,
 				return
 			case Challenge:
 				log.Println("challenge from global lists")
-				sendOrValidateChallenge(config, c, failedChallengeStates, decisionLists)
+				sendOrValidateChallenge(
+					config,
+					c,
+					decisionListsMutex,
+					decisionLists,
+					rateLimitMutex,
+					failedChallengeStates,
+				)
 				return
 			case NginxBlock, IptablesBlock:
 				accessDenied(c)
@@ -265,7 +361,9 @@ func decisionForNginx(config *Config,
 		// i think this needs to point to a struct {decision: Decision, expires: Time}.
 		// when we insert something into the list, really we might just be extending the expiry time and/or
 		// changing the decision.
+		decisionListsMutex.Lock()
 		decision, ok = checkExpiringDecisionLists(clientIp, decisionLists)
+		decisionListsMutex.Unlock()
 		if !ok {
 			log.Println("no mention in expiring lists")
 		} else {
@@ -276,7 +374,14 @@ func decisionForNginx(config *Config,
 				return
 			case Challenge:
 				log.Println("challenge from expiring lists")
-				sendOrValidateChallenge(config, c, failedChallengeStates, decisionLists)
+				sendOrValidateChallenge(
+					config,
+					c,
+					decisionListsMutex,
+					decisionLists,
+					rateLimitMutex,
+					failedChallengeStates,
+				)
 				return
 			case NginxBlock, IptablesBlock:
 				accessDenied(c)

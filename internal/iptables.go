@@ -116,7 +116,8 @@ type BannerInterface interface {
 }
 
 type Banner struct {
-	decisionLists *DecisionLists
+	decisionListsMutex *sync.Mutex
+	decisionLists      *DecisionLists
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -154,7 +155,14 @@ func (b Banner) BanOrChallengeIp(config *Config, ip string, regexWithRate RegexW
 	log.Println("BanOrChallengeIp()")
 
 	decision := stringToDecision[regexWithRate.Decision]
-	updateExpiringDecisionLists(config, ip, &(*b.decisionLists), time.Now(), decision)
+	updateExpiringDecisionLists(
+		config,
+		ip,
+		&(*b.decisionListsMutex),
+		&(*b.decisionLists),
+		time.Now(),
+		decision,
+	)
 
 	if decision == IptablesBlock {
 		banIp(config, ip)
@@ -170,7 +178,7 @@ func banIp(config *Config, ip string) {
 	ipt, err := iptables.New()
 
 	ruleSpec := ipAndTimestampToRuleSpec(ip, time.Now().Unix())
-    log.Println("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
+	log.Printf("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
 	err = ipt.Append("filter", "INPUT", ruleSpec...)
 	if err != nil {
 		//log.Println("Append failed")

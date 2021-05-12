@@ -13,6 +13,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,7 +38,7 @@ type Config struct {
 	ShaInvCookieTtlSeconds                 int                 `yaml:"sha_inv_cookie_ttl_seconds"`
 	RestartTime                            int
 	ReloadTime                             int
-	Hostname                                string
+	Hostname                               string
 }
 
 type RegexWithRate struct {
@@ -160,9 +161,9 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 }
 
 // XXX use string.Builder
-func (ipToStates IpToStates) String() string {
+func (ipToRegexStates IpToRegexStates) String() string {
 	buf := bytes.Buffer{}
-	for ip, states := range ipToStates {
+	for ip, states := range ipToRegexStates {
 		buf.WriteString(fmt.Sprintf("%v", ip))
 		buf.WriteString(":\n")
 		for rule, state := range *states {
@@ -233,9 +234,9 @@ type RuleName = string
 
 type IpAddress = string
 
-type IpStates map[RuleName]*NumHitsAndIntervalStart
+type RegexStates map[RuleName]*NumHitsAndIntervalStart
 
-type IpToStates map[IpAddress]*IpStates
+type IpToRegexStates map[IpAddress]*RegexStates
 
 type FailedChallengeStates map[IpAddress]*NumHitsAndIntervalStart
 
@@ -262,8 +263,17 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 	return expiringDecision.Decision, ok
 }
 
-// XXX is this racy? need to spend some time looking at this.
-func updateExpiringDecisionLists(config *Config, ip string, decisionLists *DecisionLists, now time.Time, newDecision Decision) {
+func updateExpiringDecisionLists(
+	config *Config,
+	ip string,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	now time.Time,
+	newDecision Decision,
+) {
+	decisionListsMutex.Lock()
+	defer decisionListsMutex.Unlock()
+
 	existingExpiringDecision, ok := (*decisionLists).ExpiringDecisionLists[ip]
 	if !ok {
 		log.Println("no existing expiringDecision")
@@ -275,7 +285,6 @@ func updateExpiringDecisionLists(config *Config, ip string, decisionLists *Decis
 	}
 	log.Println("!!! existing and new: ", existingExpiringDecision.Decision, newDecision)
 
-	log.Println("YES updating expiringDecision with more serious one")
 	purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires}

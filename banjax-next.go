@@ -21,15 +21,15 @@ import (
 )
 
 func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
-    config.RestartTime = restartTime
-    config.ReloadTime = int(time.Now().Unix())  // XXX
+	config.RestartTime = restartTime
+	config.ReloadTime = int(time.Now().Unix()) // XXX
 
-    hostname, err := os.Hostname()
-    if err != nil {
-        log.Println("couldn't get hostname! using dummy")
-        hostname = "unknown-hostname"
-    }
-    config.Hostname = hostname
+	hostname, err := os.Hostname()
+	if err != nil {
+		log.Println("couldn't get hostname! using dummy")
+		hostname = "unknown-hostname"
+	}
+	config.Hostname = hostname
 
 	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
@@ -71,7 +71,7 @@ func main() {
 	configFilenamePtr := flag.String("config-file", "/etc/banjax-next/banjax-next-config.yaml", "config file")
 	flag.Parse()
 
-    restartTime := int(time.Now().Unix())  // XXX
+	restartTime := int(time.Now().Unix()) // XXX
 
 	log.Println("config file: ", *configFilenamePtr)
 
@@ -111,38 +111,74 @@ func main() {
 	}
 	log.Println(config.KafkaBrokers)
 
+	// XXX protects decisionLists
+	var decisionListsMutex sync.Mutex
 	decisionLists := internal.ConfigToDecisionLists(&config)
+
 	passwordProtectedPaths := internal.ConfigToPasswordProtectedPaths(&config)
-	ipToStates := internal.IpToStates{}
+
+	// XXX protects ipToRegexStates and failedChallengeStates
+	// (why both? because there are too many parameters already?)
+	var rateLimitMutex sync.Mutex
+	ipToRegexStates := internal.IpToRegexStates{}
 	failedChallengeStates := internal.FailedChallengeStates{}
 
 	var wg sync.WaitGroup
 
 	wg.Add(1)
-	go internal.RunHttpServer(&config, &decisionLists, &passwordProtectedPaths, &ipToStates, &failedChallengeStates, &wg)
+	go internal.RunHttpServer(
+		&config,
+		&decisionListsMutex,
+		&decisionLists,
+		&passwordProtectedPaths,
+		&rateLimitMutex,
+		&ipToRegexStates,
+		&failedChallengeStates,
+		&wg,
+	)
 
 	wg.Add(1)
-	go internal.RunLogTailer(&config, &decisionLists, &ipToStates, &wg)
+	go internal.RunLogTailer(
+		&config,
+		&decisionListsMutex,
+		&decisionLists,
+		&rateLimitMutex,
+		&ipToRegexStates,
+		&wg,
+	)
 
 	wg.Add(1)
-	go internal.RunIpBanExpirer(&config, &wg)
+	go internal.RunIpBanExpirer(
+		&config,
+		&wg,
+	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaReader(&config, &decisionLists, &wg)
+	wg.Add(1)
+	go internal.RunKafkaReader(
+		&config,
+		&decisionListsMutex,
+		&decisionLists,
+		&wg,
+	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaWriter(&config, &decisionLists, &wg)
+	wg.Add(1)
+	go internal.RunKafkaWriter(
+		&config,
+		&wg,
+	)
 
-    // statusTicker := time.NewTicker(5 * time.Second)
-    // go func() {
-    //     for {
-    //         select {
-    //         case <-statusTicker.C:
-    //             log.Println("calling ReportStatusMessage")
-    //             internal.ReportStatusMessage(&config, &decisionLists)
-    //         }
-    //     }
-    // }()
+	statusTicker := time.NewTicker(5 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-statusTicker.C:
+				// log.Println("calling ReportStatusMessage")
+				internal.ReportStatusMessage(
+					&config,
+				)
+			}
+		}
+	}()
 
 	wg.Wait()
 }

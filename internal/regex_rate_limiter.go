@@ -15,8 +15,19 @@ import (
 	"time"
 )
 
-func RunLogTailer(config *Config, decisionLists *DecisionLists, ipToStates *IpToStates, wg *sync.WaitGroup) {
-	banner := Banner{decisionLists} // XXX better way to mock this with an interface?
+func RunLogTailer(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	rateLimitMutex *sync.Mutex,
+	ipToRegexStates *IpToRegexStates,
+	wg *sync.WaitGroup,
+) {
+	// XXX better way to mock this with an interface?
+	banner := Banner{
+		decisionListsMutex,
+		decisionLists,
+	}
 
 	log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
 	// if TailFile() fails or we hit EOF, we should retry
@@ -28,14 +39,26 @@ func RunLogTailer(config *Config, decisionLists *DecisionLists, ipToStates *IpTo
 		} else {
 			log.Println("log tailer started")
 			for line := range t.Lines {
-				consumeLine(line, ipToStates, banner, config)
+				consumeLine(
+					line,
+					rateLimitMutex,
+					ipToRegexStates,
+					banner,
+					config,
+				)
 			}
 		}
 		time.Sleep(5 * time.Second)
 	}
 }
 
-func consumeLine(line *tail.Line, ipToStates *IpToStates, banner BannerInterface, config *Config) {
+func consumeLine(
+	line *tail.Line,
+	rateLimitMutex *sync.Mutex,
+	ipToRegexStates *IpToRegexStates,
+	banner BannerInterface,
+	config *Config,
+) {
 	// log.Println(line.Text)
 
 	firstSpace := strings.Index(line.Text, " ")
@@ -62,35 +85,36 @@ func consumeLine(line *tail.Line, ipToStates *IpToStates, banner BannerInterface
 			continue
 		}
 
-		states, ok := (*ipToStates)[ipString]
+		rateLimitMutex.Lock()
+		states, ok := (*ipToRegexStates)[ipString]
 		if !ok {
 			log.Println("we haven't seen this IP before")
-			newIpStates := make(IpStates)
-			(*ipToStates)[ipString] = &newIpStates
-			(*(*ipToStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+			newRegexStates := make(RegexStates)
+			(*ipToRegexStates)[ipString] = &newRegexStates
+			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 		} else {
 			state, ok := (*states)[regex_with_rate.Rule]
 			if !ok {
 				log.Println("we have seen this IP, but it hasn't triggered this regex before")
-				(*(*ipToStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+				(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 			} else {
 				if timestamp.Sub(state.IntervalStartTime) > time.Duration(time.Second*time.Duration(regex_with_rate.Interval)) {
 					log.Println("this IP has triggered this regex, but longer ago than $interval")
-					(*(*ipToStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 				} else {
 					log.Println("this IP has triggered this regex within this $interval")
-					(*(*ipToStates)[ipString])[regex_with_rate.Rule].NumHits++
+					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits++
 				}
 			}
 		}
 
-		if (*(*ipToStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
+		if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
 			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 			banner.BanOrChallengeIp(config, ipString, regex_with_rate)
-                        (*(*ipToStates)[ipString])[regex_with_rate.Rule].NumHits = 0  // XXX should it be 1?...
+			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
+
+		rateLimitMutex.Unlock()
 	}
 
-	// XXX expose this in some debugging http endpoint
-	// log.Println("ipToStates: ", ipToStates.String())
 }

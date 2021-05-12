@@ -181,7 +181,7 @@ func NewChallengeCookie(now time.Time, clientIp string) string {
 	expireTime := time.Now().Add(60 * time.Second) // XXX config
 
 	cookieBytes := make([]byte, 20+32+8)
-	hmacBytes := ComputeHmac("password", expireTime, clientIp)  // XXX really, don't forget about this
+	hmacBytes := ComputeHmac("password", expireTime, clientIp) // XXX really, don't forget about this
 	copy(cookieBytes[0:20], hmacBytes[0:20])
 	// cookieBytes[20:20+32] can keep their zero values
 	binary.BigEndian.PutUint64(cookieBytes[20+32:20+32+8], uint64(expireTime.Unix()))

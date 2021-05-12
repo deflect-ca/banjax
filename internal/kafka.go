@@ -21,7 +21,12 @@ type commandMessage struct {
 	Value string
 }
 
-func RunKafkaReader(config *Config, decisionLists *DecisionLists, wg *sync.WaitGroup) {
+func RunKafkaReader(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	wg *sync.WaitGroup,
+) {
 	defer wg.Done()
 
 	// XXX this infinite loop is so we reconnect if we get dropped.
@@ -57,109 +62,100 @@ func RunKafkaReader(config *Config, decisionLists *DecisionLists, wg *sync.WaitG
 				continue
 			}
 
-			handleCommand(config, command, decisionLists)
+			handleCommand(
+				config,
+				command,
+				decisionListsMutex,
+				decisionLists,
+			)
 		}
 
 		time.Sleep(5 * time.Second)
 	}
 }
 
-// XXX maybe make a nicer command unmarshalling thing instead of these if/else checks
-func handleCommand(config *Config, command commandMessage, decisionLists *DecisionLists) {
+func handleCommand(
+	config *Config,
+	command commandMessage,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+) {
 	switch command.Name {
 	case "challenge_ip":
 		// XXX do a real valid IP check?
 		if len(command.Value) > 4 {
-			updateExpiringDecisionLists(config, command.Value, decisionLists, time.Now(), Challenge)
+			updateExpiringDecisionLists(
+				config,
+				command.Value,
+				decisionListsMutex,
+				decisionLists,
+				time.Now(),
+				Challenge,
+			)
 			log.Printf("kafka added added to global challenge lists: Challenge %s\n", command.Value)
 		} else {
 			log.Printf("kafka command value looks malformed: %s\n", command.Value)
 		}
-	case "challenge_host":
-		// XXX check it's a valid host?
-		if len(command.Value) > 3 {
-			// (*decisionLists).PerSiteDecisionLists[command.Value] = Challenge
-			log.Printf("!!! received challenge_host command, but need to implement it\n")
-		} else {
-			log.Printf("kafka command value looks malformed: %s\n", command.Value)
-		}
 	default:
-		log.Println("unrecognized command name")
+		log.Printf("unrecognized command name: %s\n", command.Name)
 	}
 }
 
 type StatusMessage struct {
-	Id                   string `json:"id"`
-	Name                 string `json:"name"`
-	NumOfHostChallenges  int    `json:num_of_host_challenges"`
-	NumOfIpChallenges    int    `json:num_of_ip_challenges"`
-	Timestamp            int    `json:timestamp"`
-	RestartTime          int    `json:restart_time"`
-	ReloadTime           int    `json:reload_time"`
-	SwabberIpDbSize      int    `json:swabber_ip_db_size"`
-	ChallengerIpDbSize   int    `json:challenger_ip_db_size"`
-	RegexManagerIpDbSize int    `json:regex_manager_ip_db_size"`
+	Id        string `json:"id"`
+	Name      string `json:"name"`
+	Timestamp int    `json:"timestamp"`
 }
 
-func ReportStatusMessage(config *Config, decisionLists *DecisionLists) {
+func ReportStatusMessage(
+	config *Config,
+) {
 	message := StatusMessage{
-		Id:                   config.Hostname,
-		Name:                 "status",
-		NumOfHostChallenges:  0,                      // XXX legacy
-		NumOfIpChallenges:    0,                      // XXX legacy
-		Timestamp:            int(time.Now().Unix()), // XXX
-		RestartTime:          config.RestartTime,
-		ReloadTime:           config.ReloadTime,
-		SwabberIpDbSize:      0, // XXX legacy
-		ChallengerIpDbSize:   0, // XXX legacy
-		RegexManagerIpDbSize: 0, // XXX legacy
+		Id:        config.Hostname,
+		Name:      "status",
+		Timestamp: int(time.Now().Unix()), // XXX
 	}
 
-    bytes, err := json.Marshal(message)
-    if err != nil {
-        log.Printf("error marshalling status message")
-        return
-    }
-    sendBytesToMessageChan(bytes)
+	bytes, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("error marshalling status message\n")
+		return
+	}
+	sendBytesToMessageChan(bytes)
 }
 
-type ChallengePassFailMessage struct {
-	Id                string `json:"id"`
-	Name              string `json:"name"`
-	ValueIp           string `json:"value_ip"`
-	ValueSite         string `json:"value_site"`
-	ValueChallengerDb int `json:"value_challenger_db"`
+type PassedFailedBannedMessage struct {
+	Id        string `json:"id"`
+	Name      string `json:"name"` // XXX make this an enum
+	ValueIp   string `json:"value_ip"`
+	ValueSite string `json:"value_site"`
+	Timestamp int    `json:"timestamp"`
 }
 
-func ReportChallengePassedOrFailed(config *Config, passed bool, ip string, site string) {
-    name := "ip_passed_challenge"
-    if !passed {
-        name = "ip_failed_challenge"
-    }
+// XXX gross. name is ip_passed_challenge, ip_failed_challenge, or ip_banned
+func ReportPassedFailedBannedMessage(config *Config, name string, ip string, site string) {
+	message := PassedFailedBannedMessage{
+		Id:        config.Hostname,
+		Name:      name,
+		ValueIp:   ip,
+		ValueSite: site,
+		Timestamp: int(time.Now().Unix()), // XXX
+	}
 
-    message := ChallengePassFailMessage{
-        Id: config.Hostname,
-        Name: name,
-        ValueIp: ip,
-        ValueSite: site,
-        ValueChallengerDb: 0,  // XXX legacy
-    }
-
-    bytes, err := json.Marshal(message)
-    if err != nil {
-        log.Printf("error marshalling ip_{passed,failed}_challenge message")
-        return
-    }
-    sendBytesToMessageChan(bytes)
+	bytes, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("error marshalling %s message\n", name)
+		return
+	}
+	sendBytesToMessageChan(bytes)
 }
 
 func sendBytesToMessageChan(bytes []byte) {
-    log.Println("putting message on messageChan")
-    once.Do(func() {
-        log.Println("once 2")
-        messageChan = make(chan []byte)
-    })
-    messageChan <- bytes
+	// XXX seems weird
+	once.Do(func() {
+		messageChan = make(chan []byte)
+	})
+	messageChan <- bytes
 }
 
 // XXX weird?
@@ -167,7 +163,10 @@ var once sync.Once
 var messageChan chan []byte
 
 // current commands: status, ip_{passed,failed}_challenge, ip_banned, ip_in_database
-func RunKafkaWriter(config *Config, decisionLists *DecisionLists, wg *sync.WaitGroup) {
+func RunKafkaWriter(
+	config *Config,
+	wg *sync.WaitGroup,
+) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		w := kafka.NewWriter(kafka.WriterConfig{
@@ -178,16 +177,16 @@ func RunKafkaWriter(config *Config, decisionLists *DecisionLists, wg *sync.WaitG
 
 		log.Printf("NewWriter started")
 
-        once.Do(func() {
-            log.Println("once 3")
-            messageChan = make(chan []byte)
-        })
+		// XXX weird?
+		once.Do(func() {
+			messageChan = make(chan []byte)
+		})
 
 		for {
-            msgBytes := <-messageChan
-            log.Println("got message from messageChan")
+			msgBytes := <-messageChan
+			log.Println("got message from messageChan")
 
-            err := w.WriteMessages(context.Background(),
+			err := w.WriteMessages(context.Background(),
 				kafka.Message{
 					Key:   []byte("some-key"),
 					Value: msgBytes,

@@ -75,7 +75,7 @@ regexes_with_rates:
 	if err != nil {
 		panic("couldn't parse config file!")
 	}
-	ipToStates := IpToStates{}
+	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
 
 	// XXX duplicated from main()
@@ -92,9 +92,9 @@ regexes_with_rates:
 	lineTime := fmt.Sprintf("%v", nowSeconds)
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-	consumeLine(&line, &ipToStates, &mockBanner, &config)
+	consumeLine(&line, &ipToRegexStates, &mockBanner, &config)
 
-	ipStates, ok := ipToStates["1.2.3.4"]
+	ipStates, ok := ipToRegexStates["1.2.3.4"]
 	if !ok {
 		t.Fatalf("fail1")
 	}
@@ -113,9 +113,9 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%v", nowSeconds+4)
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-	consumeLine(&line, &ipToStates, &mockBanner, &config)
+	consumeLine(&line, &ipToRegexStates, &mockBanner, &config)
 
-	ipStates, ok = ipToStates["1.2.3.4"]
+	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
 		t.Fatalf("fail4")
 	}
@@ -134,9 +134,9 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%v", nowSeconds+5.5)
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-	consumeLine(&line, &ipToStates, &mockBanner, &config)
+	consumeLine(&line, &ipToRegexStates, &mockBanner, &config)
 
-	ipStates, ok = ipToStates["1.2.3.4"]
+	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
 		t.Fatalf("fail7")
 	}
@@ -155,9 +155,9 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%v", nowSeconds+6.5)
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-	consumeLine(&line, &ipToStates, &mockBanner, &config)
+	consumeLine(&line, &ipToRegexStates, &mockBanner, &config)
 
-	ipStates, ok = ipToStates["1.2.3.4"]
+	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
 		t.Fatalf("fail10")
 	}
@@ -183,9 +183,9 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%v", nowSeconds+7.0)
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-	consumeLine(&line, &ipToStates, &mockBanner, &config)
+	consumeLine(&line, &ipToRegexStates, &mockBanner, &config)
 
-	ipStates, ok = ipToStates["1.2.3.4"]
+	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
 		t.Fatalf("fail15")
 	}
