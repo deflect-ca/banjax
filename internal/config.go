@@ -23,6 +23,13 @@ type Config struct {
 	IptablesBanSeconds                     int                            `yaml:"iptables_ban_seconds"`
 	IptablesUnbannerSeconds                int                            `yaml:"iptables_unbanner_seconds"`
 	KafkaBrokers                           []string                       `yaml:"kafka_brokers"`
+	KafkaSecurityProtocol                  string                         `yaml:"kafka_security_protocol"`
+	KafkaSslCa                             string                         `yaml:"kafka_ssl_ca"`
+	KafkaSslCert                           string                         `yaml:"kafka_ssl_cert"`
+	KafkaSslKey                            string                         `yaml:"kafka_ssl_key"`
+	KafkaSslKeyPassword                    string                         `yaml:"kafka_ssl_key_password"`
+	KafkaCommandTopic                      string                         `yaml:"kafka_command_topic"`
+	KafkaReportTopic                       string                         `yaml:"kafka_report_topic"`
 	PerSiteDecisionLists                   map[string]map[string][]string `yaml:"per_site_decision_lists"`
 	GlobalDecisionLists                    map[string][]string            `yaml:"global_decision_lists"`
 	ConfigVersion                          string                         `yaml:"config_version"`
@@ -262,6 +269,23 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 	}
 	return expiringDecision.Decision, ok
 }
+
+// XXX mmm could hold the lock for a while?
+func RemoveExpiredDecisions(
+	decisionListsMutex *sync.Mutex,
+    decisionLists *DecisionLists,
+) {
+	decisionListsMutex.Lock()
+	defer decisionListsMutex.Unlock()
+
+    for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
+               if time.Now().Sub(expiringDecision.Expires) > 0 {
+                       delete((*decisionLists).ExpiringDecisionLists, ip)
+                       log.Println("deleted expired decision from expiring lists")
+               }
+    }
+}
+
 
 func updateExpiringDecisionLists(
 	config *Config,

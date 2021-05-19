@@ -167,15 +167,22 @@ func main() {
 		&wg,
 	)
 
-	statusTicker := time.NewTicker(5 * time.Second)
+	// statusTicker := time.NewTicker(5 * time.Second)
+	expireTicker := time.NewTicker(9 * time.Second)
 	go func() {
 		for {
 			select {
-			case <-statusTicker.C:
+			// case <-statusTicker.C:
+			// 	log.Println("calling ReportStatusMessage")
+			// 	internal.ReportStatusMessage(
+			// 		&config,
+			// 	)
+			case <-expireTicker.C:
 				// log.Println("calling ReportStatusMessage")
-				internal.ReportStatusMessage(
-					&config,
-				)
+				internal.RemoveExpiredDecisions(
+                    &decisionListsMutex,
+                    &decisionLists,
+                )
 			}
 		}
 	}()

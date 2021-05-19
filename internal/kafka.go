@@ -8,17 +8,49 @@ package internal
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 	"log"
 	"sync"
 	"time"
+	"crypto/x509"
+	"io/ioutil"
 )
 
 type commandMessage struct {
 	Name  string
 	Value string
+}
+
+func getDialer(config *Config) *kafka.Dialer {
+	keypair, err := tls.LoadX509KeyPair(config.KafkaSslCert, config.KafkaSslKey)
+	if err != nil {
+		log.Fatalf("failed to load cert + key pair: %s", err)
+	}
+
+	caCert, err := ioutil.ReadFile(config.KafkaSslCa)
+	if err != nil {
+		log.Fatalf("failed to read CA root: %s", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	ok := caCertPool.AppendCertsFromPEM(caCert)
+	if !ok {
+		log.Fatalf("failed to parse CA root: %s", err)
+	}
+
+	dialer := &kafka.Dialer{
+		Timeout:   10 * time.Second,
+		DualStack: true,
+		TLS: &tls.Config{
+			Certificates: []tls.Certificate{keypair},
+			RootCAs:      caCertPool,
+			InsecureSkipVerify: true,
+		},
+	}
+	return dialer
 }
 
 func RunKafkaReader(
@@ -34,7 +66,8 @@ func RunKafkaReader(
 		r := kafka.NewReader(kafka.ReaderConfig{
 			Brokers: config.KafkaBrokers,
 			GroupID: uuid.New().String(),
-			Topic:   "banjax_next_command_topic",
+			Topic:   config.KafkaCommandTopic,
+			Dialer:  getDialer(config),
 		})
 		r.SetOffset(kafka.LastOffset)
 		defer r.Close()
@@ -171,7 +204,8 @@ func RunKafkaWriter(
 	for {
 		w := kafka.NewWriter(kafka.WriterConfig{
 			Brokers: config.KafkaBrokers,
-			Topic:   "banjax_next_command_topic", // XXX just for testing at the moment
+			Topic:   config.KafkaReportTopic,
+			Dialer:  getDialer(config),
 		})
 		defer w.Close()
 
