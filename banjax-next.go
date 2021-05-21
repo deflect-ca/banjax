@@ -94,6 +94,7 @@ func main() {
 	if config.StandaloneTesting {
 		log.Println("!!! setting ServerLogFile to testing-log-file.txt")
 		config.ServerLogFile = "testing-log-file.txt"
+		config.BanningLogFile = "banning-log-file.txt"
 	}
 
 	if config.ServerLogFile == "" {
@@ -123,14 +124,20 @@ func main() {
 	ipToRegexStates := internal.IpToRegexStates{}
 	failedChallengeStates := internal.FailedChallengeStates{}
 
-	// XXX this exists to make mocking out the iptables stuff
+	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
 	// at least it encapsulates the decisionlists and their mutex
 	// together, which should probably happen for the other things
 	// protected by a mutex.
+    banningLogFile, err := os.OpenFile(config.BanningLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer banningLogFile.Close()
 	banner := internal.Banner{
 		&decisionListsMutex,
 		&decisionLists,
+		log.New(banningLogFile, "", 0),
 	}
 
 

@@ -121,6 +121,7 @@ type BannerInterface interface {
 type Banner struct {
 	DecisionListsMutex *sync.Mutex
 	DecisionLists      *DecisionLists
+	Logger             *log.Logger
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -169,7 +170,7 @@ func (b Banner) LogRegexBan(
     path := words[3]
     userAgent := words[5]
 
-    log.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
+    b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
         ip, timeString, ruleName, method, path, host, userAgent,
     )
 }
@@ -185,7 +186,7 @@ func (b Banner) LogFailedChallengeBan(
 ) {
     timeString := time.Now().Format("[2006-01-02T15:04:05]")
 
-    log.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
+    b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
         ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
     )
 }

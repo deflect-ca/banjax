@@ -20,6 +20,7 @@ import (
 type Config struct {
 	RegexesWithRates                       []RegexWithRate                `yaml:"regexes_with_rates"`
 	ServerLogFile                          string                         `yaml:"server_log_file"`
+	BanningLogFile                         string                         `yaml:"banning_log_file"`
 	IptablesBanSeconds                     int                            `yaml:"iptables_ban_seconds"`
 	IptablesUnbannerSeconds                int                            `yaml:"iptables_unbanner_seconds"`
 	KafkaBrokers                           []string                       `yaml:"kafka_brokers"`
