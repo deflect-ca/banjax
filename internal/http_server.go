@@ -25,6 +25,7 @@ func RunHttpServer(
 	rateLimitMutex *sync.Mutex,
 	ipToRegexStates *IpToRegexStates,
 	failedChallengeStates *FailedChallengeStates,
+	banner BannerInterface,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -45,7 +46,7 @@ func RunHttpServer(
 		defer logFile.Close()
 
 		r.Use(func(c *gin.Context) {
-			_, err = io.WriteString(logFile, fmt.Sprintf("%f 127.0.0.1 %s %s HTTP/1.1 Mozilla -\n",
+			_, err = io.WriteString(logFile, fmt.Sprintf("%f 127.0.0.1 GET example.com %s %s HTTP/1.1 Mozilla -\n",
 				float64(time.Now().Unix()),
 				c.Request.Method,
 				c.Query("path")))
@@ -63,6 +64,7 @@ func RunHttpServer(
 			passwordProtectedPaths,
 			rateLimitMutex,
 			failedChallengeStates,
+			banner,
 		),
 	)
 
@@ -103,6 +105,7 @@ func addOurXHeadersForTesting(c *gin.Context) {
 	}
 	c.Request.Header.Set("X-Requested-Host", c.Request.Host)
 	c.Request.Header.Set("X-Requested-Path", c.Query("path"))
+	c.Request.Header.Set("X-Client-User-Agent", "mozilla")
 	c.Next()
 }
 
@@ -139,8 +142,11 @@ func shaInvChallenge(c *gin.Context, config *Config) {
 func tooManyFailedChallenges(
 	config *Config,
 	ip string,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	userAgent string,
+	host string,
+	path string,
+	banner BannerInterface,
+	challengeType string,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 ) bool {
@@ -164,14 +170,16 @@ func tooManyFailedChallenges(
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
 		log.Println("IP has failed too many challenges; blocking them")
-		updateExpiringDecisionLists(
-			config,
-			ip,
-			decisionListsMutex,
-			decisionLists,
-			now,
-			NginxBlock,
-		)
+        banner.BanOrChallengeIp(config, ip, IptablesBlock)
+        banner.LogFailedChallengeBan(
+            ip,
+            challengeType,
+            host,
+            path,
+            config.TooManyFailedChallengesThreshold,
+            userAgent,
+            IptablesBlock,
+        )
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
 		return true
 	}
@@ -182,16 +190,17 @@ func tooManyFailedChallenges(
 func sendOrValidateChallenge(
 	config *Config,
 	c *gin.Context,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 ) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	challengeCookie, err := c.Cookie("deflect_challenge")
 	if err == nil {
-		err := ValidateShaInvCookie("password", challengeCookie, time.Now(), clientIp, 10) // XXX config
+		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
 		if err != nil {
 			log.Println("Sha-inverse challenge failed")
 			log.Println(err)
@@ -206,8 +215,11 @@ func sendOrValidateChallenge(
 	if tooManyFailedChallenges(
 		config,
 		clientIp,
-		decisionListsMutex,
-		decisionLists,
+		clientUserAgent,
+		requestedHost,
+		requestedPath,
+		banner,
+		"sha_inv",
 		rateLimitMutex,
 		failedChallengeStates,
 	) {
@@ -224,13 +236,14 @@ func sendOrValidatePassword(
 	config *Config,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	c *gin.Context,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 ) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	passwordCookie, err := c.Cookie("deflect_password")
 	log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
@@ -239,7 +252,7 @@ func sendOrValidatePassword(
 			log.Println("!!!! BAD - missing password in config") // XXX fail open or closed?
 			return
 		}
-		err := ValidatePasswordCookie("password", passwordCookie, time.Now(), clientIp, expectedHashedPassword) // XXX config
+		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword) // XXX config
 		if err != nil {
 			log.Println("Password challenge failed")
 			log.Println(err)
@@ -254,8 +267,11 @@ func sendOrValidatePassword(
 	if tooManyFailedChallenges(
 		config,
 		clientIp,
-		decisionListsMutex,
-		decisionLists,
+		clientUserAgent,
+		requestedHost,
+		requestedPath,
+		banner,
+		"password",
 		rateLimitMutex,
 		failedChallengeStates,
 	) {
@@ -273,6 +289,7 @@ func decisionForNginx(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
+	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clientIp := c.Request.Header.Get("X-Client-IP")
@@ -289,8 +306,7 @@ func decisionForNginx(
 				config,
 				passwordProtectedPaths,
 				c,
-				decisionListsMutex,
-				decisionLists,
+				banner,
 				rateLimitMutex,
 				failedChallengeStates,
 			)
@@ -316,8 +332,7 @@ func decisionForNginx(
 				sendOrValidateChallenge(
 					config,
 					c,
-					decisionListsMutex,
-					decisionLists,
+					banner,
 					rateLimitMutex,
 					failedChallengeStates,
 				)
@@ -345,8 +360,7 @@ func decisionForNginx(
 				sendOrValidateChallenge(
 					config,
 					c,
-					decisionListsMutex,
-					decisionLists,
+					banner,
 					rateLimitMutex,
 					failedChallengeStates,
 				)
@@ -377,8 +391,7 @@ func decisionForNginx(
 				sendOrValidateChallenge(
 					config,
 					c,
-					decisionListsMutex,
-					decisionLists,
+					banner,
 					rateLimitMutex,
 					failedChallengeStates,
 				)

@@ -17,18 +17,11 @@ import (
 
 func RunLogTailer(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	ipToRegexStates *IpToRegexStates,
 	wg *sync.WaitGroup,
 ) {
-	// XXX better way to mock this with an interface?
-	banner := Banner{
-		decisionListsMutex,
-		decisionLists,
-	}
-
 	log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
 	// if TailFile() fails or we hit EOF, we should retry
 	for {
@@ -110,7 +103,10 @@ func consumeLine(
 
 		if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
 			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
-			banner.BanOrChallengeIp(config, ipString, regex_with_rate)
+			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
+			banner.BanOrChallengeIp(config, ipString, decision)
+            log.Println(line.Text)
+            banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, line.Text[firstSpace+secondSpace+2:], decision)
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
 

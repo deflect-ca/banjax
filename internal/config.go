@@ -46,6 +46,7 @@ type Config struct {
 	RestartTime                            int
 	ReloadTime                             int
 	Hostname                               string
+	HmacSecret                             string `yaml:"hmac_secret"`
 }
 
 type RegexWithRate struct {
@@ -273,19 +274,18 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 // XXX mmm could hold the lock for a while?
 func RemoveExpiredDecisions(
 	decisionListsMutex *sync.Mutex,
-    decisionLists *DecisionLists,
+	decisionLists *DecisionLists,
 ) {
 	decisionListsMutex.Lock()
 	defer decisionListsMutex.Unlock()
 
-    for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
-               if time.Now().Sub(expiringDecision.Expires) > 0 {
-                       delete((*decisionLists).ExpiringDecisionLists, ip)
-                       log.Println("deleted expired decision from expiring lists")
-               }
-    }
+	for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete((*decisionLists).ExpiringDecisionLists, ip)
+			log.Println("deleted expired decision from expiring lists")
+		}
+	}
 }
-
 
 func updateExpiringDecisionLists(
 	config *Config,

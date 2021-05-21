@@ -123,6 +123,17 @@ func main() {
 	ipToRegexStates := internal.IpToRegexStates{}
 	failedChallengeStates := internal.FailedChallengeStates{}
 
+	// XXX this exists to make mocking out the iptables stuff
+	// in testing easier. there might be a better way to do it.
+	// at least it encapsulates the decisionlists and their mutex
+	// together, which should probably happen for the other things
+	// protected by a mutex.
+	banner := internal.Banner{
+		&decisionListsMutex,
+		&decisionLists,
+	}
+
+
 	var wg sync.WaitGroup
 
 	wg.Add(1)
@@ -134,14 +145,14 @@ func main() {
 		&rateLimitMutex,
 		&ipToRegexStates,
 		&failedChallengeStates,
+		banner,
 		&wg,
 	)
 
 	wg.Add(1)
 	go internal.RunLogTailer(
 		&config,
-		&decisionListsMutex,
-		&decisionLists,
+		banner,
 		&rateLimitMutex,
 		&ipToRegexStates,
 		&wg,
@@ -153,19 +164,19 @@ func main() {
 		&wg,
 	)
 
-	wg.Add(1)
-	go internal.RunKafkaReader(
-		&config,
-		&decisionListsMutex,
-		&decisionLists,
-		&wg,
-	)
+	// wg.Add(1)
+	// go internal.RunKafkaReader(
+	// 	&config,
+	// 	&decisionListsMutex,
+	// 	&decisionLists,
+	// 	&wg,
+	// )
 
-	wg.Add(1)
-	go internal.RunKafkaWriter(
-		&config,
-		&wg,
-	)
+	// wg.Add(1)
+	// go internal.RunKafkaWriter(
+	// 	&config,
+	// 	&wg,
+	// )
 
 	// statusTicker := time.NewTicker(5 * time.Second)
 	expireTicker := time.NewTicker(9 * time.Second)

@@ -188,7 +188,13 @@ func sendBytesToMessageChan(bytes []byte) {
 	once.Do(func() {
 		messageChan = make(chan []byte)
 	})
-	messageChan <- bytes
+	// non-blocking send in case the RunKafkaWriter loop isn't receiving
+	select {
+    case messageChan <- bytes:
+        log.Println("put message on channel")
+    default:
+        log.Println("did not put message on channel")
+    }
 }
 
 // XXX weird?
