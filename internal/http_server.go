@@ -165,8 +165,8 @@ func accessDenied(c *gin.Context) {
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int) {
-	newCookie := NewChallengeCookie(time.Now(), c.Request.Header.Get("X-Client-IP"))
+func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
+	newCookie := NewChallengeCookie(secret, time.Now(), c.Request.Header.Get("X-Client-IP"))
 	log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
@@ -175,11 +175,11 @@ func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSe
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.PasswordPageBytes, "deflect_password", config.PasswordCookieTtlSeconds)
+	challenge(c, &config.PasswordPageBytes, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.ChallengerBytes, "deflect_challenge", config.ShaInvCookieTtlSeconds)
+	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
 }
 
 // XXX this is very close to how the regex rate limits work
@@ -242,7 +242,7 @@ func sendOrValidateChallenge(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	challengeCookie, err := c.Cookie("deflect_challenge")
+	challengeCookie, err := c.Cookie("deflect_challenge2")
 	if err == nil {
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
 		if err != nil {
@@ -288,7 +288,7 @@ func sendOrValidatePassword(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	passwordCookie, err := c.Cookie("deflect_password")
+	passwordCookie, err := c.Cookie("deflect_password2")
 	log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
 		expectedHashedPassword, ok := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
