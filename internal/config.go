@@ -48,6 +48,7 @@ type Config struct {
 	ReloadTime                             int
 	Hostname                               string
 	HmacSecret                             string `yaml:"hmac_secret"`
+	GinLogFile                             string `yaml:"gin_log_file"`
 }
 
 type RegexWithRate struct {

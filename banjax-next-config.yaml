@@ -74,3 +74,4 @@ too_many_failed_challenges_threshold: 3
 password_cookie_ttl_seconds: 3600
 sha_inv_cookie_ttl_seconds: 3600
 hmac_secret: password
+gin_log_file: /var/log/banjax-next/gin.log

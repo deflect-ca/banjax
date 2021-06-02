@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
@@ -30,7 +31,49 @@ func RunHttpServer(
 ) {
 	defer wg.Done()
 
-	r := gin.Default()
+	ginLogFileName := ""
+	if config.StandaloneTesting {
+		ginLogFileName = "gin.log"
+	} else {
+		ginLogFileName = config.GinLogFile
+	}
+
+	ginLogFile, _ := os.Create(ginLogFileName)
+	gin.DefaultWriter = io.MultiWriter(ginLogFile)
+
+	r := gin.New()
+
+	type LogLine struct {
+		Time          string
+		ClientIp      string
+		ClientReqHost string
+		ClientReqPath string
+		Method        string
+		Path          string
+		Status        int
+		Latency       int
+	}
+
+	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		logLine := LogLine{
+			Time:          param.TimeStamp.Format(time.RFC1123),
+			ClientIp:      param.ClientIP,
+			ClientReqHost: param.Request.Header.Get("X-Requested-Host"),
+			ClientReqPath: param.Request.Header.Get("X-Requested-Path"),
+			Method:        param.Method,
+			Path:          param.Path,
+			Status:        param.StatusCode,
+			Latency:       int(param.Latency / time.Microsecond),
+		}
+		bytes, err := json.Marshal(logLine)
+		if err != nil {
+			log.Println("!!! failed to marshal log line !!!")
+			return "{\"error\": \"bad\"}"
+		}
+		return string(bytes) + "\n" // XXX ?
+	}))
+
+	r.Use(gin.Recovery())
 
 	if config.StandaloneTesting {
 		log.Println("!!! standalone-testing mode enabled. adding some X- headers here")
@@ -54,6 +97,7 @@ func RunHttpServer(
 				log.Println("failed to write? %v", err)
 			}
 		})
+	} else {
 	}
 
 	r.Any("/auth_request",
@@ -170,16 +214,16 @@ func tooManyFailedChallenges(
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
 		log.Println("IP has failed too many challenges; blocking them")
-        banner.BanOrChallengeIp(config, ip, IptablesBlock)
-        banner.LogFailedChallengeBan(
-            ip,
-            challengeType,
-            host,
-            path,
-            config.TooManyFailedChallengesThreshold,
-            userAgent,
-            IptablesBlock,
-        )
+		banner.BanOrChallengeIp(config, ip, IptablesBlock)
+		banner.LogFailedChallengeBan(
+			ip,
+			challengeType,
+			host,
+			path,
+			config.TooManyFailedChallengesThreshold,
+			userAgent,
+			IptablesBlock,
+		)
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
 		return true
 	}
