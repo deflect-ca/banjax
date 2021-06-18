@@ -57,7 +57,7 @@ func RunHttpServer(
 	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
 		logLine := LogLine{
 			Time:          param.TimeStamp.Format(time.RFC1123),
-			ClientIp:      param.ClientIP,
+			ClientIp:      param.Request.Header.Get("X-Client-IP"),
 			ClientReqHost: param.Request.Header.Get("X-Requested-Host"),
 			ClientReqPath: param.Request.Header.Get("X-Requested-Path"),
 			Method:        param.Method,
