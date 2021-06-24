@@ -47,8 +47,9 @@ type Config struct {
 	RestartTime                            int
 	ReloadTime                             int
 	Hostname                               string
-	HmacSecret                             string `yaml:"hmac_secret"`
-	GinLogFile                             string `yaml:"gin_log_file"`
+	HmacSecret                             string            `yaml:"hmac_secret"`
+	GinLogFile                             string            `yaml:"gin_log_file"`
+	SitewideShaInvList                     map[string]string `yaml:"sitewide_sha_inv_list"`
 }
 
 type RegexWithRate struct {
@@ -78,6 +79,14 @@ const (
 	IptablesBlock = iota
 )
 
+// XXX is this really how you make an enum in go?
+type FailAction int
+
+const (
+	Block   = iota
+	NoBlock = iota
+)
+
 func (d Decision) String() string {
 	return [...]string{"Allow", "Challenge", "NginxBlock", "IptablesBlock"}[d]
 }
@@ -93,13 +102,20 @@ var stringToDecision = map[string]Decision{
 }
 
 type StringToDecision map[string]Decision
-type StringToStringToDecision map[string]StringToDecision
 type StringToExpiringDecision map[string]ExpiringDecision
+type StringToStringToDecision map[string]StringToDecision
+type StringToFailAction map[string]FailAction
 
 type DecisionLists struct {
-	PerSiteDecisionLists  StringToStringToDecision // XXX really site -> ip range -> Decision
-	GlobalDecisionLists   StringToDecision         // XXX really ip range -> Decision
-	ExpiringDecisionLists StringToExpiringDecision // XXX really ip range -> ExpiringDecision
+	// static blocklists, allowlists, challengelists populated from the config file
+	GlobalDecisionLists  StringToDecision         // ip -> Decision
+	PerSiteDecisionLists StringToStringToDecision // site -> ip -> Decision
+	// dynamic lists populated from the regex rate limits + kafka
+	ExpiringDecisionLists StringToExpiringDecision // ip -> ExpiringDecision
+	// static site-wide lists (legacy banjax_sha_inv and user_banjax_sha_inv)
+	// XXX someday need sha-inv *and* captcha
+	// XXX could be merged with PerSiteDecisionLists if we matched on ip ranges
+	SitewideShaInvList StringToFailAction // site -> Challenge (block after many failures or don't)
 }
 
 type StringToBool map[string]bool
@@ -144,6 +160,7 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	perSiteDecisionLists := make(StringToStringToDecision)
 	globalDecisionLists := make(StringToDecision)
 	expiringDecisionLists := make(StringToExpiringDecision)
+	sitewideShaInvList := make(StringToFailAction)
 
 	for site, decisionToIps := range config.PerSiteDecisionLists {
 		for decisionString, ips := range decisionToIps {
@@ -165,9 +182,19 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 		}
 	}
 
-	log.Printf("per-site decisions: %v\n", perSiteDecisionLists)
-	log.Printf("global decisions: %v\n", globalDecisionLists)
-	return DecisionLists{perSiteDecisionLists, globalDecisionLists, expiringDecisionLists}
+	for site, failAction := range config.SitewideShaInvList {
+		if failAction == "block" {
+			sitewideShaInvList[site] = Block
+		} else if failAction == "no_block" {
+			sitewideShaInvList[site] = NoBlock
+		} else {
+			panic("!!! sitewide_sha_inv_list action is block or no_block")
+		}
+	}
+
+	// log.Printf("per-site decisions: %v\n", perSiteDecisionLists)
+	// log.Printf("global decisions: %v\n", globalDecisionLists)
+	return DecisionLists{globalDecisionLists, perSiteDecisionLists, expiringDecisionLists, sitewideShaInvList}
 }
 
 // XXX use string.Builder

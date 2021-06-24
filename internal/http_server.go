@@ -237,6 +237,7 @@ func sendOrValidateChallenge(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
+	failAction FailAction,
 ) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -256,20 +257,22 @@ func sendOrValidateChallenge(
 		}
 	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
-	if tooManyFailedChallenges(
-		config,
-		clientIp,
-		clientUserAgent,
-		requestedHost,
-		requestedPath,
-		banner,
-		"sha_inv",
-		rateLimitMutex,
-		failedChallengeStates,
-	) {
-		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-		accessDenied(c)
-		return
+	if failAction == Block {
+		if tooManyFailedChallenges(
+			config,
+			clientIp,
+			clientUserAgent,
+			requestedHost,
+			requestedPath,
+			banner,
+			"sha_inv",
+			rateLimitMutex,
+			failedChallengeStates,
+		) {
+			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
+			accessDenied(c)
+			return
+		}
 	}
 	shaInvChallenge(c, config)
 }
@@ -379,6 +382,7 @@ func decisionForNginx(
 					banner,
 					rateLimitMutex,
 					failedChallengeStates,
+					Block, // FailAction
 				)
 				return
 			case NginxBlock, IptablesBlock:
@@ -407,6 +411,7 @@ func decisionForNginx(
 					banner,
 					rateLimitMutex,
 					failedChallengeStates,
+					Block, // FailAction
 				)
 				return
 			case NginxBlock, IptablesBlock:
@@ -419,6 +424,7 @@ func decisionForNginx(
 		// i think this needs to point to a struct {decision: Decision, expires: Time}.
 		// when we insert something into the list, really we might just be extending the expiry time and/or
 		// changing the decision.
+		// XXX i forget if that comment is stale^
 		decisionListsMutex.Lock()
 		decision, ok = checkExpiringDecisionLists(clientIp, decisionLists)
 		decisionListsMutex.Unlock()
@@ -438,6 +444,7 @@ func decisionForNginx(
 					banner,
 					rateLimitMutex,
 					failedChallengeStates,
+					Block, // FailAction
 				)
 				return
 			case NginxBlock, IptablesBlock:
@@ -445,6 +452,26 @@ func decisionForNginx(
 				log.Println("access denied from expiring lists")
 				return
 			}
+		}
+
+		// the legacy banjax_sha_inv and user_banjax_sha_inv
+		// difference is one blocks after many failures and the other doesn't
+		decisionListsMutex.Lock()
+		failAction, ok := (*decisionLists).SitewideShaInvList[requestedHost]
+		decisionListsMutex.Unlock()
+		if !ok {
+			log.Println("no mention in sitewide list")
+		} else {
+			log.Println("challenge from sitewide list")
+			sendOrValidateChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				failAction,
+			)
+			return
 		}
 
 		log.Println("no mention in any lists, access granted")
