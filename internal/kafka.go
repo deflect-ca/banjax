@@ -9,14 +9,14 @@ package internal
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
+	"io/ioutil"
 	"log"
 	"sync"
 	"time"
-	"crypto/x509"
-	"io/ioutil"
 )
 
 type commandMessage struct {
@@ -45,9 +45,9 @@ func getDialer(config *Config) *kafka.Dialer {
 		Timeout:   10 * time.Second,
 		DualStack: true,
 		TLS: &tls.Config{
-			Certificates: []tls.Certificate{keypair},
-			RootCAs:      caCertPool,
-			InsecureSkipVerify: true,
+			Certificates:       []tls.Certificate{keypair},
+			RootCAs:            caCertPool,
+			InsecureSkipVerify: true, // XXX is this ok?
 		},
 	}
 	return dialer
@@ -190,11 +190,11 @@ func sendBytesToMessageChan(bytes []byte) {
 	})
 	// non-blocking send in case the RunKafkaWriter loop isn't receiving
 	select {
-    case messageChan <- bytes:
-        log.Println("put message on channel")
-    default:
-        log.Println("did not put message on channel")
-    }
+	case messageChan <- bytes:
+		log.Println("put message on channel")
+	default:
+		log.Println("did not put message on channel")
+	}
 }
 
 // XXX weird?

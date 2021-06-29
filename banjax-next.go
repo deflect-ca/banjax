@@ -7,6 +7,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"github.com/equalitie/banjax-next/internal"
 	"gopkg.in/yaml.v2"
@@ -129,17 +130,16 @@ func main() {
 	// at least it encapsulates the decisionlists and their mutex
 	// together, which should probably happen for the other things
 	// protected by a mutex.
-    banningLogFile, err := os.OpenFile(config.BanningLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer banningLogFile.Close()
+	banningLogFile, err := os.OpenFile(config.BanningLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer banningLogFile.Close()
 	banner := internal.Banner{
 		&decisionListsMutex,
 		&decisionLists,
 		log.New(banningLogFile, "", 0),
 	}
-
 
 	var wg sync.WaitGroup
 
@@ -171,36 +171,57 @@ func main() {
 		&wg,
 	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaReader(
-	// 	&config,
-	// 	&decisionListsMutex,
-	// 	&decisionLists,
-	// 	&wg,
-	// )
+	wg.Add(1)
+	go internal.RunKafkaReader(
+		&config,
+		&decisionListsMutex,
+		&decisionLists,
+		&wg,
+	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaWriter(
-	// 	&config,
-	// 	&wg,
-	// )
+	wg.Add(1)
+	go internal.RunKafkaWriter(
+		&config,
+		&wg,
+	)
+
+	metricsLogFileName := ""
+	if config.StandaloneTesting {
+		metricsLogFileName = "list-metrics.log"
+	} else {
+		metricsLogFileName = config.MetricsLogFileName
+	}
+
+	metricsLogFile, _ := os.Create(metricsLogFileName)
+	defer metricsLogFile.Close()
+	metricsLogEncoder := json.NewEncoder(metricsLogFile)
 
 	// statusTicker := time.NewTicker(5 * time.Second)
 	expireTicker := time.NewTicker(9 * time.Second)
+	statusTicker := time.NewTicker(19 * time.Second)
+	metricsTicker := time.NewTicker(29 * time.Second)
 	go func() {
 		for {
 			select {
-			// case <-statusTicker.C:
-			// 	log.Println("calling ReportStatusMessage")
-			// 	internal.ReportStatusMessage(
-			// 		&config,
-			// 	)
+			case <-statusTicker.C:
+				log.Println("calling ReportStatusMessage")
+				internal.ReportStatusMessage(
+					&config,
+				)
 			case <-expireTicker.C:
-				// log.Println("calling ReportStatusMessage")
 				internal.RemoveExpiredDecisions(
-                    &decisionListsMutex,
-                    &decisionLists,
-                )
+					&decisionListsMutex,
+					&decisionLists,
+				)
+			case <-metricsTicker.C:
+				internal.WriteMetricsToEncoder(
+					metricsLogEncoder,
+					&decisionListsMutex,
+					&decisionLists,
+					&rateLimitMutex,
+					&ipToRegexStates,
+					&failedChallengeStates,
+				)
 			}
 		}
 	}()

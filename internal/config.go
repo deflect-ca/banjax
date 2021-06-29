@@ -9,6 +9,7 @@ package internal
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
@@ -50,6 +51,7 @@ type Config struct {
 	HmacSecret                             string            `yaml:"hmac_secret"`
 	GinLogFile                             string            `yaml:"gin_log_file"`
 	SitewideShaInvList                     map[string]string `yaml:"sitewide_sha_inv_list"`
+	MetricsLogFileName                     string            `yaml:"metrics_log_file"`
 }
 
 type RegexWithRate struct {
@@ -183,6 +185,7 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	}
 
 	for site, failAction := range config.SitewideShaInvList {
+		log.Printf("sitewide site: %s, failAction: %s\n", site, failAction)
 		if failAction == "block" {
 			sitewideShaInvList[site] = Block
 		} else if failAction == "no_block" {
@@ -341,4 +344,36 @@ func updateExpiringDecisionLists(
 	purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires}
+}
+
+type MetricsLogLine struct {
+	Time                     string
+	LenExpiringDecisions     int
+	LenIpToRegexStates       int
+	LenFailedChallengeStates int
+}
+
+func WriteMetricsToEncoder(
+	metricsLogEncoder *json.Encoder,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	rateLimitMutex *sync.Mutex,
+	ipToRegexStates *IpToRegexStates,
+	failedChallengeStates *FailedChallengeStates,
+) {
+	decisionListsMutex.Lock()
+	defer decisionListsMutex.Unlock()
+
+	metricsLogLine := MetricsLogLine{
+		Time:                     time.Now().Format(time.RFC1123),
+		LenExpiringDecisions:     len((*decisionLists).ExpiringDecisionLists),
+		LenIpToRegexStates:       len(*ipToRegexStates),
+		LenFailedChallengeStates: len(*failedChallengeStates),
+	}
+
+	err := metricsLogEncoder.Encode(metricsLogLine)
+	if err != nil {
+		log.Println("!!! failed to encode metricsLogLine!!!")
+		return
+	}
 }
