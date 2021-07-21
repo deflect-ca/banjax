@@ -373,7 +373,7 @@ func WriteMetricsToEncoder(
 
 	err := metricsLogEncoder.Encode(metricsLogLine)
 	if err != nil {
-		log.Println("!!! failed to encode metricsLogLine!!!")
+		log.Printf("!!! failed to encode metricsLogLine %v\n", err)
 		return
 	}
 }
