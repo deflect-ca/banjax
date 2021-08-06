@@ -22,7 +22,7 @@ too_many_failed_challenges_threshold: 3
 ```
 
 The Kafka connection is configured with:
-```
+```yaml
 kafka_brokers:
   - "localhost:9092"
 kafka_security_protocol: 'ssl'
