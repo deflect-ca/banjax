@@ -61,25 +61,25 @@ type RegexWithRate struct {
 	Interval        float64 `yaml:"interval"`
 	HitsPerInterval int     `yaml:"hits_per_interval"`
 	Decision        string  `yaml:"decision"`
-}
-
-type Decision int
-
-type ExpiringDecision struct {
-	Decision Decision
-	Expires  time.Time
+    HostsToSkip     map[string]bool     `yaml:"hosts_to_skip"`
 }
 
 // XXX previously i had a DefaultAllow as the first enum, which fell through
 // my case statements and into the default: switch elsewhere. scary bug.
 // maybe use _ as first enum? but then remember to use it in the string conversion
 // functions just below x_x
+type Decision int
 const (
 	Allow         = iota
 	Challenge     = iota
 	NginxBlock    = iota
 	IptablesBlock = iota
 )
+
+type ExpiringDecision struct {
+       Decision Decision
+       Expires  time.Time
+}
 
 // XXX is this really how you make an enum in go?
 type FailAction int
@@ -348,7 +348,8 @@ func updateExpiringDecisionLists(
 
 type MetricsLogLine struct {
 	Time                     string
-	LenExpiringDecisions     int
+       LenExpiringChallenges    int
+       LenExpiringBlocks        int
 	LenIpToRegexStates       int
 	LenFailedChallengeStates int
 }
@@ -364,9 +365,21 @@ func WriteMetricsToEncoder(
 	decisionListsMutex.Lock()
 	defer decisionListsMutex.Unlock()
 
+    lenExpiringChallenges := 0
+    lenExpiringBlocks := 0
+
+    for _, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
+        if expiringDecision.Decision == Challenge {
+            lenExpiringChallenges += 1
+        } else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
+            lenExpiringBlocks += 1
+        }
+    }
+
 	metricsLogLine := MetricsLogLine{
 		Time:                     time.Now().Format(time.RFC1123),
-		LenExpiringDecisions:     len((*decisionLists).ExpiringDecisionLists),
+               LenExpiringChallenges:    lenExpiringChallenges,
+               LenExpiringBlocks:        lenExpiringBlocks,
 		LenIpToRegexStates:       len(*ipToRegexStates),
 		LenFailedChallengeStates: len(*failedChallengeStates),
 	}

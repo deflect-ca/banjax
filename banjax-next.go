@@ -41,8 +41,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	config.StandaloneTesting = *standaloneTestingPtr
 	err = yaml.Unmarshal(configBytes, config)
 	if err != nil {
-		log.Printf("%v\n", err)
-		panic("couldn't parse config file!")
+		log.Fatal(err)
 	}
 	log.Printf("read %v\n", *config)
 	// XXX config

@@ -94,7 +94,7 @@ func RunHttpServer(
 				c.Request.Method,
 				c.Query("path")))
 			if err != nil {
-				log.Println("failed to write? %v", err)
+				log.Printf("failed to write? %v\n", err)
 			}
 		})
 	} else {

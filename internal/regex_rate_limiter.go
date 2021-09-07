@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"net/url"
 )
 
 func RunLogTailer(
@@ -45,6 +46,8 @@ func RunLogTailer(
 	}
 }
 
+// XXX this is using the log line format + regex patterns that exist in ATS/banjax.
+// parsing these unescaped space-separated strings is gross. maybe pass json instead.
 func consumeLine(
 	line *tail.Line,
 	rateLimitMutex *sync.Mutex,
@@ -52,19 +55,38 @@ func consumeLine(
 	banner BannerInterface,
 	config *Config,
 ) {
-	// log.Println(line.Text)
+	log.Println(line.Text)
 
-	firstSpace := strings.Index(line.Text, " ")
-	// log.Println("firstSpace: ", firstSpace)
-	timestampSeconds, err := strconv.ParseFloat(line.Text[:firstSpace], 64)
+    // timeIpRest[2] is what we match the regex on
+    timeIpRest := strings.SplitN(line.Text, " ", 3)
+    if len(timeIpRest) < 3 {
+        log.Println("expected at least 3 words in log line: time, ip, rest")
+        return
+    }
+	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
 	if err != nil {
 		log.Println("could not parse a float")
 		return
 	}
 	timestampNanos := timestampSeconds * 1e9
 	timestamp := time.Unix(0, int64(timestampNanos))
-	secondSpace := strings.Index(line.Text[firstSpace+1:], " ")
-	ipString := line.Text[firstSpace+1 : secondSpace+firstSpace+1]
+	ipString := timeIpRest[1]
+
+    // we need to parse the url and hostname out of timeIpRest[2]
+    methodUrlRest := strings.SplitN(timeIpRest[2], " ", 3)
+    if len(methodUrlRest) < 3 {
+        log.Println("expected at least method, url, rest")
+        return
+    }
+    methodString := methodUrlRest[0]
+    urlString := methodUrlRest[1]
+    parsedUrl, err := url.Parse(urlString)
+    if err != nil {
+        log.Printf("could not parse a host from the url: %v\n", urlString)
+        return
+    }
+
+    log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
 
 	// XXX think about this
 	if time.Now().Sub(timestamp) > time.Duration(10*time.Second) {
@@ -73,10 +95,16 @@ func consumeLine(
 
 	// log.Println(line.Text[secondSpace+firstSpace+2:])
 	for _, regex_with_rate := range config.RegexesWithRates {
-		matched := regex_with_rate.CompiledRegex.Match([]byte(line.Text[secondSpace+firstSpace+2:]))
+		matched := regex_with_rate.CompiledRegex.Match([]byte(timeIpRest[2]))
 		if !matched {
 			continue
 		}
+
+        log.Println(regex_with_rate.HostsToSkip)
+        skip, ok := regex_with_rate.HostsToSkip[parsedUrl.Host]
+        if ok && skip {
+            continue
+        }
 
 		rateLimitMutex.Lock()
 		states, ok := (*ipToRegexStates)[ipString]
@@ -105,8 +133,8 @@ func consumeLine(
 			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
 			banner.BanOrChallengeIp(config, ipString, decision)
-            log.Println(line.Text)
-            banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, line.Text[firstSpace+secondSpace+2:], decision)
+            // log.Println(line.Text)
+            banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
 

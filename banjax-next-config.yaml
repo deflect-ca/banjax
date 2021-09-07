@@ -36,11 +36,14 @@ per_site_decision_lists:
       - 91.91.91.91
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
-  - decision: iptables_block
+  - decision: nginx_block
     hits_per_interval: 800
     interval: 30
     regex: .*
     rule: "All sites/methods: 800 req/30 sec"
+    hosts_to_skip:
+      example.com: true
+      foo.bar: true
   - decision: challenge
     hits_per_interval: 45
     interval: 60
@@ -70,7 +73,8 @@ sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
 server_log_file: /var/log/banjax-next/banjax-next-format.log
-banning_log_file: /root/banjax-next/ban_ip_list.log
+banning_log_file: /var/log/banjax-next/ban_ip_list.log
+  # banning_log_file: /root/banjax-next/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
