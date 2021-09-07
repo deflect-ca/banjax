@@ -8,6 +8,7 @@ package internal
 
 import (
 	"github.com/hpcloud/tail"
+	"encoding/json"
 	"log"
 	"net/url"
 	"strconv"
@@ -33,19 +34,49 @@ func RunLogTailer(
 		} else {
 			log.Println("log tailer started")
 			for line := range t.Lines {
-				consumeLine(
+                consumeLineResult := consumeLine(
 					line,
 					rateLimitMutex,
 					ipToRegexStates,
 					banner,
 					config,
 				)
+                bytes, err := json.Marshal(consumeLineResult)
+                if err != nil {
+                    log.Println("error marshalling consumeLineResult")
+                } else {
+                    log.Println(string(bytes))
+                }
 			}
 		}
 		time.Sleep(5 * time.Second)
 	}
 }
-
+type ConsumeLineResult struct {
+	Error bool
+	OldLine bool
+	RuleResults []RuleResult
+}
+type ruleMatchType uint
+const (
+    FirstTime ruleMatchType = iota
+    OutsideInterval
+    InsideInterval
+)
+type RuleResult struct {
+	RegexMatch bool
+	SkipHost bool
+	SeenIp bool
+	RuleMatchType ruleMatchType
+	InsideInterval bool
+	RateLimitExceeded bool
+}
+// error: (3 words in log line, bad float, bad rest of log line, bad host, old line)
+// regex match: true, false
+// skip host: true, false
+// seen ip: true false
+// ip matched this rule: false, true outside interval, true inside interval
+// rate limit exceeded: true, false
 // XXX this is using the log line format + regex patterns that exist in ATS/banjax.
 // parsing these unescaped space-separated strings is gross. maybe pass json instead.
 func consumeLine(
@@ -54,18 +85,20 @@ func consumeLine(
 	ipToRegexStates *IpToRegexStates,
 	banner BannerInterface,
 	config *Config,
-) {
+) (consumeLineResult ConsumeLineResult) {
 	log.Println(line.Text)
 
 	// timeIpRest[2] is what we match the regex on
 	timeIpRest := strings.SplitN(line.Text, " ", 3)
 	if len(timeIpRest) < 3 {
 		log.Println("expected at least 3 words in log line: time, ip, rest")
+		consumeLineResult.Error = true
 		return
 	}
 	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
 	if err != nil {
 		log.Println("could not parse a float")
+		consumeLineResult.Error = true
 		return
 	}
 	timestampNanos := timestampSeconds * 1e9
@@ -76,6 +109,7 @@ func consumeLine(
 	methodUrlRest := strings.SplitN(timeIpRest[2], " ", 3)
 	if len(methodUrlRest) < 3 {
 		log.Println("expected at least method, url, rest")
+		consumeLineResult.Error = true
 		return
 	}
 	methodString := methodUrlRest[0]
@@ -83,6 +117,7 @@ func consumeLine(
 	parsedUrl, err := url.Parse(urlString)
 	if err != nil {
 		log.Printf("could not parse a host from the url: %v\n", urlString)
+		consumeLineResult.Error = true
 		return
 	}
 
@@ -90,47 +125,61 @@ func consumeLine(
 
 	// XXX think about this
 	if time.Now().Sub(timestamp) > time.Duration(10*time.Second) {
+	    consumeLineResult.OldLine = true
 		return
 	}
 
 	// log.Println(line.Text[secondSpace+firstSpace+2:])
 	for _, regex_with_rate := range config.RegexesWithRates {
+        ruleResult := RuleResult{}
 		matched := regex_with_rate.CompiledRegex.Match([]byte(timeIpRest[2]))
 		if !matched {
+		    ruleResult.RegexMatch = false
+		    consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
 			continue
 		}
+        ruleResult.RegexMatch = true
 
 		log.Println(regex_with_rate.HostsToSkip)
 		skip, ok := regex_with_rate.HostsToSkip[parsedUrl.Host]
 		if ok && skip {
+		    ruleResult.SkipHost = true
+		    consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
 			continue
 		}
+        ruleResult.SkipHost = false
 
 		rateLimitMutex.Lock()
 		states, ok := (*ipToRegexStates)[ipString]
 		if !ok {
-			log.Println("we haven't seen this IP before")
+			// log.Println("we haven't seen this IP before")
+		    ruleResult.SeenIp = false
 			newRegexStates := make(RegexStates)
 			(*ipToRegexStates)[ipString] = &newRegexStates
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 		} else {
+		    ruleResult.SeenIp = true
 			state, ok := (*states)[regex_with_rate.Rule]
 			if !ok {
-				log.Println("we have seen this IP, but it hasn't triggered this regex before")
+				// log.Println("we have seen this IP, but it hasn't triggered this regex before")
+                ruleResult.RuleMatchType = FirstTime
 				(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 			} else {
 				if timestamp.Sub(state.IntervalStartTime) > time.Duration(time.Second*time.Duration(regex_with_rate.Interval)) {
-					log.Println("this IP has triggered this regex, but longer ago than $interval")
+					// log.Println("this IP has triggered this regex, but longer ago than $interval")
+                    ruleResult.RuleMatchType = OutsideInterval
 					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
 				} else {
-					log.Println("this IP has triggered this regex within this $interval")
+					// log.Println("this IP has triggered this regex within this $interval")
+                    ruleResult.RuleMatchType = InsideInterval
 					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits++
 				}
 			}
 		}
 
 		if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
-			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
+			// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
+            ruleResult.RateLimitExceeded = true
 			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
 			banner.BanOrChallengeIp(config, ipString, decision)
 			// log.Println(line.Text)
@@ -139,6 +188,8 @@ func consumeLine(
 		}
 
 		rateLimitMutex.Unlock()
+        consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
 	}
 
+    return
 }
