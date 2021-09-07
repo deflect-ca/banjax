@@ -113,9 +113,9 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 
 type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision)
-    LogRegexBan(logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
-    LogFailedChallengeBan( ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
-        userAgent string, decision Decision)
+	LogRegexBan(logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
+	LogFailedChallengeBan(ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
+		userAgent string, decision Decision)
 }
 
 type Banner struct {
@@ -155,46 +155,46 @@ func purgeNginxAuthCacheForIp(ip string) {
 	}
 }
 func (b Banner) LogRegexBan(
-    logTime time.Time,
-    ip string,
-    ruleName string,
-    logLine string,
-    decision Decision,
+	logTime time.Time,
+	ip string,
+	ruleName string,
+	logLine string,
+	decision Decision,
 ) {
-    timeString := logTime.Format("[2006-01-02T15:04:05]")  // XXX should this be the log timestamp or time.Now()?
+	timeString := logTime.Format("[2006-01-02T15:04:05]") // XXX should this be the log timestamp or time.Now()?
 
-    words := strings.Split(logLine, " ")
-    log.Println(words)
-    method := words[0]
-    host := words[1]
-    path := words[3]
-    userAgent := words[5]
+	words := strings.Split(logLine, " ")
+	log.Println(words)
+	method := words[0]
+	host := words[1]
+	path := words[3]
+	userAgent := words[5]
 
-    b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
-        ip, timeString, ruleName, method, path, host, userAgent,
-    )
+	b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
+		ip, timeString, ruleName, method, path, host, userAgent,
+	)
 }
 
 func (b Banner) LogFailedChallengeBan(
-    ip string,
-    challengeType string,
-    host string,
-    path string,
-    tooManyFailedChallengesThreshold int,
-    userAgent string,
-    decision Decision,
+	ip string,
+	challengeType string,
+	host string,
+	path string,
+	tooManyFailedChallengesThreshold int,
+	userAgent string,
+	decision Decision,
 ) {
-    timeString := time.Now().Format("[2006-01-02T15:04:05]")
+	timeString := time.Now().Format("[2006-01-02T15:04:05]")
 
-    b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
-        ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
-    )
+	b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
+		ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
+	)
 }
 
 func (b Banner) BanOrChallengeIp(
-    config *Config,
-    ip string,
-    decision Decision,
+	config *Config,
+	ip string,
+	decision Decision,
 ) {
 	log.Println("BanOrChallengeIp()")
 

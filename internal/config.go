@@ -58,10 +58,10 @@ type RegexWithRate struct {
 	Rule            string `yaml:"rule"`
 	Regex           string `yaml:"regex"`
 	CompiledRegex   regexp.Regexp
-	Interval        float64 `yaml:"interval"`
-	HitsPerInterval int     `yaml:"hits_per_interval"`
-	Decision        string  `yaml:"decision"`
-    HostsToSkip     map[string]bool     `yaml:"hosts_to_skip"`
+	Interval        float64         `yaml:"interval"`
+	HitsPerInterval int             `yaml:"hits_per_interval"`
+	Decision        string          `yaml:"decision"`
+	HostsToSkip     map[string]bool `yaml:"hosts_to_skip"`
 }
 
 // XXX previously i had a DefaultAllow as the first enum, which fell through
@@ -69,6 +69,7 @@ type RegexWithRate struct {
 // maybe use _ as first enum? but then remember to use it in the string conversion
 // functions just below x_x
 type Decision int
+
 const (
 	Allow         = iota
 	Challenge     = iota
@@ -77,8 +78,8 @@ const (
 )
 
 type ExpiringDecision struct {
-       Decision Decision
-       Expires  time.Time
+	Decision Decision
+	Expires  time.Time
 }
 
 // XXX is this really how you make an enum in go?
@@ -348,8 +349,8 @@ func updateExpiringDecisionLists(
 
 type MetricsLogLine struct {
 	Time                     string
-       LenExpiringChallenges    int
-       LenExpiringBlocks        int
+	LenExpiringChallenges    int
+	LenExpiringBlocks        int
 	LenIpToRegexStates       int
 	LenFailedChallengeStates int
 }
@@ -365,21 +366,21 @@ func WriteMetricsToEncoder(
 	decisionListsMutex.Lock()
 	defer decisionListsMutex.Unlock()
 
-    lenExpiringChallenges := 0
-    lenExpiringBlocks := 0
+	lenExpiringChallenges := 0
+	lenExpiringBlocks := 0
 
-    for _, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
-        if expiringDecision.Decision == Challenge {
-            lenExpiringChallenges += 1
-        } else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
-            lenExpiringBlocks += 1
-        }
-    }
+	for _, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
+		if expiringDecision.Decision == Challenge {
+			lenExpiringChallenges += 1
+		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
+			lenExpiringBlocks += 1
+		}
+	}
 
 	metricsLogLine := MetricsLogLine{
 		Time:                     time.Now().Format(time.RFC1123),
-               LenExpiringChallenges:    lenExpiringChallenges,
-               LenExpiringBlocks:        lenExpiringBlocks,
+		LenExpiringChallenges:    lenExpiringChallenges,
+		LenExpiringBlocks:        lenExpiringBlocks,
 		LenIpToRegexStates:       len(*ipToRegexStates),
 		LenFailedChallengeStates: len(*failedChallengeStates),
 	}

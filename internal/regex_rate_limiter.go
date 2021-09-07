@@ -9,11 +9,11 @@ package internal
 import (
 	"github.com/hpcloud/tail"
 	"log"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"net/url"
 )
 
 func RunLogTailer(
@@ -57,12 +57,12 @@ func consumeLine(
 ) {
 	log.Println(line.Text)
 
-    // timeIpRest[2] is what we match the regex on
-    timeIpRest := strings.SplitN(line.Text, " ", 3)
-    if len(timeIpRest) < 3 {
-        log.Println("expected at least 3 words in log line: time, ip, rest")
-        return
-    }
+	// timeIpRest[2] is what we match the regex on
+	timeIpRest := strings.SplitN(line.Text, " ", 3)
+	if len(timeIpRest) < 3 {
+		log.Println("expected at least 3 words in log line: time, ip, rest")
+		return
+	}
 	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
 	if err != nil {
 		log.Println("could not parse a float")
@@ -72,21 +72,21 @@ func consumeLine(
 	timestamp := time.Unix(0, int64(timestampNanos))
 	ipString := timeIpRest[1]
 
-    // we need to parse the url and hostname out of timeIpRest[2]
-    methodUrlRest := strings.SplitN(timeIpRest[2], " ", 3)
-    if len(methodUrlRest) < 3 {
-        log.Println("expected at least method, url, rest")
-        return
-    }
-    methodString := methodUrlRest[0]
-    urlString := methodUrlRest[1]
-    parsedUrl, err := url.Parse(urlString)
-    if err != nil {
-        log.Printf("could not parse a host from the url: %v\n", urlString)
-        return
-    }
+	// we need to parse the url and hostname out of timeIpRest[2]
+	methodUrlRest := strings.SplitN(timeIpRest[2], " ", 3)
+	if len(methodUrlRest) < 3 {
+		log.Println("expected at least method, url, rest")
+		return
+	}
+	methodString := methodUrlRest[0]
+	urlString := methodUrlRest[1]
+	parsedUrl, err := url.Parse(urlString)
+	if err != nil {
+		log.Printf("could not parse a host from the url: %v\n", urlString)
+		return
+	}
 
-    log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
+	log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
 
 	// XXX think about this
 	if time.Now().Sub(timestamp) > time.Duration(10*time.Second) {
@@ -100,11 +100,11 @@ func consumeLine(
 			continue
 		}
 
-        log.Println(regex_with_rate.HostsToSkip)
-        skip, ok := regex_with_rate.HostsToSkip[parsedUrl.Host]
-        if ok && skip {
-            continue
-        }
+		log.Println(regex_with_rate.HostsToSkip)
+		skip, ok := regex_with_rate.HostsToSkip[parsedUrl.Host]
+		if ok && skip {
+			continue
+		}
 
 		rateLimitMutex.Lock()
 		states, ok := (*ipToRegexStates)[ipString]
@@ -133,8 +133,8 @@ func consumeLine(
 			log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
 			banner.BanOrChallengeIp(config, ipString, decision)
-            // log.Println(line.Text)
-            banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
+			// log.Println(line.Text)
+			banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
 

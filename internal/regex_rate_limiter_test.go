@@ -28,22 +28,24 @@ func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decis
 }
 
 func (mb *MockBanner) LogFailedChallengeBan(
-    ip string,
-    challengeType string,
-    host string,
-    path string,
-    tooManyFailedChallengesThreshold int,
-    userAgent string,
-    decision Decision,
-) { }
+	ip string,
+	challengeType string,
+	host string,
+	path string,
+	tooManyFailedChallengesThreshold int,
+	userAgent string,
+	decision Decision,
+) {
+}
 
 func (mb *MockBanner) LogRegexBan(
-    logTime time.Time,
-    ip string,
-    ruleName string,
-    logLine string,
-    decision Decision,
-) { }
+	logTime time.Time,
+	ip string,
+	ruleName string,
+	logLine string,
+	decision Decision,
+) {
+}
 
 // XXX need think about how to test this well
 // func TestRunLogTailer(t *testing.T) {
@@ -111,7 +113,7 @@ regexes_with_rates:
 	lineTime := fmt.Sprintf("%d", uint64(nowSeconds))
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 1 --")
+	fmt.Println("-- 1 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	ipStates, ok := ipToRegexStates["1.2.3.4"]
@@ -133,7 +135,7 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%d", uint64(nowSeconds+4))
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 2 --")
+	fmt.Println("-- 2 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
@@ -155,7 +157,7 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%d", uint64(nowSeconds+5.5))
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 3 --")
+	fmt.Println("-- 3 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
@@ -177,7 +179,7 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%d", uint64(nowSeconds+6.5))
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 4 --")
+	fmt.Println("-- 4 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
@@ -206,7 +208,7 @@ regexes_with_rates:
 	lineTime = fmt.Sprintf("%d", uint64(nowSeconds+7.0))
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 5 --")
+	fmt.Println("-- 5 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
@@ -232,7 +234,6 @@ regexes_with_rates:
 		t.Errorf("should have banned this ip")
 	}
 }
-
 
 func TestConsumeLineHostsToSkip(t *testing.T) {
 	var rateLimitMutex sync.Mutex
@@ -268,7 +269,7 @@ regexes_with_rates:
 	lineTime := fmt.Sprintf("%d", uint64(nowSeconds))
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET http://skiphost.com/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
-    fmt.Println("-- 1 --")
+	fmt.Println("-- 1 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
 
 	_, ok := ipToRegexStates["1.2.3.4"]
