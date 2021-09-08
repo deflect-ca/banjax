@@ -25,30 +25,36 @@ type commandMessage struct {
 }
 
 func getDialer(config *Config) *kafka.Dialer {
-	keypair, err := tls.LoadX509KeyPair(config.KafkaSslCert, config.KafkaSslKey)
-	if err != nil {
-		log.Fatalf("failed to load cert + key pair: %s", err)
-	}
+	tlsConfig := tls.Config{}
 
-	caCert, err := ioutil.ReadFile(config.KafkaSslCa)
-	if err != nil {
-		log.Fatalf("failed to read CA root: %s", err)
-	}
+	if config.KafkaSslCert != "" {
+		keypair, err := tls.LoadX509KeyPair(config.KafkaSslCert, config.KafkaSslKey)
+		if err != nil {
+			log.Fatalf("failed to load cert + key pair: %s", err)
+		}
 
-	caCertPool := x509.NewCertPool()
-	ok := caCertPool.AppendCertsFromPEM(caCert)
-	if !ok {
-		log.Fatalf("failed to parse CA root: %s", err)
+		caCert, err := ioutil.ReadFile(config.KafkaSslCa)
+		if err != nil {
+			log.Fatalf("failed to read CA root: %s", err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		ok := caCertPool.AppendCertsFromPEM(caCert)
+		if !ok {
+			log.Fatalf("failed to parse CA root: %s", err)
+		}
+
+		tlsConfig = tls.Config{
+			Certificates:       []tls.Certificate{keypair},
+			RootCAs:            caCertPool,
+			InsecureSkipVerify: true, // XXX is this ok?
+		}
 	}
 
 	dialer := &kafka.Dialer{
 		Timeout:   10 * time.Second,
 		DualStack: true,
-		TLS: &tls.Config{
-			Certificates:       []tls.Certificate{keypair},
-			RootCAs:            caCertPool,
-			InsecureSkipVerify: true, // XXX is this ok?
-		},
+		TLS:       &tlsConfig,
 	}
 	return dialer
 }
