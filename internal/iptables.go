@@ -165,6 +165,10 @@ func (b Banner) LogRegexBan(
 
 	words := strings.Split(logLine, " ")
 	log.Println(words)
+	if len(words) < 6 {
+        log.Println("not enough words")
+        return
+    }
 	method := words[0]
 	host := words[1]
 	path := words[3]
