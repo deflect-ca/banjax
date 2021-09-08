@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -182,6 +183,37 @@ func shaInvChallenge(c *gin.Context, config *Config) {
 	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
 }
 
+type FailedChallengeRateLimitResult uint
+
+const (
+	_ FailedChallengeRateLimitResult = iota
+	FirstFailure
+	PreviousFailureBeforeInterval
+	PreviousFailureWithinInterval
+)
+
+type TooManyFailedChallengesResult struct {
+	FailedChallengeRateLimitResult FailedChallengeRateLimitResult
+	TooManyFailedChallenges        bool
+}
+
+var FailedChallengeRateLimitResultToString = map[FailedChallengeRateLimitResult]string{
+	FirstFailure:                  "FirstFailure",
+	PreviousFailureBeforeInterval: "PreviousFailureBeforeInterval",
+	PreviousFailureWithinInterval: "PreviousFailureWithinInterval",
+}
+
+func (fcr FailedChallengeRateLimitResult) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	if s, ok := FailedChallengeRateLimitResultToString[fcr]; ok {
+		buffer.WriteString(s)
+	} else {
+		buffer.WriteString("nil")
+	}
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
 // XXX this is very close to how the regex rate limits work
 func tooManyFailedChallenges(
 	config *Config,
@@ -193,27 +225,30 @@ func tooManyFailedChallenges(
 	challengeType string,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
-) bool {
+) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
 	rateLimitMutex.Lock()
 	defer rateLimitMutex.Unlock()
 
 	now := time.Now()
 	state, ok := (*failedChallengeStates)[ip]
 	if !ok {
-		log.Println("IP hasn't failed a challenge before")
-		(*failedChallengeStates)[ip] = &NumHitsAndIntervalStart{1, now} // XXX why is this a pointer again?
+		// log.Println("IP hasn't failed a challenge before")
+		tooManyFailedChallengesResult.FailedChallengeRateLimitResult = FirstFailure
+		(*failedChallengeStates)[ip] = &NumHitsAndIntervalStart{1, now}
 	} else {
 		if now.Sub(state.IntervalStartTime) > time.Duration(time.Duration(config.TooManyFailedChallengesIntervalSeconds)*time.Second) {
-			log.Println("IP has failed a challenge, but longer ago than $interval")
+			// log.Println("IP has failed a challenge, but longer ago than $interval")
+			tooManyFailedChallengesResult.FailedChallengeRateLimitResult = PreviousFailureBeforeInterval
 			(*failedChallengeStates)[ip] = &NumHitsAndIntervalStart{1, now}
 		} else {
-			log.Println("IP has failed a challenge in this $interval")
+			// log.Println("IP has failed a challenge in this $interval")
+			tooManyFailedChallengesResult.FailedChallengeRateLimitResult = PreviousFailureWithinInterval
 			(*failedChallengeStates)[ip].NumHits++
 		}
 	}
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
-		log.Println("IP has failed too many challenges; blocking them")
+		// log.Println("IP has failed too many challenges; blocking them")
 		banner.BanOrChallengeIp(config, ip, IptablesBlock)
 		banner.LogFailedChallengeBan(
 			ip,
@@ -225,20 +260,59 @@ func tooManyFailedChallenges(
 			IptablesBlock,
 		)
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
-		return true
+		tooManyFailedChallengesResult.TooManyFailedChallenges = true
+		return tooManyFailedChallengesResult
 	}
 
-	return false
+	tooManyFailedChallengesResult.TooManyFailedChallenges = false
+	return tooManyFailedChallengesResult
 }
 
-func sendOrValidateChallenge(
+type ShaChallengeResult uint
+
+const (
+	_ ShaChallengeResult = iota
+	ShaChallengePassed
+	ShaChallengeFailedNoCookie
+	ShaChallengeFailedBadCookie
+)
+
+var ShaChallengeResultToString = map[ShaChallengeResult]string{
+	ShaChallengePassed:          "ShaChallengePassed",
+	ShaChallengeFailedNoCookie:  "ShaChallengeFailedNoCookie",
+	ShaChallengeFailedBadCookie: "ShaChallengeFailedBadCookie",
+}
+
+func (scr ShaChallengeResult) String() string {
+	if s, ok := ShaChallengeResultToString[scr]; ok {
+		return s
+	}
+	return "Bad! unknown ShaChallengeResult"
+}
+func (scr ShaChallengeResult) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	if s, ok := ShaChallengeResultToString[scr]; ok {
+		buffer.WriteString(s)
+	} else {
+		buffer.WriteString("nil")
+	}
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
+type SendOrValidateShaChallengeResult struct {
+	ShaChallengeResult            ShaChallengeResult
+	TooManyFailedChallengesResult TooManyFailedChallengesResult
+}
+
+func sendOrValidateShaChallenge(
 	config *Config,
 	c *gin.Context,
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	failAction FailAction,
-) {
+) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
@@ -247,18 +321,22 @@ func sendOrValidateChallenge(
 	if err == nil {
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
 		if err != nil {
-			log.Println("Sha-inverse challenge failed")
-			log.Println(err)
+			// log.Println("Sha-inverse challenge failed")
+			// log.Println(err)
+			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedBadCookie
 		} else {
 			accessGranted(c)
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
-			log.Println("Sha-inverse challenge passed")
-			return
+			// log.Println("Sha-inverse challenge passed")
+			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassed
+			return sendOrValidateShaChallengeResult
 		}
+	} else {
+		sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedNoCookie
 	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
-		if tooManyFailedChallenges(
+		tooManyFailedChallengesResult := tooManyFailedChallenges(
 			config,
 			clientIp,
 			clientUserAgent,
@@ -268,13 +346,55 @@ func sendOrValidateChallenge(
 			"sha_inv",
 			rateLimitMutex,
 			failedChallengeStates,
-		) {
+		)
+		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
+		if tooManyFailedChallengesResult.TooManyFailedChallenges {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 			accessDenied(c)
-			return
+			return sendOrValidateShaChallengeResult
 		}
 	}
 	shaInvChallenge(c, config)
+	return sendOrValidateShaChallengeResult
+}
+
+type PasswordChallengeResult uint
+
+const (
+	_ PasswordChallengeResult = iota
+	ErrorNoPassword
+	PasswordChallengePassed
+	PasswordChallengeFailedNoCookie
+	PasswordChallengeFailedBadCookie
+)
+
+var PasswordChallengeResultToString = map[PasswordChallengeResult]string{
+	ErrorNoPassword:                  "ErrorNoPassword",
+	PasswordChallengePassed:          "PasswordChallengePassed",
+	PasswordChallengeFailedNoCookie:  "PasswordChallengeFailedNoCookie",
+	PasswordChallengeFailedBadCookie: "PasswordChallengeFailedBadCookie",
+}
+
+func (pcr PasswordChallengeResult) String() string {
+	if s, ok := PasswordChallengeResultToString[pcr]; ok {
+		return s
+	}
+	return "Bad! unknown PasswordChallengeResult"
+}
+func (pcr PasswordChallengeResult) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	if s, ok := PasswordChallengeResultToString[pcr]; ok {
+		buffer.WriteString(s)
+	} else {
+		buffer.WriteString("nil")
+	}
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
+type SendOrValidatePasswordResult struct {
+	PasswordChallengeResult       PasswordChallengeResult
+	TooManyFailedChallengesResult TooManyFailedChallengesResult
 }
 
 // XXX does it make sense to have separate password auth cookies and sha-inv cookies?
@@ -286,32 +406,38 @@ func sendOrValidatePassword(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
-) {
+) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	passwordCookie, err := c.Cookie("deflect_password2")
-	log.Println("passwordCookie: ", passwordCookie)
+	// log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
 		expectedHashedPassword, ok := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
 		if !ok {
 			log.Println("!!!! BAD - missing password in config") // XXX fail open or closed?
-			return
+			sendOrValidatePasswordResult.PasswordChallengeResult = ErrorNoPassword
+			return sendOrValidatePasswordResult
 		}
-		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword) // XXX config
+		// XXX maybe don't call this err?
+		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword)
 		if err != nil {
-			log.Println("Password challenge failed")
-			log.Println(err)
+			// log.Println("Password challenge failed")
+			// log.Println(err)
+			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
 		} else {
 			accessGranted(c)
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
-			log.Println("Password challenge passed")
-			return
+			// log.Println("Password challenge passed")
+			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengePassed
+			return sendOrValidatePasswordResult
 		}
+	} else {
+		sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedNoCookie
 	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
-	if tooManyFailedChallenges(
+	tooManyFailedChallengesResult := tooManyFailedChallenges(
 		config,
 		clientIp,
 		clientUserAgent,
@@ -321,12 +447,73 @@ func sendOrValidatePassword(
 		"password",
 		rateLimitMutex,
 		failedChallengeStates,
-	) {
+	)
+	sendOrValidatePasswordResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
+	// log.Println(tooManyFailedChallengesResult)
+	if tooManyFailedChallengesResult.TooManyFailedChallenges {
 		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 		accessDenied(c)
-		return
+		return sendOrValidatePasswordResult
 	}
 	passwordChallenge(c, config)
+	return sendOrValidatePasswordResult
+}
+
+type DecisionListResult uint
+
+const (
+	_ DecisionListResult = iota
+	PasswordProtectedPath
+	PerSiteAccessGranted
+	PerSiteChallenge
+	PerSiteBlock
+	GlobalAccessGranted
+	GlobalChallenge
+	GlobalBlock
+	ExpiringAccessGranted // XXX should this even exist?
+	ExpiringChallenge
+	ExpiringBlock
+	SiteWideChallenge
+	NoMention
+)
+
+var DecisionListResultToString = map[DecisionListResult]string{
+	PasswordProtectedPath: "PasswordProtectedPath",
+	PerSiteAccessGranted:  "PerSiteAccessGranted",
+	PerSiteChallenge:      "PerSiteChallenge",
+	PerSiteBlock:          "PerSiteBlock",
+	GlobalAccessGranted:   "GlobalAccessGranted",
+	GlobalChallenge:       "GlobalChallenge",
+	GlobalBlock:           "GlobalBlock",
+	ExpiringAccessGranted: "ExpiringAccessGranted",
+	ExpiringChallenge:     "ExpiringChallenge",
+	ExpiringBlock:         "ExpiringBlock",
+	SiteWideChallenge:     "SiteWideChallenge",
+	NoMention:             "NoMention",
+}
+
+func (dfnr DecisionListResult) String() string {
+	if s, ok := DecisionListResultToString[dfnr]; ok {
+		return s
+	}
+	return "unknown DecisionListResult"
+}
+
+func (dfnr DecisionListResult) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	buffer.WriteString(dfnr.String())
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
+type DecisionForNginxResult struct {
+	ClientIp                      string
+	RequestedHost                 string
+	RequestedPath                 string
+	DecisionListResult            DecisionListResult
+	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
+	ShaChallengeResult            *ShaChallengeResult
+	TooManyFailedChallengesResult *TooManyFailedChallengesResult
 }
 
 func decisionForNginx(
@@ -339,142 +526,197 @@ func decisionForNginx(
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clientIp := c.Request.Header.Get("X-Client-IP")
-		requestedHost := c.Request.Header.Get("X-Requested-Host")
-		requestedPath := c.Request.Header.Get("X-Requested-Path")
-		requestedPath = strings.Replace(requestedPath, "/", "", -1)
-
-		log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
-		log.Println("headers: ", c.Request.Header)
-
-		pathToBool, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
-		if ok && pathToBool[requestedPath] {
-			sendOrValidatePassword(
-				config,
-				passwordProtectedPaths,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-			)
-			log.Println("password-protected path")
-			return
-		}
-
-		// XXX ugh this locking is awful
-		// i got bit by just checking against the zero value here, which is a valid iota enum
-		decisionListsMutex.Lock()
-		decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
-		decisionListsMutex.Unlock()
-		if !ok {
-			log.Println("no mention in per-site lists")
+		decisionForNginxResult := decisionForNginx2(
+			c,
+			config,
+			decisionListsMutex,
+			decisionLists,
+			passwordProtectedPaths,
+			rateLimitMutex,
+			failedChallengeStates,
+			banner,
+		)
+		bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
+		if err != nil {
+			log.Println("error marshalling decisionForNginxResult")
 		} else {
-			switch decision {
-			case Allow:
-				accessGranted(c)
-				log.Println("access granted from per-site lists")
-				return
-			case Challenge:
-				log.Println("challenge from per-site lists")
-				sendOrValidateChallenge(
-					config,
-					c,
-					banner,
-					rateLimitMutex,
-					failedChallengeStates,
-					Block, // FailAction
-				)
-				return
-			case NginxBlock, IptablesBlock:
-				accessDenied(c)
-				log.Println("block from per-site lists")
-				return
-			}
+			log.Println(string(bytes))
 		}
-
-		decisionListsMutex.Lock()
-		decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
-		decisionListsMutex.Unlock()
-		if !ok {
-			log.Println("no mention in global lists")
-		} else {
-			switch decision {
-			case Allow:
-				accessGranted(c)
-				log.Println("access denied from global lists")
-				return
-			case Challenge:
-				log.Println("challenge from global lists")
-				sendOrValidateChallenge(
-					config,
-					c,
-					banner,
-					rateLimitMutex,
-					failedChallengeStates,
-					Block, // FailAction
-				)
-				return
-			case NginxBlock, IptablesBlock:
-				accessDenied(c)
-				log.Println("access denied from global lists")
-				return
-			}
-		}
-
-		// i think this needs to point to a struct {decision: Decision, expires: Time}.
-		// when we insert something into the list, really we might just be extending the expiry time and/or
-		// changing the decision.
-		// XXX i forget if that comment is stale^
-		decisionListsMutex.Lock()
-		decision, ok = checkExpiringDecisionLists(clientIp, decisionLists)
-		decisionListsMutex.Unlock()
-		if !ok {
-			log.Println("no mention in expiring lists")
-		} else {
-			switch decision {
-			case Allow:
-				accessGranted(c)
-				log.Println("access denied from expiring lists")
-				return
-			case Challenge:
-				log.Println("challenge from expiring lists")
-				sendOrValidateChallenge(
-					config,
-					c,
-					banner,
-					rateLimitMutex,
-					failedChallengeStates,
-					Block, // FailAction
-				)
-				return
-			case NginxBlock, IptablesBlock:
-				accessDenied(c)
-				log.Println("access denied from expiring lists")
-				return
-			}
-		}
-
-		// the legacy banjax_sha_inv and user_banjax_sha_inv
-		// difference is one blocks after many failures and the other doesn't
-		decisionListsMutex.Lock()
-		failAction, ok := (*decisionLists).SitewideShaInvList[requestedHost]
-		decisionListsMutex.Unlock()
-		if !ok {
-			log.Println("no mention in sitewide list")
-		} else {
-			log.Println("challenge from sitewide list")
-			sendOrValidateChallenge(
-				config,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-				failAction,
-			)
-			return
-		}
-
-		log.Println("no mention in any lists, access granted")
-		accessGranted(c)
 	}
+}
+
+func decisionForNginx2(
+	c *gin.Context,
+	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	passwordProtectedPaths *PasswordProtectedPaths,
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+	banner BannerInterface,
+) (decisionForNginxResult DecisionForNginxResult) {
+	// XXX duplication
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	requestedPath = strings.Replace(requestedPath, "/", "", -1)
+
+	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
+	// log.Println("headers: ", c.Request.Header)
+	decisionForNginxResult.ClientIp = clientIp
+	decisionForNginxResult.RequestedHost = requestedHost
+	decisionForNginxResult.RequestedPath = requestedPath
+
+	pathToBool, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
+	if ok && pathToBool[requestedPath] {
+		sendOrValidatePasswordResult := sendOrValidatePassword(
+			config,
+			passwordProtectedPaths,
+			c,
+			banner,
+			rateLimitMutex,
+			failedChallengeStates,
+		)
+		// log.Println("password-protected path")
+		decisionForNginxResult.DecisionListResult = PasswordProtectedPath
+		decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
+		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
+		return
+	}
+
+	// XXX ugh this locking is awful
+	// i got bit by just checking against the zero value here, which is a valid iota enum
+	decisionListsMutex.Lock()
+	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
+	decisionListsMutex.Unlock()
+	if !ok {
+		// log.Println("no mention in per-site lists")
+	} else {
+		switch decision {
+		case Allow:
+			accessGranted(c)
+			// log.Println("access granted from per-site lists")
+			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
+			return
+		case Challenge:
+			// log.Println("challenge from per-site lists")
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				Block, // FailAction
+			)
+			decisionForNginxResult.DecisionListResult = PerSiteChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c)
+			// log.Println("block from per-site lists")
+			decisionForNginxResult.DecisionListResult = PerSiteBlock
+			return
+		}
+	}
+
+	decisionListsMutex.Lock()
+	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
+	decisionListsMutex.Unlock()
+	if !ok {
+		// log.Println("no mention in global lists")
+	} else {
+		switch decision {
+		case Allow:
+			accessGranted(c)
+			// log.Println("access granted from global lists")
+			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
+			return
+		case Challenge:
+			// log.Println("challenge from global lists")
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				Block, // FailAction
+			)
+			decisionForNginxResult.DecisionListResult = GlobalChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c)
+			// log.Println("access denied from global lists")
+			decisionForNginxResult.DecisionListResult = GlobalBlock
+			return
+		}
+	}
+
+	// i think this needs to point to a struct {decision: Decision, expires: Time}.
+	// when we insert something into the list, really we might just be extending the expiry time and/or
+	// changing the decision.
+	// XXX i forget if that comment is stale^
+	decisionListsMutex.Lock()
+	decision, ok = checkExpiringDecisionLists(clientIp, decisionLists)
+	decisionListsMutex.Unlock()
+	if !ok {
+		// log.Println("no mention in expiring lists")
+	} else {
+		switch decision {
+		case Allow:
+			accessGranted(c)
+			// log.Println("access granted from expiring lists")
+			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
+			return
+		case Challenge:
+			// log.Println("challenge from expiring lists")
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				Block, // FailAction
+			)
+			decisionForNginxResult.DecisionListResult = ExpiringChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c)
+			// log.Println("access denied from expiring lists")
+			decisionForNginxResult.DecisionListResult = ExpiringBlock
+			return
+		}
+	}
+
+	// the legacy banjax_sha_inv and user_banjax_sha_inv
+	// difference is one blocks after many failures and the other doesn't
+	decisionListsMutex.Lock()
+	failAction, ok := (*decisionLists).SitewideShaInvList[requestedHost]
+	decisionListsMutex.Unlock()
+	if !ok {
+		// log.Println("no mention in sitewide list")
+	} else {
+		// log.Println("challenge from sitewide list")
+		sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+			config,
+			c,
+			banner,
+			rateLimitMutex,
+			failedChallengeStates,
+			failAction,
+		)
+		decisionForNginxResult.DecisionListResult = SiteWideChallenge
+		decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+		return
+	}
+
+	// log.Println("no mention in any lists, access granted")
+	accessGranted(c)
+	decisionForNginxResult.DecisionListResult = NoMention
+	return
 }

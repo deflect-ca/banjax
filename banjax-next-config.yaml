@@ -57,17 +57,17 @@ regexes_with_rates:
   - decision: allow
     hits_per_interval: 0
     interval: 1
-    regex: ^GET.*allowme.*
+    regex: .*allowme.*
     rule: "unblock backdoor"
   - decision: nginx_block
     hits_per_interval: 0
     interval: 1
-    regex: ^GET.*blockme.*
+    regex: .*blockme.*
     rule: "instant block"
   - decision: challenge
     hits_per_interval: 0
     interval: 1
-    regex: ^GET.*challengeme.*
+    regex: .*challengeme.*
     rule: "instant challenge"
 sitewide_sha_inv_list:
   example.com: block

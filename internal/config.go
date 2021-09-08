@@ -293,7 +293,7 @@ func (failedChallengeStates FailedChallengeStates) String() string {
 func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (Decision, bool) {
 	expiringDecision, ok := (*decisionLists).ExpiringDecisionLists[clientIp]
 	if !ok {
-		log.Println("no mention in expiring lists")
+		// log.Println("no mention in expiring lists")
 	} else {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete((*decisionLists).ExpiringDecisionLists, clientIp)
