@@ -1,5 +1,10 @@
 # Banjax-go
 
+# Table of Contents
+1. [Deploying alongside or in front of an existing setup](#deploying-alongside-or-in-front-of-an-existing-setup)
+2. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-\(or-other\)-setup)
+
+
 ## Deploying alongside or in front of an existing setup
 
 You should be able to get a quick demo of banjax-go + Nginx + a test origin server
