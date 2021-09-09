@@ -1,4 +1,4 @@
-# Banjax
+# Banjax-go
 
 ## Deploying alongside or in front of an existing setup
 
