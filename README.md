@@ -1,9 +1,16 @@
 # Banjax-go
 
-# Table of Contents
+## Table of Contents
 1. [Deploying alongside or in front of an existing setup](#deploying-alongside-or-in-front-of-an-existing-setup)
-2. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-\(or-other\)-setup)
-
+    i. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-or-other-setup)
+    ii. [Deploying Nginx + banjax-go in front of an existing web server](#deploying-nginx--banjax-go-in-front-of-an-existing-web-server)
+    iii. [Running the new Nginx + banjax-go on the same host as your existing server](#running-the-new-nginx--banjax-go-on-the-same-host-as-your-existing-server)
+    iv. [Running the new Nginx + banjax-go on a host other than your existing server](#running-the-new-nginx--banjax-go-on-a-host-other-than-your-existing-server)
+2. [Talking to Baskerville over a Kafka connection](#talking-to-baskerville-over-a-kafka-connection)
+3. [Sample configuration](#sample-configuration)
+4. [How it Works](#how-it-works)
+5. [Banjax-go’s decision-making process](#banjax-gos-decision-making-process)
+6. [Password-protected paths](#password-protected-paths)
 
 ## Deploying alongside or in front of an existing setup
 
@@ -72,7 +79,7 @@ the hostname gets sent in the TLS SNI field so that Nginx knows which server key
 use for the TLS connection. For a single-site Nginx configuration with
 `server_name _;`, you might not have to worry about any of this.
 
-#### Running the new Nginx + banjax-go on the same host as your existing server
+### Running the new Nginx + banjax-go on the same host as your existing server
 
 You'll want to change your existing server to listen on, for example, 127.0.0.1:8080, and
 configure the new Nginx to `proxy_pass` to that local address.
@@ -82,7 +89,7 @@ but will keep others from being to connect to it over the internet.
 
 Then configure the new Nginx to listen on 0.0.0.0:80 (and 443).
 
-#### Running the new Nginx + banjax-go on a host other than your existing server
+### Running the new Nginx + banjax-go on a host other than your existing server
 
 You'll need to point your DNS records to the new host's IP address.
 
