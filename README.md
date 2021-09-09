@@ -122,6 +122,55 @@ kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
 ```
 
+
+## Sample configuration
+```yaml
+config_version: 2020-12-15_12:35:38
+global_decision_lists:         # static allow/challenge/block decisions (global)
+  allow:
+  - 20.20.20.20
+  block:
+  - 30.40.50.60
+  challenge:
+  - 8.8.8.8
+per_site_decision_lists:       # static allow/challenge/block decisions (per-site)
+  example.com:
+    allow:
+    - 20.20.20.20
+    block:
+    - 30.40.50.60
+    challenge:
+    - 8.8.8.8
+iptables_ban_seconds: 10       # how long an iptables ban lasts
+iptables_unbanner_seconds: 5   # how often the unbanning task runs
+kafka_brokers:
+- localhost:9092
+password_hashes:               # for password_protected_paths
+  example.com: <base64 string> 
+password_protected_paths:      # for password_protected_paths
+  example.com:
+  - wp-admin
+per_site_rate_limited_regexes: # fail2ban-like challenging/blocking (per-site)
+  example.com:
+  - decision: block
+    hits_per_interval: 10
+    interval: 120
+    name: UNNAMED RULE
+    regex: 'GET \/search\/.*'
+regexes_with_rates:            # fail2ban-like challenging/blocking (global)
+- decision: block
+  hits_per_interval: 0
+  interval: 1
+  regex: .*blockme.*
+  rule: instant block
+- decision: challenge
+  hits_per_interval: 0
+  interval: 1
+  regex: .*challengeme.*
+  rule: instant challenge
+server_log_file: /var/log/banjax-next/banjax-next-format.log  # nginx log file with specific format
+```
+
 # How it Works
 <p align="center">
     <img src="https://github.com/equalitie/banjax-next/blob/master/edge-diagram.svg" alt="edge diagram">
@@ -197,54 +246,6 @@ similarly to the SHA-inverting proof-of-work challenge. But the use-cases are di
 the PoW challenge is intended to filter out DDoS traffic, and so it makes sense for the
 Nginx configuration to fail open in case Banjax-go is unreachable. Password-protected
 paths should probably fail closed. [XXX does this make sense? there were other distinctions?]
-
-## Sample configuration
-```yaml
-config_version: 2020-12-15_12:35:38
-global_decision_lists:         # static allow/challenge/block decisions (global)
-  allow:
-  - 20.20.20.20
-  block:
-  - 30.40.50.60
-  challenge:
-  - 8.8.8.8
-per_site_decision_lists:       # static allow/challenge/block decisions (per-site)
-  example.com:
-    allow:
-    - 20.20.20.20
-    block:
-    - 30.40.50.60
-    challenge:
-    - 8.8.8.8
-iptables_ban_seconds: 10       # how long an iptables ban lasts
-iptables_unbanner_seconds: 5   # how often the unbanning task runs
-kafka_brokers:
-- localhost:9092
-password_hashes:               # for password_protected_paths
-  example.com: <base64 string> 
-password_protected_paths:      # for password_protected_paths
-  example.com:
-  - wp-admin
-per_site_rate_limited_regexes: # fail2ban-like challenging/blocking (per-site)
-  example.com:
-  - decision: block
-    hits_per_interval: 10
-    interval: 120
-    name: UNNAMED RULE
-    regex: 'GET \/search\/.*'
-regexes_with_rates:            # fail2ban-like challenging/blocking (global)
-- decision: block
-  hits_per_interval: 0
-  interval: 1
-  regex: .*blockme.*
-  rule: instant block
-- decision: challenge
-  hits_per_interval: 0
-  interval: 1
-  regex: .*challengeme.*
-  rule: instant challenge
-server_log_file: /var/log/banjax-next/banjax-next-format.log  # nginx log file with specific format
-```
 
 ---
 
