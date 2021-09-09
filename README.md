@@ -2,10 +2,10 @@
 
 ## Table of Contents
 1. [Deploying alongside or in front of an existing setup](#deploying-alongside-or-in-front-of-an-existing-setup)
-    i. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-or-other-setup)
-    ii. [Deploying Nginx + banjax-go in front of an existing web server](#deploying-nginx--banjax-go-in-front-of-an-existing-web-server)
-    iii. [Running the new Nginx + banjax-go on the same host as your existing server](#running-the-new-nginx--banjax-go-on-the-same-host-as-your-existing-server)
-    iv. [Running the new Nginx + banjax-go on a host other than your existing server](#running-the-new-nginx--banjax-go-on-a-host-other-than-your-existing-server)
+    1. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-or-other-setup)
+    2. [Deploying Nginx + banjax-go in front of an existing web server](#deploying-nginx--banjax-go-in-front-of-an-existing-web-server)
+    3. [Running the new Nginx + banjax-go on the same host as your existing server](#running-the-new-nginx--banjax-go-on-the-same-host-as-your-existing-server)
+    4. [Running the new Nginx + banjax-go on a host other than your existing server](#running-the-new-nginx--banjax-go-on-a-host-other-than-your-existing-server)
 2. [Talking to Baskerville over a Kafka connection](#talking-to-baskerville-over-a-kafka-connection)
 3. [Sample configuration](#sample-configuration)
 4. [How it Works](#how-it-works)
