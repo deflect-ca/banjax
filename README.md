@@ -2,6 +2,17 @@
 1. [What is Banjax](#what-is-banjax)
     1. [Backstory](#backstory)
     2. [Banjax-Go](#banjax-go)
+    3. [Technology](#technology)
+2. [How it Looks in a Deflect Environment](#how-it-looks-in-a-deflect-environment)
+3. [Decision-Making Process](#decision-making-process)
+4. [Password-protected paths](#password-protected-paths)
+5. [Installation](#installation)
+    1. [Talking to banjax-go from an existing Nginx (or other) setup](#talking-to-banjax-go-from-an-existing-nginx-or-other-setup)
+    2. [Deploying Nginx + banjax-go in front of an existing web server](#deploying-nginx--banjax-go-in-front-of-an-existing-web-server)
+    3. [Running the new Nginx + banjax-go on the same host as your existing server](#running-the-new-nginx--banjax-go-on-the-same-host-as-your-existing-server)
+    4. [Running the new Nginx + banjax-go on a host other than your existing server](#running-the-new-nginx--banjax-go-on-a-host-other-than-your-existing-server)
+6. [Talking to Baskerville over a Kafka connection](#talking-to-baskerville-over-a-kafka-connection)
+7. [Sample Configuration](#sample-configuration)
 
 # What is Banjax
 
@@ -59,8 +70,6 @@ From the perspective of the JS and cookie cryptographic implementation, these wo
 
 # Installation
 
-## Deploying alongside or in front of an existing setup
-
 You should be able to get a quick demo of banjax-go + Nginx + a test origin server
 running with `docker-compose up`.
 
@@ -69,7 +78,7 @@ for adding banjax-go to your setup. The first involves changing your existing Ng
 configuration to talk to banjax-go. The second involves adding a new Nginx server in
 front of your existing one.
 
-### Talking to banjax-go from an existing Nginx (or other) setup
+## Talking to banjax-go from an existing Nginx (or other) setup
 
 You'll want to read the sample `nginx.conf` under `supporting_containers/nginx` and understand
 how it works.
@@ -100,7 +109,7 @@ location @access_granted {
 
 We're only using this with Nginx, but other proxy servers seem to have a similar mechanism.
 
-### Deploying Nginx + banjax-go in front of an existing web server
+## Deploying Nginx + banjax-go in front of an existing web server
 
 The easiest way to get started here would be to edit the sample `nginx.conf` under
 `supporting_containers/nginx` to point to your origin server (change all the
@@ -125,7 +134,7 @@ the hostname gets sent in the TLS SNI field so that Nginx knows which server key
 use for the TLS connection. For a single-site Nginx configuration with
 `server_name _;`, you might not have to worry about any of this.
 
-### Running the new Nginx + banjax-go on the same host as your existing server
+## Running the new Nginx + banjax-go on the same host as your existing server
 
 You'll want to change your existing server to listen on, for example, 127.0.0.1:8080, and
 configure the new Nginx to `proxy_pass` to that local address.
@@ -135,7 +144,7 @@ but will keep others from being to connect to it over the internet.
 
 Then configure the new Nginx to listen on 0.0.0.0:80 (and 443).
 
-### Running the new Nginx + banjax-go on a host other than your existing server
+## Running the new Nginx + banjax-go on a host other than your existing server
 
 You'll need to point your DNS records to the new host's IP address.
 
