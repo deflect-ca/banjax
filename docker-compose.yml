@@ -21,6 +21,7 @@ services:
       dockerfile: Dockerfile
     ports:
       - "80:80"
+      - "8001:8001"
     volumes:
       - var-log-banjax-next:/var/log/banjax-next/
 

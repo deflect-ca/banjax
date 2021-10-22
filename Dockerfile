@@ -17,9 +17,9 @@ RUN cd /opt/banjax-next && go test
 
 RUN mkdir -p /etc/banjax-next
 COPY ./banjax-next-config.yaml /etc/banjax-next/
-COPY ./caroot.pem /etc/banjax-next/
-COPY ./certificate.pem /etc/banjax-next/
-COPY ./key.pem /etc/banjax-next/
+# COPY ./caroot.pem /etc/banjax-next/
+# COPY ./certificate.pem /etc/banjax-next/
+# COPY ./key.pem /etc/banjax-next/
 
 RUN mkdir -p /var/log/banjax-next
 

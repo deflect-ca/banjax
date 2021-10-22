@@ -170,19 +170,19 @@ func main() {
 		&wg,
 	)
 
-	wg.Add(1)
-	go internal.RunKafkaReader(
-		&config,
-		&decisionListsMutex,
-		&decisionLists,
-		&wg,
-	)
+	// wg.Add(1)
+	// go internal.RunKafkaReader(
+	// 	&config,
+	// 	&decisionListsMutex,
+	// 	&decisionLists,
+	// 	&wg,
+	// )
 
-	wg.Add(1)
-	go internal.RunKafkaWriter(
-		&config,
-		&wg,
-	)
+	// wg.Add(1)
+	// go internal.RunKafkaWriter(
+	// 	&config,
+	// 	&wg,
+	// )
 
 	metricsLogFileName := ""
 	if config.StandaloneTesting {
