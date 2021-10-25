@@ -13,9 +13,9 @@ iptables_unbanner_seconds: 5
 kafka_brokers:
   - "localhost:9092"
 kafka_security_protocol: 'ssl'
-kafka_ssl_ca: "/etc/banjax-next/caroot.pem"
-kafka_ssl_cert: "/etc/banjax-next/certificate.pem"
-kafka_ssl_key: "/etc/banjax-next/key.pem"
+kafka_ssl_ca: "/etc/banjax/caroot.pem"
+kafka_ssl_cert: "/etc/banjax/certificate.pem"
+kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
@@ -72,13 +72,13 @@ regexes_with_rates:
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
-server_log_file: /var/log/banjax-next/banjax-next-format.log
-banning_log_file: /etc/banjax-next/ban_ip_list.log
+server_log_file: /var/log/banjax/banjax-format.log
+banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
 password_cookie_ttl_seconds: 3600
 sha_inv_cookie_ttl_seconds: 3600
 hmac_secret: password
-gin_log_file: /var/log/banjax-next/gin.log
-metrics_log_file: /var/log/banjax-next/metrics.log
+gin_log_file: /var/log/banjax/gin.log
+metrics_log_file: /var/log/banjax/metrics.log

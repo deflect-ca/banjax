@@ -50,7 +50,7 @@ func (mb *MockBanner) LogRegexBan(
 // XXX need think about how to test this well
 // func TestRunLogTailer(t *testing.T) {
 // 	config := Config{}
-// 	configBytes, err := ioutil.ReadFile("banjax-next-config.yaml") // XXX allow different location
+// 	configBytes, err := ioutil.ReadFile("banjax-config.yaml") // XXX allow different location
 // 	if err != nil {
 // 		panic("couldn't read config file!")
 // 	}

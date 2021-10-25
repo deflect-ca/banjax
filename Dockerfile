@@ -11,20 +11,20 @@ RUN set -x \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 		iptables
 
-RUN mkdir -p /opt/banjax-next
-COPY ./ /opt/banjax-next/
-RUN cd /opt/banjax-next && go test
+RUN mkdir -p /opt/banjax
+COPY ./ /opt/banjax/
+RUN cd /opt/banjax && go test
 
-RUN mkdir -p /etc/banjax-next
-COPY ./banjax-next-config.yaml /etc/banjax-next/
-# COPY ./caroot.pem /etc/banjax-next/
-# COPY ./certificate.pem /etc/banjax-next/
-# COPY ./key.pem /etc/banjax-next/
+RUN mkdir -p /etc/banjax
+COPY ./banjax-config.yaml /etc/banjax/
+# COPY ./caroot.pem /etc/banjax/
+# COPY ./certificate.pem /etc/banjax/
+# COPY ./key.pem /etc/banjax/
 
-RUN mkdir -p /var/log/banjax-next
+RUN mkdir -p /var/log/banjax
 
 EXPOSE 8081
 
-WORKDIR /opt/banjax-next
+WORKDIR /opt/banjax
 
-CMD ["go", "run", "banjax-next.go"]
+CMD ["go", "run", "banjax.go"]

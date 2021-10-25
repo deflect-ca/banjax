@@ -73,7 +73,7 @@ COPY nginx.conf /etc/nginx/
 RUN mkdir -p /etc/ssl/sites
 RUN mkdir -p /etc/ssl-uploaded/sites
 
-RUN mkdir -p /var/log/banjax-next
+RUN mkdir -p /var/log/banjax
 
 EXPOSE 80 443
 

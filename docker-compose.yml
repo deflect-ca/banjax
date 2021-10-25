@@ -1,9 +1,9 @@
 version: '3.4'
 volumes:
-  var-log-banjax-next:
+  var-log-banjax:
 
 services:
-  banjax-next:
+  banjax:
     build:
       context: ./
       dockerfile: Dockerfile
@@ -13,7 +13,7 @@ services:
     cap_add:
       - NET_ADMIN  # we use iptables for banning
     volumes:
-      - var-log-banjax-next:/var/log/banjax-next/
+      - var-log-banjax:/var/log/banjax/
 
   nginx:
     build:
@@ -23,7 +23,7 @@ services:
       - "80:80"
       - "8001:8001"
     volumes:
-      - var-log-banjax-next:/var/log/banjax-next/
+      - var-log-banjax:/var/log/banjax/
 
   test-origin:
     build:

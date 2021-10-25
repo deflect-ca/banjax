@@ -1,4 +1,4 @@
-module github.com/equalitie/banjax-next
+module github.com/equalitie/banjax
 
 go 1.14
 

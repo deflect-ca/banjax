@@ -9,7 +9,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/equalitie/banjax-next/internal"
+	"github.com/equalitie/banjax/internal"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
@@ -34,7 +34,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 
 	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
-		panic("couldn't read config file!")
+		panic(err)
 	}
 	// log.Printf("read %v\n", string(configBytes[:]))
 
@@ -68,7 +68,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 
 func main() {
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
-	configFilenamePtr := flag.String("config-file", "/etc/banjax-next/banjax-next-config.yaml", "config file")
+	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	flag.Parse()
 
 	restartTime := int(time.Now().Unix()) // XXX
