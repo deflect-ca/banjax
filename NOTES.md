@@ -1,4 +1,4 @@
-Banjax-next is one component extracted from our deflect-next system.
+Banjax is one component extracted from our deflect-next system.
 
 deflect-next repo:
   * python configuration generation and orchestration scripts
@@ -20,7 +20,7 @@ singleton containers (one instance of each of these is running somewhere):
 
 edge containers:
   * nginx
-  * banjax-next
+  * banjax
   * nat-manager (to facilitate zero-downtime upgrades of the nginx container, we
     use iptables to forward new connections to the new container while the old
     container continues to service existing connections).
@@ -28,7 +28,7 @@ edge containers:
 For logging + metrics, we have a filebeat container on every host sending the
 host's docker daemon logs to the central elasticsearch instance.
 
-### banjax-next
+### banjax
 
 The first line of defense in our DDOS mitigation strategy is the Nginx cache. Most
 of the websites we protect are news websites that serve identical pages to every
