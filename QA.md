@@ -1,6 +1,6 @@
 I'm usually running it in development like:
 ```
-go run banjax-next.go -config-file banjax-next-config.yaml -standalone-testing
+go run banjax.go -config-file banjax-config.yaml -standalone-testing
 ```
 and then using curl in another window like:
 ```
