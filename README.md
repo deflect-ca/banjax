@@ -181,9 +181,9 @@ The Kafka connection is configured with:
 kafka_brokers:
   - "localhost:9092"
 kafka_security_protocol: 'ssl'
-kafka_ssl_ca: "/etc/banjax-next/caroot.pem"
-kafka_ssl_cert: "/etc/banjax-next/certificate.pem"
-kafka_ssl_key: "/etc/banjax-next/key.pem"
+kafka_ssl_ca: "/etc/banjax/caroot.pem"
+kafka_ssl_cert: "/etc/banjax/certificate.pem"
+kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
@@ -235,7 +235,7 @@ regexes_with_rates:            # fail2ban-like challenging/blocking (global)
   interval: 1
   regex: .*challengeme.*
   rule: instant challenge
-server_log_file: /var/log/banjax-next/banjax-next-format.log  # nginx log file with specific format
+server_log_file: /var/log/banjax/banjax-format.log  # nginx log file with specific format
 ```
 
 ---
