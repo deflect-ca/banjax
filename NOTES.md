@@ -49,8 +49,8 @@ a basic password challenge (useful as an extra line of defense in front of admin
 or a proof-of-work challenge (useful for blocking bots that don't execute javascript, while
 allowing web browsers through).
 
-So the list of decisions banjax-next can make are: Allow, Block, or Challenge. The decision
+So the list of decisions banjax can make are: Allow, Block, or Challenge. The decision
 lists are populated from the config file (useful for allowlisting or blocklisting known good
 or bad IPs), from the results of the regex rate limit rules (so breaking a rule can result
 in a Block or a Challenge, or even an Allow), and from messages received on a Kafka topic
-(this is how Baskerville talks to banjax-next).
+(this is how Baskerville talks to banjax).
