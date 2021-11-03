@@ -166,7 +166,7 @@ failed challenges:
 ### Testing with Nginx
 
 This probably needs to be done when QAing deflect-next, as the Nginx configuration included
-in the banjax-next repo's docker-compose setup isn't going to be representative enough for QA.
+in the banjax repo's docker-compose setup isn't going to be representative enough for QA.
 
 * verify fail-open and fail-closed work
-* verify that banjax-next responses are cached and purged correctly
+* verify that banjax responses are cached and purged correctly
