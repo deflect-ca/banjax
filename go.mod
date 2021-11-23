@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/coreos/go-iptables v0.6.0
+	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/gin-gonic/gin v1.7.6
 	github.com/go-playground/validator/v10 v10.9.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
