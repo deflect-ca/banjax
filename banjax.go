@@ -31,6 +31,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		hostname = "unknown-hostname"
 	}
 	config.Hostname = hostname
+	log.Printf("hostname: %s", hostname)
 
 	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
@@ -170,19 +171,19 @@ func main() {
 		&wg,
 	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaReader(
-	// 	&config,
-	// 	&decisionListsMutex,
-	// 	&decisionLists,
-	// 	&wg,
-	// )
+	wg.Add(1)
+	go internal.RunKafkaReader(
+		&config,
+		&decisionListsMutex,
+		&decisionLists,
+		&wg,
+	)
 
-	// wg.Add(1)
-	// go internal.RunKafkaWriter(
-	// 	&config,
-	// 	&wg,
-	// )
+	wg.Add(1)
+	go internal.RunKafkaWriter(
+		&config,
+		&wg,
+	)
 
 	metricsLogFileName := ""
 	if config.StandaloneTesting {
