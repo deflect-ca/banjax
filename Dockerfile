@@ -13,7 +13,7 @@ RUN set -x \
 
 RUN mkdir -p /opt/banjax
 COPY ./ /opt/banjax/
-RUN cd /opt/banjax && go test
+RUN cd /opt/banjax && go test && go build
 
 RUN mkdir -p /etc/banjax
 COPY ./banjax-config.yaml /etc/banjax/
