@@ -91,7 +91,7 @@ async function new_solver(expected_number_of_zeroes) {
             console.log(i);
             console.log(hash_view);
             // XXX i definitely have to hit the "delete all cookies" thing in web inspector sometimes...
-            document.cookie = "deflect_challenge2=" + base64_cookie + "; " + "max-age=300;SameSite=Lax;domain=" + window.location.hostname + ";path=/;";
+            document.cookie = "deflect_challenge2=" + base64_cookie + "; " + "max-age=14400;SameSite=Lax;domain=" + window.location.hostname + ";path=/;";
             location.reload();
             return;  // XXX?
         }

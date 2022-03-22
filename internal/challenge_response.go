@@ -176,10 +176,8 @@ func ValidatePasswordCookie(secretKey string,
 	return nil
 }
 
-func NewChallengeCookie(secretKey string, now time.Time, clientIp string) string {
-	// expireTime := time.Now().Add(5 * time.Second) // XXX config
-	expireTime := time.Now().Add(60 * time.Second) // XXX config
-
+func NewChallengeCookie(secretKey string, cookieTtlSeconds int, clientIp string) string {
+	expireTime := time.Now().Add(time.Duration(cookieTtlSeconds) * time.Second)
 	cookieBytes := make([]byte, 20+32+8)
 	hmacBytes := ComputeHmac(secretKey, expireTime, clientIp) // XXX really, don't forget about this
 	copy(cookieBytes[0:20], hmacBytes[0:20])
