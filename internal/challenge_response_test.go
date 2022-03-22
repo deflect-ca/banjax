@@ -71,7 +71,7 @@ func TestValidateShaInvCookie(t *testing.T) {
 	}
 
 	expiredChallengeCookie := NewChallengeCookie("password", 3600, "1.2.3.4")
-	unsolvedChallengeCookie := NewChallengeCookie("password", 0, "1.2.3.4")
+	unsolvedChallengeCookie := NewChallengeCookie("password", 10, "1.2.3.4")
 
 	fmt.Println("-- 4 --")
 	err = ValidateShaInvCookie("password", expiredChallengeCookie, now, "1.2.3.4", 10)
