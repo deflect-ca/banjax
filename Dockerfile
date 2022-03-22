@@ -27,4 +27,4 @@ EXPOSE 8081
 
 WORKDIR /opt/banjax
 
-CMD ["go", "run", "banjax.go"]
+CMD ["./banjax"]
