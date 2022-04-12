@@ -4,6 +4,7 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -37,18 +38,17 @@ func exitCallback() int {
 	return 1
 }
 
-func TestAPICalls(t *testing.T) {
-	log.Println("TestAPICalls running")
-	RunAPICalls()
+func TestBanjaxAPI(t *testing.T) {
+	log.Println("Testing Banjax API")
+	_, err := http.Get("http://127.0.0.1:8081")
+	if err != nil {
+		t.Error()
+	}
 }
 
 func TestReloadConfig(t *testing.T) {
 	log.Println("TestReload running")
-	RunAPICalls()
+	TestBanjaxAPI(t)
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
-	RunAPICalls()
-}
-
-func RunAPICalls() {
-	time.Sleep(1 * time.Second)
+	TestBanjaxAPI(t)
 }
