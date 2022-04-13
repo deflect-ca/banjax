@@ -61,27 +61,28 @@ func TestBanjaxEndpoint(t *testing.T) {
 		{"GET", "/rate_limit_states", 200},
 	}
 	for _, resource := range resources {
-		req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
-		if err != nil {
-			t.Error("Error when creating the request object",
-				resource.method, resource.name)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			t.Error("Error when making the request", resource.method, resource.name)
-		}
-		if resp.StatusCode != resource.response_code {
-			t.Errorf("Expected %d and got %d when testing %s %s",
-				resource.response_code, resp.StatusCode, resource.method, resource.name)
-		}
-		// This pause is needed to prevent Banjax from banning the test IP
-		time.Sleep(500 * time.Millisecond)
+		test_name := "Test_" + resource.method + "_" + resource.name
+		t.Run(test_name, func(t *testing.T) {
+			req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
+			if err != nil {
+				t.Error("Error when creating the request object",
+					resource.method, resource.name)
+			}
+			resp, err := client.Do(req)
+			if err == nil {
+				t.Error("Error when making the request", resource.method, resource.name)
+			}
+			if resp.StatusCode != resource.response_code {
+				t.Errorf("Expected %d and got %d when testing %s %s",
+					resource.response_code, resp.StatusCode, resource.method, resource.name)
+			}
+		})
 	}
 }
 
 func TestReloadConfig(t *testing.T) {
 	log.Println("TestReload running")
-	TestBanjaxAPI(t)
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
-	TestBanjaxAPI(t)
+	time.Sleep(1 * time.Second)
+	TestBanjaxEndpoint(t)
 }
