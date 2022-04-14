@@ -3,10 +3,12 @@
 package main
 
 import (
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 const endpoint = "http://localhost:8081"
 
 var tmpDir string
+var configFile string
 
 func TestMain(m *testing.M) {
 	setUp()
@@ -26,6 +29,7 @@ func TestMain(m *testing.M) {
 func setUp() {
 	go main()
 	createTempDir()
+	copyConfigFile("./fixtures/banjax-config-test.yaml")
 	time.Sleep(1 * time.Second)
 }
 
@@ -39,6 +43,28 @@ func createTempDir() {
 		log.Fatal(err)
 	}
 	tmpDir = dir
+}
+
+func copyConfigFile(src string) {
+	source, err := os.Open(src)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer source.Close()
+
+	dst := filepath.Join(tmpDir, "banjax-config.yaml")
+	dest, err := os.Create(dst)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer dest.Close()
+
+	_, err = io.Copy(dest, source)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	configFile = dst
 }
 
 type TestResource struct {
