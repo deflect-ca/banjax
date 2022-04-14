@@ -3,6 +3,8 @@
 package main
 
 import (
+	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"syscall"
@@ -12,14 +14,31 @@ import (
 
 const endpoint = "http://localhost:8081"
 
+var tmpDir string
+
 func TestMain(m *testing.M) {
 	setUp()
-	os.Exit(m.Run())
+	exit_code := m.Run()
+	tearDown()
+	os.Exit(exit_code)
 }
 
 func setUp() {
 	go main()
+	createTempDir()
 	time.Sleep(1 * time.Second)
+}
+
+func tearDown() {
+	os.RemoveAll(tmpDir)
+}
+
+func createTempDir() {
+	dir, err := ioutil.TempDir("", "banjax-integration-tests")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tmpDir = dir
 }
 
 type TestResource struct {
