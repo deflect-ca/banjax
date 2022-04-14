@@ -3,10 +3,8 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
-	"os/signal"
 	"syscall"
 	"testing"
 	"time"
@@ -15,29 +13,13 @@ import (
 const endpoint = "http://localhost:8081"
 
 func TestMain(m *testing.M) {
-	defer tearDown()
 	setUp()
 	os.Exit(m.Run())
 }
 
-func tearDown() {
-	syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-}
-
 func setUp() {
-	go exitCallback()
 	go main()
 	time.Sleep(1 * time.Second)
-}
-
-func exitCallback() int {
-	sigint_channel := make(chan os.Signal, 1)
-	signal.Notify(sigint_channel, syscall.SIGINT)
-	for _ = range sigint_channel {
-		log.Println("SIGINT received; stopping Banjax")
-		os.Exit(0)
-	}
-	return 1
 }
 
 type TestResource struct {
