@@ -40,13 +40,15 @@ func exitCallback() int {
 	return 1
 }
 
+type TestResource struct {
+	method        string
+	name          string
+	response_code int
+}
+
 func TestBanjaxEndpoint(t *testing.T) {
 	client := &http.Client{}
-	resources := []struct {
-		method        string
-		name          string
-		response_code int
-	}{
+	resources := []TestResource{
 		{"GET", "/auth_request", 200},
 		{"POST", "/auth_request", 200},
 		{"PUT", "/auth_request", 200},
