@@ -46,22 +46,8 @@ type TestResource struct {
 	response_code int
 }
 
-func TestBanjaxEndpoint(t *testing.T) {
+func HTTPTester(t *testing.T, resources []TestResource) {
 	client := &http.Client{}
-	resources := []TestResource{
-		{"GET", "/auth_request", 200},
-		{"POST", "/auth_request", 200},
-		{"PUT", "/auth_request", 200},
-		{"PATCH", "/auth_request", 200},
-		{"HEAD", "/auth_request", 200},
-		{"OPTIONS", "/auth_request", 200},
-		{"DELETE", "/auth_request", 200},
-		{"CONNECT", "/auth_request", 200},
-		{"TRACE", "/auth_request", 200},
-		{"GET", "/info", 200},
-		{"GET", "/decision_lists", 200},
-		{"GET", "/rate_limit_states", 200},
-	}
 	for _, resource := range resources {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
@@ -80,6 +66,24 @@ func TestBanjaxEndpoint(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBanjaxEndpoint(t *testing.T) {
+	banjax_resources := []TestResource{
+		{"GET", "/auth_request", 200},
+		{"POST", "/auth_request", 200},
+		{"PUT", "/auth_request", 200},
+		{"PATCH", "/auth_request", 200},
+		{"HEAD", "/auth_request", 200},
+		{"OPTIONS", "/auth_request", 200},
+		{"DELETE", "/auth_request", 200},
+		{"CONNECT", "/auth_request", 200},
+		{"TRACE", "/auth_request", 200},
+		{"GET", "/info", 200},
+		{"GET", "/decision_lists", 200},
+		{"GET", "/rate_limit_states", 200},
+	}
+	HTTPTester(t, banjax_resources)
 }
 
 func TestReloadConfig(t *testing.T) {
