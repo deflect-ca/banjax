@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const endpoint = "http://127.0.0.1:8081"
+const endpoint = "http://localhost:8081"
 
 func TestMain(m *testing.M) {
 	defer tearDown()
@@ -92,9 +92,20 @@ func TestBanjaxEndpoint(t *testing.T) {
 	HTTPTester(t, banjax_resources)
 }
 
-func TestReloadConfig(t *testing.T) {
-	log.Println("TestReload running")
+func TestReloadProtectedResources(t *testing.T) {
+	HTTPTester(t, []TestResource{{"GET", "/auth_request?path=wp-admin", 401, nil}})
+	reloadBanjax()
+	addProtectedResourceToConfig("wp-admin2")
+	HTTPTester(t, []TestResource{{"GET", "/auth_request?path=wp-admin2", 401, nil}})
+}
+
+func reloadBanjax() {
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 	time.Sleep(1 * time.Second)
-	TestBanjaxEndpoint(t)
+}
+
+func addProtectedResourceToConfig(path string) bool {
+	// TODO: Implement the logic to save a copy of the config file in a temp dir
+	//       and add the protected resource before reloading Banjax.
+	return true
 }
