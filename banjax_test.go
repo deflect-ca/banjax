@@ -69,7 +69,7 @@ func TestBanjaxEndpoint(t *testing.T) {
 					resource.method, resource.name)
 			}
 			resp, err := client.Do(req)
-			if err == nil {
+			if err != nil {
 				t.Error("Error when making the request", resource.method, resource.name)
 			}
 			if resp.StatusCode != resource.response_code {
