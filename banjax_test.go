@@ -44,6 +44,7 @@ type TestResource struct {
 	method        string
 	name          string
 	response_code int
+	headers       http.Header
 }
 
 func HTTPTester(t *testing.T, resources []TestResource) {
@@ -55,6 +56,11 @@ func HTTPTester(t *testing.T, resources []TestResource) {
 			if err != nil {
 				t.Error("Error when creating the request object",
 					resource.method, resource.name)
+			}
+			for key, values := range resource.headers {
+				for _, value := range values {
+					req.Header.Set(key, value)
+				}
 			}
 			resp, err := client.Do(req)
 			if err != nil {
@@ -70,18 +76,18 @@ func HTTPTester(t *testing.T, resources []TestResource) {
 
 func TestBanjaxEndpoint(t *testing.T) {
 	banjax_resources := []TestResource{
-		{"GET", "/auth_request", 200},
-		{"POST", "/auth_request", 200},
-		{"PUT", "/auth_request", 200},
-		{"PATCH", "/auth_request", 200},
-		{"HEAD", "/auth_request", 200},
-		{"OPTIONS", "/auth_request", 200},
-		{"DELETE", "/auth_request", 200},
-		{"CONNECT", "/auth_request", 200},
-		{"TRACE", "/auth_request", 200},
-		{"GET", "/info", 200},
-		{"GET", "/decision_lists", 200},
-		{"GET", "/rate_limit_states", 200},
+		{"GET", "/auth_request", 200, nil},
+		{"POST", "/auth_request", 200, nil},
+		{"PUT", "/auth_request", 200, nil},
+		{"PATCH", "/auth_request", 200, nil},
+		{"HEAD", "/auth_request", 200, nil},
+		{"OPTIONS", "/auth_request", 200, nil},
+		{"DELETE", "/auth_request", 200, nil},
+		{"CONNECT", "/auth_request", 200, nil},
+		{"TRACE", "/auth_request", 200, nil},
+		{"GET", "/info", 200, nil},
+		{"GET", "/decision_lists", 200, nil},
+		{"GET", "/rate_limit_states", 200, nil},
 	}
 	HTTPTester(t, banjax_resources)
 }
