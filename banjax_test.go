@@ -27,9 +27,10 @@ func TestMain(m *testing.M) {
 }
 
 func setUp() {
-	go main()
 	createTempDir()
 	copyConfigFile("./fixtures/banjax-config-test.yaml")
+	setCommandLineFlags()
+	go main()
 	time.Sleep(1 * time.Second)
 }
 
@@ -65,6 +66,12 @@ func copyConfigFile(src string) {
 	}
 
 	configFile = dst
+}
+
+func setCommandLineFlags() {
+	os.Args = []string{os.Args[0]}
+	os.Args = append(os.Args, "-config-file", configFile)
+	os.Args = append(os.Args, "-standalone-testing")
 }
 
 type TestResource struct {
