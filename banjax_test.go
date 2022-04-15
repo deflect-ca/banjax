@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -79,6 +80,7 @@ type TestResource struct {
 	name          string
 	response_code int
 	headers       http.Header
+	contains      []string
 }
 
 func httpTester(t *testing.T, resources []TestResource) {
@@ -87,10 +89,26 @@ func httpTester(t *testing.T, resources []TestResource) {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
 			resp := httpRequest(client, resource)
+
 			if resp.StatusCode != resource.response_code {
 				t.Errorf("Expected %d and got %d when testing %s %s",
 					resource.response_code, resp.StatusCode, resource.method, resource.name)
 			}
+
+			if len(resource.contains) > 0 {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					log.Fatal("Error when ready Body from ", resource.method, resource.name)
+				}
+				resp.Body.Close()
+				for _, lookup := range resource.contains {
+					if !strings.Contains(string(body), lookup) {
+						t.Errorf("Expected string [[ %s ]] not found when testing: %s %s",
+							lookup, resource.method, resource.name)
+					}
+				}
+			}
+
 		})
 	}
 }
