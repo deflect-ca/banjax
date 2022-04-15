@@ -128,18 +128,12 @@ func TestBanjaxEndpoint(t *testing.T) {
 
 func TestReloadProtectedResources(t *testing.T) {
 	HTTPTester(t, []TestResource{{"GET", "/auth_request?path=wp-admin", 401, nil}})
+	copyConfigFile("./fixtures/banjax-config-test-reload.yaml")
 	reloadBanjax()
-	addProtectedResourceToConfig("wp-admin2")
 	HTTPTester(t, []TestResource{{"GET", "/auth_request?path=wp-admin2", 401, nil}})
 }
 
 func reloadBanjax() {
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 	time.Sleep(1 * time.Second)
-}
-
-func addProtectedResourceToConfig(path string) bool {
-	// TODO: Implement the logic to save a copy of the config file in a temp dir
-	//       and add the protected resource before reloading Banjax.
-	return true
 }
