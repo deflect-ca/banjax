@@ -133,18 +133,18 @@ func httpRequest(client http.Client, resource TestResource) *http.Response {
 
 func TestBanjaxEndpoint(t *testing.T) {
 	banjax_resources := []TestResource{
-		{"GET", "/auth_request", 200, nil},
-		{"POST", "/auth_request", 200, nil},
-		{"PUT", "/auth_request", 200, nil},
-		{"PATCH", "/auth_request", 200, nil},
-		{"HEAD", "/auth_request", 200, nil},
-		{"OPTIONS", "/auth_request", 200, nil},
-		{"DELETE", "/auth_request", 200, nil},
-		{"CONNECT", "/auth_request", 200, nil},
-		{"TRACE", "/auth_request", 200, nil},
-		{"GET", "/info", 200, nil},
-		{"GET", "/decision_lists", 200, nil},
-		{"GET", "/rate_limit_states", 200, nil},
+		{"GET", "/auth_request", 200, nil, nil},
+		{"POST", "/auth_request", 200, nil, nil},
+		{"PUT", "/auth_request", 200, nil, nil},
+		{"PATCH", "/auth_request", 200, nil, nil},
+		{"HEAD", "/auth_request", 200, nil, nil},
+		{"OPTIONS", "/auth_request", 200, nil, nil},
+		{"DELETE", "/auth_request", 200, nil, nil},
+		{"CONNECT", "/auth_request", 200, nil, nil},
+		{"TRACE", "/auth_request", 200, nil, nil},
+		{"GET", "/info", 200, nil, nil},
+		{"GET", "/decision_lists", 200, nil, nil},
+		{"GET", "/rate_limit_states", 200, nil, nil},
 	}
 	httpTester(t, banjax_resources)
 }
