@@ -13,7 +13,6 @@
     4. [Running the new Nginx + banjax-go on a host other than your existing server](#running-the-new-nginx--banjax-go-on-a-host-other-than-your-existing-server)
 6. [Talking to Baskerville over a Kafka connection](#talking-to-baskerville-over-a-kafka-connection)
 7. [Sample Configuration](#sample-configuration)
-8. [Integration Tests](#integration-tests)
 
 # What is Banjax
 
@@ -237,19 +236,6 @@ regexes_with_rates:            # fail2ban-like challenging/blocking (global)
   regex: .*challengeme.*
   rule: instant challenge
 server_log_file: /var/log/banjax/banjax-format.log  # nginx log file with specific format
-```
-
-# Integration Tests
-
-The integration tests use the same parameters than Banjax command. It's important to
-always add `-tags=integration` as this test suite is tagged so it's not
-automatically included when running the default tests, e.g:
-
-```bash
-go test \
-    -tags=integration \
-    -config-file /path/to/your/config/file/banjax_config.yml \
-    -standalone-testing
 ```
 
 ---
