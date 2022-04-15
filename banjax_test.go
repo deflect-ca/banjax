@@ -16,6 +16,8 @@ import (
 )
 
 const endpoint = "http://localhost:8081"
+const fixtureConfigTest = "./fixtures/banjax-config-test.yaml"
+const fixtureConfigTestReload = "./fixtures/banjax-config-test-reload.yaml"
 
 var tmpDir string
 var configFile string
@@ -150,6 +152,8 @@ func TestBanjaxEndpoint(t *testing.T) {
 }
 
 func TestProtectedResources(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest)
+
 	protected_res := "wp-admin"
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
@@ -157,19 +161,15 @@ func TestProtectedResources(t *testing.T) {
 	})
 
 	protected_res = "wp-admin2"
-	loadConfig("./fixtures/banjax-config-test-reload.yaml")
+	reloadConfig(fixtureConfigTestReload)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		{"GET", "/auth_request?path=" + protected_res, 401, nil, nil},
 	})
 }
 
-func loadConfig(path string) {
+func reloadConfig(path string) {
 	copyConfigFile(path)
-	reloadBanjax()
-}
-
-func reloadBanjax() {
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 	time.Sleep(1 * time.Second)
 }
