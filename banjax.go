@@ -9,8 +9,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/equalitie/banjax/internal"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,6 +17,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/equalitie/banjax/internal"
+	"gopkg.in/yaml.v2"
 )
 
 func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
