@@ -152,15 +152,15 @@ func TestBanjaxEndpoint(t *testing.T) {
 func TestReloadProtectedResources(t *testing.T) {
 	protected_res := "wp-admin"
 	httpTester(t, []TestResource{
-		{"GET", "/info", 200, nil},
-		{"GET", "/auth_request?path=" + protected_res, 401, nil},
+		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
+		{"GET", "/auth_request?path=" + protected_res, 401, nil, nil},
 	})
 	copyConfigFile("./fixtures/banjax-config-test-reload.yaml")
 	reloadBanjax()
 	protected_res = "wp-admin2"
 	httpTester(t, []TestResource{
-		{"GET", "/info", 200, nil},
-		{"GET", "/auth_request?path=" + protected_res, 401, nil},
+		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
+		{"GET", "/auth_request?path=" + protected_res, 401, nil, nil},
 	})
 }
 
