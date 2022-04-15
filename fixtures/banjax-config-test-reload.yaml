@@ -1,4 +1,4 @@
-config_version: 2022-01-02_00:00:00
+config_version: 2022-02-03_00:00:00
 global_decision_lists:
   allow:
     - 20.20.20.20
@@ -22,6 +22,7 @@ kafka_command_topic: 'banjax_command_topic'
 password_protected_paths:
   "localhost:8081":
     - wp-admin
+    - wp-admin2
   "localhost":
     - wp-admin
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
