@@ -69,6 +69,8 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 }
 
 func main() {
+	var passwordProtectedPaths internal.PasswordProtectedPaths
+
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	flag.Parse()
@@ -90,6 +92,7 @@ func main() {
 		for _ = range sighup_channel {
 			log.Println("got SIGHUP; reloading config")
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
+			configToStructs(&config, &passwordProtectedPaths)
 		}
 	}()
 
@@ -118,7 +121,7 @@ func main() {
 	var decisionListsMutex sync.Mutex
 	decisionLists := internal.ConfigToDecisionLists(&config)
 
-	passwordProtectedPaths := internal.ConfigToPasswordProtectedPaths(&config)
+	configToStructs(&config, &passwordProtectedPaths)
 
 	// XXX protects ipToRegexStates and failedChallengeStates
 	// (why both? because there are too many parameters already?)
@@ -228,4 +231,16 @@ func main() {
 	}()
 
 	wg.Wait()
+}
+
+var configToStructsMutex sync.Mutex
+
+func configToStructs(
+	config *internal.Config,
+	passwordProtectedPaths *internal.PasswordProtectedPaths) {
+
+	configToStructsMutex.Lock()
+	defer configToStructsMutex.Unlock()
+
+	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
 }
