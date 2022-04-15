@@ -1,4 +1,4 @@
-config_version: 2021-03-22_00:00:00
+config_version: 2022-01-02_00:00:00
 global_decision_lists:
   allow:
     - 20.20.20.20
