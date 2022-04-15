@@ -81,31 +81,36 @@ type TestResource struct {
 	headers       http.Header
 }
 
-func HTTPTester(t *testing.T, resources []TestResource) {
-	client := &http.Client{}
+func httpTester(t *testing.T, resources []TestResource) {
+	client := http.Client{}
 	for _, resource := range resources {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
-			req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
-			if err != nil {
-				t.Error("Error when creating the request object",
-					resource.method, resource.name)
-			}
-			for key, values := range resource.headers {
-				for _, value := range values {
-					req.Header.Set(key, value)
-				}
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				t.Error("Error when making the request", resource.method, resource.name)
-			}
+			resp := httpRequest(client, resource)
 			if resp.StatusCode != resource.response_code {
 				t.Errorf("Expected %d and got %d when testing %s %s",
 					resource.response_code, resp.StatusCode, resource.method, resource.name)
 			}
 		})
 	}
+}
+
+func httpRequest(client http.Client, resource TestResource) *http.Response {
+	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
+	if err != nil {
+		log.Fatal("Error when creating the request object",
+			resource.method, resource.name)
+	}
+	for key, values := range resource.headers {
+		for _, value := range values {
+			req.Header.Set(key, value)
+		}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal("Error when doing the request", resource.method, resource.name)
+	}
+	return resp
 }
 
 func TestBanjaxEndpoint(t *testing.T) {
@@ -123,19 +128,19 @@ func TestBanjaxEndpoint(t *testing.T) {
 		{"GET", "/decision_lists", 200, nil},
 		{"GET", "/rate_limit_states", 200, nil},
 	}
-	HTTPTester(t, banjax_resources)
+	httpTester(t, banjax_resources)
 }
 
 func TestReloadProtectedResources(t *testing.T) {
 	protected_res := "wp-admin"
-	HTTPTester(t, []TestResource{
+	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil},
 		{"GET", "/auth_request?path=" + protected_res, 401, nil},
 	})
 	copyConfigFile("./fixtures/banjax-config-test-reload.yaml")
 	reloadBanjax()
 	protected_res = "wp-admin2"
-	HTTPTester(t, []TestResource{
+	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil},
 		{"GET", "/auth_request?path=" + protected_res, 401, nil},
 	})
