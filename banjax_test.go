@@ -117,6 +117,15 @@ func httpTester(t *testing.T, resources []TestResource) {
 	}
 }
 
+func httpStress(resources []TestResource, repeat int) {
+	client := http.Client{}
+	for _, resource := range resources {
+		for i := 0; i <= repeat; i++ {
+			httpRequest(client, resource)
+		}
+	}
+}
+
 func httpRequest(client http.Client, resource TestResource) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	if err != nil {
@@ -176,7 +185,17 @@ func TestProtectedResources(t *testing.T) {
 }
 
 func reloadConfig(path string) {
+	done := make(chan bool)
+	// Simulate activity of http requests when the config is reloaded
+	go func() {
+		httpStress(
+			[]TestResource{{"GET", "/auth_request", 200, http.Header{"X-Client-IP": {"10.0.0.1"}}, nil}},
+			50)
+		done <- true
+	}()
+
 	copyConfigFile(path)
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 	time.Sleep(1 * time.Second)
+	<-done
 }
