@@ -189,7 +189,7 @@ func reloadConfig(path string) {
 	// Simulate activity of http requests when the config is reloaded
 	go func() {
 		httpStress(
-			[]TestResource{{"GET", "/auth_request", 200, http.Header{"X-Client-IP": {"10.0.0.1"}}, nil}},
+			[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
 			50)
 		done <- true
 	}()
