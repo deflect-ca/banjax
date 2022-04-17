@@ -9,13 +9,14 @@ package internal
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/hpcloud/tail"
 	"log"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hpcloud/tail"
 )
 
 func RunLogTailer(
