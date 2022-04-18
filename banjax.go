@@ -104,7 +104,7 @@ func main() {
 			rateLimitMutex.Lock()
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
 			rateLimitMutex.Unlock()
-			configToStructs(&config, &passwordProtectedPaths)
+			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 		}
 	}()
 
@@ -129,11 +129,7 @@ func main() {
 	}
 	log.Println(config.KafkaBrokers)
 
-	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
-	decisionLists := internal.ConfigToDecisionLists(&config)
-
-	configToStructs(&config, &passwordProtectedPaths)
+	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
