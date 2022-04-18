@@ -3,9 +3,11 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -115,6 +117,15 @@ func httpTester(t *testing.T, resources []TestResource) {
 	}
 }
 
+func httpStress(resources []TestResource, repeat int) {
+	client := http.Client{}
+	for _, resource := range resources {
+		for i := 0; i <= repeat; i++ {
+			httpRequest(client, resource)
+		}
+	}
+}
+
 func httpRequest(client http.Client, resource TestResource) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	if err != nil {
@@ -133,20 +144,25 @@ func httpRequest(client http.Client, resource TestResource) *http.Response {
 	return resp
 }
 
+func randomXClientIP() http.Header {
+	ip := fmt.Sprintf("10.2.0.%d", rand.Intn(252))
+	return http.Header{"X-Client-IP": {ip}}
+}
+
 func TestBanjaxEndpoint(t *testing.T) {
 	banjax_resources := []TestResource{
-		{"GET", "/auth_request", 200, nil, nil},
-		{"POST", "/auth_request", 200, nil, nil},
-		{"PUT", "/auth_request", 200, nil, nil},
-		{"PATCH", "/auth_request", 200, nil, nil},
-		{"HEAD", "/auth_request", 200, nil, nil},
-		{"OPTIONS", "/auth_request", 200, nil, nil},
-		{"DELETE", "/auth_request", 200, nil, nil},
-		{"CONNECT", "/auth_request", 200, nil, nil},
-		{"TRACE", "/auth_request", 200, nil, nil},
-		{"GET", "/info", 200, nil, nil},
-		{"GET", "/decision_lists", 200, nil, nil},
-		{"GET", "/rate_limit_states", 200, nil, nil},
+		{"GET", "/auth_request", 200, randomXClientIP(), nil},
+		{"POST", "/auth_request", 200, randomXClientIP(), nil},
+		{"PUT", "/auth_request", 200, randomXClientIP(), nil},
+		{"PATCH", "/auth_request", 200, randomXClientIP(), nil},
+		{"HEAD", "/auth_request", 200, randomXClientIP(), nil},
+		{"OPTIONS", "/auth_request", 200, randomXClientIP(), nil},
+		{"DELETE", "/auth_request", 200, randomXClientIP(), nil},
+		{"CONNECT", "/auth_request", 200, randomXClientIP(), nil},
+		{"TRACE", "/auth_request", 200, randomXClientIP(), nil},
+		{"GET", "/info", 200, randomXClientIP(), nil},
+		{"GET", "/decision_lists", 200, randomXClientIP(), nil},
+		{"GET", "/rate_limit_states", 200, randomXClientIP(), nil},
 	}
 	httpTester(t, banjax_resources)
 }
@@ -157,19 +173,29 @@ func TestProtectedResources(t *testing.T) {
 	protected_res := "wp-admin"
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, nil, nil},
+		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
 	})
 
 	protected_res = "wp-admin2"
 	reloadConfig(fixtureConfigTestReload)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, nil, nil},
+		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
 	})
 }
 
 func reloadConfig(path string) {
+	done := make(chan bool)
+	// Simulate activity of http requests when the config is reloaded
+	go func() {
+		httpStress(
+			[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
+			50)
+		done <- true
+	}()
+
 	copyConfigFile(path)
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
 	time.Sleep(1 * time.Second)
+	<-done
 }

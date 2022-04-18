@@ -9,8 +9,6 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"github.com/equalitie/banjax/internal"
-	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,6 +17,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/equalitie/banjax/internal"
+	"gopkg.in/yaml.v2"
 )
 
 func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
@@ -68,6 +69,18 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 }
 
 func main() {
+	// XXX protects ipToRegexStates and failedChallengeStates
+	// (why both? because there are too many parameters already?)
+	var rateLimitMutex sync.Mutex
+	ipToRegexStates := internal.IpToRegexStates{}
+	failedChallengeStates := internal.FailedChallengeStates{}
+
+	var passwordProtectedPaths internal.PasswordProtectedPaths
+
+	// XXX protects decisionLists
+	var decisionListsMutex sync.Mutex
+	var decisionLists internal.DecisionLists
+
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	flag.Parse()
@@ -88,7 +101,10 @@ func main() {
 	go func() {
 		for _ = range sighup_channel {
 			log.Println("got SIGHUP; reloading config")
+			rateLimitMutex.Lock()
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
+			rateLimitMutex.Unlock()
+			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 		}
 	}()
 
@@ -113,17 +129,7 @@ func main() {
 	}
 	log.Println(config.KafkaBrokers)
 
-	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
-	decisionLists := internal.ConfigToDecisionLists(&config)
-
-	passwordProtectedPaths := internal.ConfigToPasswordProtectedPaths(&config)
-
-	// XXX protects ipToRegexStates and failedChallengeStates
-	// (why both? because there are too many parameters already?)
-	var rateLimitMutex sync.Mutex
-	ipToRegexStates := internal.IpToRegexStates{}
-	failedChallengeStates := internal.FailedChallengeStates{}
+	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
@@ -227,4 +233,18 @@ func main() {
 	}()
 
 	wg.Wait()
+}
+
+var configToStructsMutex sync.Mutex
+
+func configToStructs(
+	config *internal.Config,
+	passwordProtectedPaths *internal.PasswordProtectedPaths,
+	decisionLists *internal.DecisionLists,
+) {
+	configToStructsMutex.Lock()
+	defer configToStructsMutex.Unlock()
+
+	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
+	*decisionLists = internal.ConfigToDecisionLists(config)
 }
