@@ -69,6 +69,12 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 }
 
 func main() {
+	// XXX protects ipToRegexStates and failedChallengeStates
+	// (why both? because there are too many parameters already?)
+	var rateLimitMutex sync.Mutex
+	ipToRegexStates := internal.IpToRegexStates{}
+	failedChallengeStates := internal.FailedChallengeStates{}
+
 	var passwordProtectedPaths internal.PasswordProtectedPaths
 
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
@@ -122,12 +128,6 @@ func main() {
 	decisionLists := internal.ConfigToDecisionLists(&config)
 
 	configToStructs(&config, &passwordProtectedPaths)
-
-	// XXX protects ipToRegexStates and failedChallengeStates
-	// (why both? because there are too many parameters already?)
-	var rateLimitMutex sync.Mutex
-	ipToRegexStates := internal.IpToRegexStates{}
-	failedChallengeStates := internal.FailedChallengeStates{}
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
