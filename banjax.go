@@ -243,10 +243,12 @@ var configToStructsMutex sync.Mutex
 
 func configToStructs(
 	config *internal.Config,
-	passwordProtectedPaths *internal.PasswordProtectedPaths) {
-
+	passwordProtectedPaths *internal.PasswordProtectedPaths,
+	decisionLists *internal.DecisionLists,
+) {
 	configToStructsMutex.Lock()
 	defer configToStructsMutex.Unlock()
 
 	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
+	*decisionLists = internal.ConfigToDecisionLists(config)
 }
