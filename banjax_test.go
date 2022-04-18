@@ -170,17 +170,19 @@ func TestBanjaxEndpoint(t *testing.T) {
 func TestProtectedResources(t *testing.T) {
 	defer reloadConfig(fixtureConfigTest)
 
-	protected_res := "wp-admin"
+	protected_res_1 := "wp-admin"
+	protected_res_2 := "wp-admin/admin.php"
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
+		{"GET", "/auth_request?path=" + protected_res_1, 401, randomXClientIP(), nil},
+		{"GET", "/auth_request?path=" + protected_res_2, 401, randomXClientIP(), nil},
 	})
 
-	protected_res = "wp-admin2"
+	protected_res_3 := "wp-admin2"
 	reloadConfig(fixtureConfigTestReload)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
+		{"GET", "/auth_request?path=" + protected_res_3, 401, randomXClientIP(), nil},
 	})
 }
 
