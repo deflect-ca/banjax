@@ -77,6 +77,10 @@ func main() {
 
 	var passwordProtectedPaths internal.PasswordProtectedPaths
 
+	// XXX protects decisionLists
+	var decisionListsMutex sync.Mutex
+	var decisionLists internal.DecisionLists
+
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	flag.Parse()
