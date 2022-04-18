@@ -153,6 +153,7 @@ func consumeLine(
 		return
 	}
 
+	rateLimitMutex.Lock()
 	// log.Println(line.Text[secondSpace+firstSpace+2:])
 	for _, regex_with_rate := range config.RegexesWithRates {
 		ruleResult := RuleResult{}
@@ -175,7 +176,6 @@ func consumeLine(
 		}
 		ruleResult.SkipHost = false
 
-		rateLimitMutex.Lock()
 		states, ok := (*ipToRegexStates)[ipString]
 		if !ok {
 			// log.Println("we haven't seen this IP before")
@@ -213,9 +213,9 @@ func consumeLine(
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
 
-		rateLimitMutex.Unlock()
 		consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
 	}
 
+	rateLimitMutex.Unlock()
 	return
 }
