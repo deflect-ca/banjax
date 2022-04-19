@@ -23,6 +23,7 @@ password_protected_paths:
   "localhost:8081":
     - wp-admin
     - wp-admin2
+    - app/admin
   "localhost":
     - wp-admin
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"

@@ -173,9 +173,13 @@ func TestProtectedResources(t *testing.T) {
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
-		{"GET", prefix + "wp-admin", 401, randomXClientIP(), nil},
-		{"GET", prefix + "wp-admin/admin.php", 401, randomXClientIP(), nil},
 		{"GET", prefix + "wp-adm/in", 200, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin//", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php#test", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php?a=1&b=2", 401, randomXClientIP(), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReload)
