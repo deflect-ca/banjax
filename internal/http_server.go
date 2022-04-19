@@ -568,21 +568,24 @@ func decisionForNginx2(
 	decisionForNginxResult.RequestedHost = requestedHost
 	decisionForNginxResult.RequestedPath = requestedPath
 
-	pathToBool, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
-	if ok && pathToBool[requestedPath] {
-		sendOrValidatePasswordResult := sendOrValidatePassword(
-			config,
-			passwordProtectedPaths,
-			c,
-			banner,
-			rateLimitMutex,
-			failedChallengeStates,
-		)
-		// log.Println("password-protected path")
-		decisionForNginxResult.DecisionListResult = PasswordProtectedPath
-		decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
-		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
-		return
+	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
+	if ok {
+		for protectedPath, boolFlag := range pathToBools {
+			if boolFlag && strings.HasPrefix(requestedProtectedPath, protectedPath) {
+				sendOrValidatePasswordResult := sendOrValidatePassword(
+					config,
+					passwordProtectedPaths,
+					c,
+					banner,
+					rateLimitMutex,
+					failedChallengeStates,
+				)
+				decisionForNginxResult.DecisionListResult = PasswordProtectedPath
+				decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
+				return
+			}
+		}
 	}
 
 	// XXX ugh this locking is awful
