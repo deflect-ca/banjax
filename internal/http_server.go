@@ -560,7 +560,7 @@ func decisionForNginx2(
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
-	requestedPath = strings.Replace(requestedPath, "/", "", -1)
+	requestedProtectedPath := "/" + strings.Trim(requestedPath, "/")
 
 	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
 	// log.Println("headers: ", c.Request.Header)

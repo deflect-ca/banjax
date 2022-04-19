@@ -136,7 +136,7 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 
 	for site, paths := range config.SitesToProtectedPaths {
 		for _, path := range paths {
-			path = strings.Replace(path, "/", "", -1) // XXX lazy! think of a better way
+			path = "/" + strings.Trim(path, "/")
 			_, ok := siteToPathToBool[site]
 			if !ok {
 				siteToPathToBool[site] = make(StringToBool)
