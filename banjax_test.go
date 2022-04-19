@@ -175,6 +175,7 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
 		{"GET", prefix + "wp-admin", 401, randomXClientIP(), nil},
 		{"GET", prefix + "wp-admin/admin.php", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-adm/in", 200, randomXClientIP(), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReload)
