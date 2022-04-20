@@ -170,17 +170,31 @@ func TestBanjaxEndpoint(t *testing.T) {
 func TestProtectedResources(t *testing.T) {
 	defer reloadConfig(fixtureConfigTest)
 
-	protected_res := "wp-admin"
+	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
+		// this variation shouldn't be protected
+		{"GET", prefix + "wp-adm/in", 200, randomXClientIP(), nil},
+		// protected resources
+		{"GET", prefix + "wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin//", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php#test", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php?a=1&b=2", 401, randomXClientIP(), nil},
+		// exceptions
+		{"GET", prefix + "wp-admin/admin-ajax.php", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin/admin-ajax.php", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin/admin-ajax.php?a=1", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin/admin-ajax.php?a=1&b=2", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin/admin-ajax.php#test", 200, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin-ajax.php/", 200, randomXClientIP(), nil},
 	})
 
-	protected_res = "wp-admin2"
 	reloadConfig(fixtureConfigTestReload)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
-		{"GET", "/auth_request?path=" + protected_res, 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin2", 401, randomXClientIP(), nil},
 	})
 }
 

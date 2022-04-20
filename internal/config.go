@@ -40,6 +40,7 @@ type Config struct {
 	PasswordPageBytes                      []byte
 	SitesToPasswordHashes                  map[string]string   `yaml:"password_hashes"`
 	SitesToProtectedPaths                  map[string][]string `yaml:"password_protected_paths"`
+	SitesToProtectedPathExceptions         map[string][]string `yaml:"password_protected_path_exceptions"`
 	ExpiringDecisionTtlSeconds             int                 `yaml:"expiring_decision_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
@@ -126,23 +127,36 @@ type StringToStringToBool map[string]StringToBool
 type StringToBytes map[string][]byte
 
 type PasswordProtectedPaths struct {
-	SiteToPathToBool   StringToStringToBool
-	SiteToPasswordHash StringToBytes
+	SiteToPathToBool      StringToStringToBool
+	SiteToExceptionToBool StringToStringToBool
+	SiteToPasswordHash    StringToBytes
 }
 
 func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 	siteToPathToBool := make(StringToStringToBool)
+	siteToExceptionToBool := make(StringToStringToBool)
 	siteToPasswordHash := make(StringToBytes)
 
 	for site, paths := range config.SitesToProtectedPaths {
 		for _, path := range paths {
-			path = strings.Replace(path, "/", "", -1) // XXX lazy! think of a better way
+			path = "/" + strings.Trim(path, "/")
 			_, ok := siteToPathToBool[site]
 			if !ok {
 				siteToPathToBool[site] = make(StringToBool)
 			}
 			siteToPathToBool[site][path] = true
 			log.Printf("password protected path: %s/%s\n", site, path)
+		}
+	}
+
+	for site, exceptions := range config.SitesToProtectedPathExceptions {
+		for _, exception := range exceptions {
+			exception = "/" + strings.Trim(exception, "/")
+			_, ok := siteToExceptionToBool[site]
+			if !ok {
+				siteToExceptionToBool[site] = make(StringToBool)
+			}
+			siteToExceptionToBool[site][exception] = true
 		}
 	}
 
@@ -156,7 +170,7 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 		log.Println(passwordHashBytes)
 	}
 
-	return PasswordProtectedPaths{siteToPathToBool, siteToPasswordHash}
+	return PasswordProtectedPaths{siteToPathToBool, siteToExceptionToBool, siteToPasswordHash}
 }
 
 func ConfigToDecisionLists(config *Config) DecisionLists {
