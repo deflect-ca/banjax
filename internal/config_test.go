@@ -17,6 +17,7 @@ const passwordProtectedConfString = `
 password_protected_paths:
   "localhost:8081":
     - wp-admin
+    - app/protected
   "localhost":
     - wp-admin
 password_hashes:
@@ -24,23 +25,19 @@ password_hashes:
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 `
 
+type TestProtectedPaths struct {
+	hostname string
+	paths    []string
+}
+
 func TestConfigToPasswordProtectedPaths(t *testing.T) {
 	config := loadConfigString(passwordProtectedConfString)
 	passwordProtectedPaths := ConfigToPasswordProtectedPaths(config)
-
-	requestedHost := "localhost"
-	requestedResource := "/wp-admin"
-	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
-	if !ok {
-		log.Fatal("A host entry was not loaded in SiteToPathToBool for: ", requestedHost)
+	testPaths := []TestProtectedPaths{
+		{"localhost:8081", []string{"/wp-admin", "/app/protected"}},
+		{"localhost", []string{"/wp-admin"}},
 	}
-	boolValue, ok2 := pathToBools[requestedResource]
-	if !ok2 {
-		log.Fatal("A protected resource value was not loaded for ", requestedHost, "/", requestedResource)
-	}
-	if boolValue != true {
-		log.Fatal("The expected bool value was not loaded for ", requestedHost, "/", requestedResource)
-	}
+	passwordProtectedPathTester(testPaths, passwordProtectedPaths)
 }
 
 func loadConfigString(configStr string) *Config {
@@ -50,4 +47,26 @@ func loadConfigString(configStr string) *Config {
 		panic("Couldn't parse config file.")
 	}
 	return config
+}
+
+func passwordProtectedPathTester(
+	testPaths []TestProtectedPaths,
+	passwordProtectedPaths PasswordProtectedPaths,
+) {
+	for _, testProtectedPath := range testPaths {
+		requestedHost := testProtectedPath.hostname
+		for _, requestedResource := range testProtectedPath.paths {
+			pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
+			if !ok {
+				log.Fatal("The host entry was not loaded in SiteToPathToBool for: ", requestedHost)
+			}
+			boolValue, ok2 := pathToBools[requestedResource]
+			if !ok2 {
+				log.Fatal("The protected resource value was not loaded for ", requestedHost, "/", requestedResource)
+			}
+			if boolValue != true {
+				log.Fatal("The expected bool value was not loaded for ", requestedHost, "/", requestedResource)
+			}
+		}
+	}
 }
