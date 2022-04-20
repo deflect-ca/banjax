@@ -560,7 +560,7 @@ func decisionForNginx2(
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
-	requestedProtectedPath := "/" + strings.Trim(requestedPath, "/")
+	requestedProtectedPath := CleanRequestedPath(requestedPath)
 
 	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
 	// log.Println("headers: ", c.Request.Header)
@@ -570,20 +570,23 @@ func decisionForNginx2(
 
 	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
 	if ok {
-		for protectedPath, boolFlag := range pathToBools {
-			if boolFlag && strings.HasPrefix(requestedProtectedPath, protectedPath) {
-				sendOrValidatePasswordResult := sendOrValidatePassword(
-					config,
-					passwordProtectedPaths,
-					c,
-					banner,
-					rateLimitMutex,
-					failedChallengeStates,
-				)
-				decisionForNginxResult.DecisionListResult = PasswordProtectedPath
-				decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
-				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
-				return
+		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
+		if !hasExceptions || !exceptions[requestedProtectedPath] {
+			for protectedPath, boolFlag := range pathToBools {
+				if boolFlag && strings.HasPrefix(requestedProtectedPath, protectedPath) {
+					sendOrValidatePasswordResult := sendOrValidatePassword(
+						config,
+						passwordProtectedPaths,
+						c,
+						banner,
+						rateLimitMutex,
+						failedChallengeStates,
+					)
+					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
+					decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
+					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
+					return
+				}
 			}
 		}
 	}
@@ -723,4 +726,10 @@ func decisionForNginx2(
 	accessGranted(c)
 	decisionForNginxResult.DecisionListResult = NoMention
 	return
+}
+
+func CleanRequestedPath(requestedPath string) string {
+	path := "/" + strings.Trim(requestedPath, "/")
+	path = strings.Split(path, "?")[0]
+	return path
 }
