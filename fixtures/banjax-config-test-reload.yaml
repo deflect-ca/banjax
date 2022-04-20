@@ -26,6 +26,10 @@ password_protected_paths:
     - app/admin
   "localhost":
     - wp-admin
+password_protected_path_exceptions:
+  "localhost:8081":
+    - wp-admin/admin-ajax.php
+    - app/admin/no-ban.php
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
 password_hashes:
   "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
