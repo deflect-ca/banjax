@@ -20,12 +20,17 @@ password_protected_paths:
     - app/protected
   "localhost":
     - wp-admin
+password_protected_path_exceptions:
+  "localhost:8081":
+    - wp-admin/admin-ajax.php
+  "localhost":
+    - app/admin/no-ban.php
 password_hashes:
   "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 `
 
-type TestProtectedPaths struct {
+type TestPaths struct {
 	hostname string
 	paths    []string
 }
@@ -33,11 +38,18 @@ type TestProtectedPaths struct {
 func TestConfigToPasswordProtectedPaths(t *testing.T) {
 	config := loadConfigString(passwordProtectedConfString)
 	passwordProtectedPaths := ConfigToPasswordProtectedPaths(config)
-	testPaths := []TestProtectedPaths{
+
+	testProtectedPaths := []TestPaths{
 		{"localhost:8081", []string{"/wp-admin", "/app/protected"}},
 		{"localhost", []string{"/wp-admin"}},
 	}
-	passwordProtectedPathTester(testPaths, passwordProtectedPaths)
+	pathTester(testProtectedPaths, passwordProtectedPaths.SiteToPathToBool)
+
+	testExceptionPaths := []TestPaths{
+		{"localhost:8081", []string{"/wp-admin/admin-ajax.php"}},
+		{"localhost", []string{"/app/admin/no-ban.php"}},
+	}
+	pathTester(testExceptionPaths, passwordProtectedPaths.SiteToExceptionToBool)
 }
 
 func loadConfigString(configStr string) *Config {
@@ -49,20 +61,20 @@ func loadConfigString(configStr string) *Config {
 	return config
 }
 
-func passwordProtectedPathTester(
-	testPaths []TestProtectedPaths,
-	passwordProtectedPaths PasswordProtectedPaths,
+func pathTester(
+	testPaths []TestPaths,
+	toBool StringToStringToBool,
 ) {
 	for _, testProtectedPath := range testPaths {
 		requestedHost := testProtectedPath.hostname
 		for _, requestedResource := range testProtectedPath.paths {
-			pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
+			pathToBools, ok := toBool[requestedHost]
 			if !ok {
-				log.Fatal("The host entry was not loaded in SiteToPathToBool for: ", requestedHost)
+				log.Fatal("The host entry was not loaded: ", requestedHost)
 			}
 			boolValue, ok2 := pathToBools[requestedResource]
 			if !ok2 {
-				log.Fatal("The protected resource value was not loaded for ", requestedHost, "/", requestedResource)
+				log.Fatal("The resource value was not loaded for ", requestedHost, "/", requestedResource)
 			}
 			if boolValue != true {
 				log.Fatal("The expected bool value was not loaded for ", requestedHost, "/", requestedResource)
