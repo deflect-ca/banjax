@@ -88,15 +88,6 @@ type TestResource struct {
 	contains      []string
 }
 
-func httpStress(resources []TestResource, repeat int) {
-	client := http.Client{}
-	for _, resource := range resources {
-		for i := 0; i <= repeat; i++ {
-			httpRequest(client, resource)
-		}
-	}
-}
-
 func httpRequest(client http.Client, resource TestResource) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	if err != nil {
@@ -126,10 +117,12 @@ func randomXClientIP() http.Header {
 
 func BenchmarkAuthRequest(b *testing.B) {
 	log.Println("BENCH pre")
-	//for i := 0; i < b.N; i++ {
-	//log.Println("BENCH step", i)
-	httpStress(
-		[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
-		50)
-	//}
+	client := http.Client{}
+	for i := 0; i < b.N; i++ {
+		log.Println("BENCH step: ", i)
+		httpRequest(
+			client,
+			TestResource{"GET", "/auth_request", 200, randomXClientIP(), nil},
+		)
+	}
 }
