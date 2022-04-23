@@ -24,9 +24,7 @@ var configFile string
 
 func TestMain(m *testing.M) {
 	setUp()
-	log.Println(m)
 	exit_code := m.Run()
-	log.Println(m)
 	tearDown()
 	os.Exit(exit_code)
 }
@@ -116,7 +114,6 @@ func randomXClientIP() http.Header {
 }
 
 func BenchmarkAuthRequest(b *testing.B) {
-	log.Println("BENCH pre")
 	client := http.Client{}
 	for i := 0; i < b.N; i++ {
 		log.Println("BENCH step: ", i)
