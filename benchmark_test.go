@@ -86,7 +86,7 @@ type TestResource struct {
 	contains      []string
 }
 
-func httpRequest(client http.Client, resource TestResource) *http.Response {
+func httpRequest(client *http.Client, resource TestResource) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	if err != nil {
 		log.Fatal("Error when creating the request object",
@@ -114,12 +114,15 @@ func randomXClientIP() http.Header {
 }
 
 func BenchmarkAuthRequest(b *testing.B) {
+	var resp *http.Response
 	client := http.Client{}
 	for i := 0; i < b.N; i++ {
-		log.Println("BENCH step: ", i)
-		httpRequest(
-			client,
+		resp = httpRequest(
+			&client,
 			TestResource{"GET", "/auth_request", 200, randomXClientIP(), nil},
 		)
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
 	}
 }
