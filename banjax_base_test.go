@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -142,8 +142,16 @@ func httpRequest(client *http.Client, resource TestResource) *http.Response {
 }
 
 func randomXClientIP() http.Header {
-	ip := fmt.Sprintf("10.2.0.%d", rand.Intn(252))
-	return http.Header{"X-Client-IP": {ip}}
+	return http.Header{"X-Client-IP": {randomIP()}}
+}
+
+func randomIP() string {
+	octets := []string{}
+	for i := 0; i < 4; i++ {
+		octet := rand.Intn(252)
+		octets = append(octets, strconv.Itoa(octet))
+	}
+	return strings.Join(octets, ".")
 }
 
 func reloadConfig(path string) {
