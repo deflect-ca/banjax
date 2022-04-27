@@ -111,10 +111,14 @@ func httpTester(t *testing.T, resources []TestResource) {
 }
 
 func httpStress(resources []TestResource, repeat int) {
+	var resp *http.Response
 	client := http.Client{}
 	for _, resource := range resources {
 		for i := 0; i <= repeat; i++ {
-			httpRequest(&client, resource)
+			resp = httpRequest(&client, resource)
+			if resp != nil && resp.Body != nil {
+				resp.Body.Close()
+			}
 		}
 	}
 }
