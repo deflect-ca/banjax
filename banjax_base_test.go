@@ -81,32 +81,36 @@ type TestResource struct {
 }
 
 func httpTester(t *testing.T, resources []TestResource) {
-	client := http.Client{}
+	client := &http.Client{}
 	for _, resource := range resources {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
-			resp := httpRequest(&client, resource)
-
-			if resp.StatusCode != resource.response_code {
-				t.Errorf("Expected %d and got %d when testing %s %s",
-					resource.response_code, resp.StatusCode, resource.method, resource.name)
-			}
-
-			if len(resource.contains) > 0 {
-				body, err := io.ReadAll(resp.Body)
-				if err != nil {
-					log.Fatal("Error when ready Body from ", resource.method, resource.name)
-				}
-				resp.Body.Close()
-				for _, lookup := range resource.contains {
-					if !strings.Contains(string(body), lookup) {
-						t.Errorf("Expected string [[ %s ]] not found when testing: %s %s",
-							lookup, resource.method, resource.name)
-					}
-				}
-			}
-
+			httpCheck(client, &resource)
 		})
+	}
+}
+
+func httpCheck(client *http.Client, resource_ptr *TestResource) {
+	resource := *resource_ptr
+	resp := httpRequest(client, resource)
+
+	if resp.StatusCode != resource.response_code {
+		log.Fatalf("Expected %d and got %d when testing %s %s",
+			resource.response_code, resp.StatusCode, resource.method, resource.name)
+	}
+
+	if len(resource.contains) > 0 {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal("Error when ready Body from ", resource.method, resource.name)
+		}
+		resp.Body.Close()
+		for _, lookup := range resource.contains {
+			if !strings.Contains(string(body), lookup) {
+				log.Fatalf("Expected string [[ %s ]] not found when testing: %s %s",
+					lookup, resource.method, resource.name)
+			}
+		}
 	}
 }
 
