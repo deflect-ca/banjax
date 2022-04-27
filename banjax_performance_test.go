@@ -21,7 +21,7 @@ func BenchmarkAuthRequest(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		resp = httpRequest(
 			&client,
-			TestResource{"GET", "/auth_request", 200, randomXClientIP(), nil},
+			TestResource{"GET", "/auth_request", 0, randomXClientIP(), nil},
 		)
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
