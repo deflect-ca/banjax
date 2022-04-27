@@ -10,11 +10,15 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
 	"time"
 )
 
 const endpoint = "http://localhost:8081"
 const fixtureConfigTest = "./fixtures/banjax-config-test.yaml"
+const fixtureConfigTestReload = "./fixtures/banjax-config-test-reload.yaml"
 
 var tmpDir string
 var configFile string
@@ -76,6 +80,45 @@ type TestResource struct {
 	contains      []string
 }
 
+func httpTester(t *testing.T, resources []TestResource) {
+	client := http.Client{}
+	for _, resource := range resources {
+		test_name := "Test_" + resource.method + "_" + resource.name
+		t.Run(test_name, func(t *testing.T) {
+			resp := httpRequest(&client, resource)
+
+			if resp.StatusCode != resource.response_code {
+				t.Errorf("Expected %d and got %d when testing %s %s",
+					resource.response_code, resp.StatusCode, resource.method, resource.name)
+			}
+
+			if len(resource.contains) > 0 {
+				body, err := io.ReadAll(resp.Body)
+				if err != nil {
+					log.Fatal("Error when ready Body from ", resource.method, resource.name)
+				}
+				resp.Body.Close()
+				for _, lookup := range resource.contains {
+					if !strings.Contains(string(body), lookup) {
+						t.Errorf("Expected string [[ %s ]] not found when testing: %s %s",
+							lookup, resource.method, resource.name)
+					}
+				}
+			}
+
+		})
+	}
+}
+
+func httpStress(resources []TestResource, repeat int) {
+	client := http.Client{}
+	for _, resource := range resources {
+		for i := 0; i <= repeat; i++ {
+			httpRequest(&client, resource)
+		}
+	}
+}
+
 func httpRequest(client *http.Client, resource TestResource) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	if err != nil {
@@ -101,4 +144,20 @@ func httpRequest(client *http.Client, resource TestResource) *http.Response {
 func randomXClientIP() http.Header {
 	ip := fmt.Sprintf("10.2.0.%d", rand.Intn(252))
 	return http.Header{"X-Client-IP": {ip}}
+}
+
+func reloadConfig(path string) {
+	done := make(chan bool)
+	// Simulate activity of http requests when the config is reloaded
+	go func() {
+		httpStress(
+			[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
+			50)
+		done <- true
+	}()
+
+	copyConfigFile(path)
+	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
+	time.Sleep(1 * time.Second)
+	<-done
 }
