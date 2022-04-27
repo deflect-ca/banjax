@@ -25,7 +25,7 @@ var configFile string
 
 func setUp() {
 	createTempDir()
-	copyConfigFile("./fixtures/banjax-config-test.yaml")
+	copyConfigFile(fixtureConfigTest)
 	setCommandLineFlags()
 	go main()
 	time.Sleep(1 * time.Second)
@@ -36,7 +36,7 @@ func tearDown() {
 }
 
 func createTempDir() {
-	dir, err := ioutil.TempDir("", "banjax-integration-tests")
+	dir, err := ioutil.TempDir("", "banjax-tests")
 	if err != nil {
 		log.Fatal(err)
 	}
