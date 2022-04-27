@@ -20,9 +20,23 @@ kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
 password_protected_paths:
-  "localhost:8081":
-    - wp-admin
   "localhost":
+    - wp-admin_a
+    - wp-admin_b
+    - wp-admin_c
+    - wp-admin_d
+    - wp-admin_e
+    - wp-admin_f
+    - wp-admin_g
+    - wp-admin
+  "localhost:8081":
+    - wp-admin_a
+    - wp-admin_b
+    - wp-admin_c
+    - wp-admin_d
+    - wp-admin_e
+    - wp-admin_f
+    - wp-admin_g
     - wp-admin
 password_protected_path_exceptions:
   "localhost:8081":
