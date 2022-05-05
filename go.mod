@@ -1,4 +1,4 @@
-module github.com/equalitie/banjax
+module github.com/deflect-ca/banjax
 
 go 1.14
 

@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/equalitie/banjax/internal"
+	"github.com/deflect-ca/banjax/internal"
 	"gopkg.in/yaml.v2"
 )
 
