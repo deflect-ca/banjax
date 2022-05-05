@@ -10,13 +10,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func RunHttpServer(
@@ -559,7 +560,7 @@ func decisionForNginx2(
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
-	requestedPath = strings.Replace(requestedPath, "/", "", -1)
+	requestedProtectedPath := CleanRequestedPath(requestedPath)
 
 	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
 	// log.Println("headers: ", c.Request.Header)
@@ -567,21 +568,27 @@ func decisionForNginx2(
 	decisionForNginxResult.RequestedHost = requestedHost
 	decisionForNginxResult.RequestedPath = requestedPath
 
-	pathToBool, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
-	if ok && pathToBool[requestedPath] {
-		sendOrValidatePasswordResult := sendOrValidatePassword(
-			config,
-			passwordProtectedPaths,
-			c,
-			banner,
-			rateLimitMutex,
-			failedChallengeStates,
-		)
-		// log.Println("password-protected path")
-		decisionForNginxResult.DecisionListResult = PasswordProtectedPath
-		decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
-		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
-		return
+	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
+	if ok {
+		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
+		if !hasExceptions || !exceptions[requestedProtectedPath] {
+			for protectedPath, boolFlag := range pathToBools {
+				if boolFlag && strings.HasPrefix(requestedProtectedPath, protectedPath) {
+					sendOrValidatePasswordResult := sendOrValidatePassword(
+						config,
+						passwordProtectedPaths,
+						c,
+						banner,
+						rateLimitMutex,
+						failedChallengeStates,
+					)
+					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
+					decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
+					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
+					return
+				}
+			}
+		}
 	}
 
 	// XXX ugh this locking is awful
@@ -719,4 +726,10 @@ func decisionForNginx2(
 	accessGranted(c)
 	decisionForNginxResult.DecisionListResult = NoMention
 	return
+}
+
+func CleanRequestedPath(requestedPath string) string {
+	path := "/" + strings.Trim(requestedPath, "/")
+	path = strings.Split(path, "?")[0]
+	return path
 }

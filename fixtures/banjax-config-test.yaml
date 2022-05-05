@@ -1,4 +1,4 @@
-config_version: 2021-03-22_00:00:00
+config_version: 2022-01-02_00:00:00
 global_decision_lists:
   allow:
     - 20.20.20.20
@@ -14,15 +14,29 @@ kafka_brokers:
   - "localhost:9092"
 kafka_security_protocol: 'ssl'
 kafka_ssl_ca: "/etc/banjax/caroot.pem"
-kafka_ssl_cert: "/etc/banjax/certificate.pem"
+#kafka_ssl_cert: "/etc/banjax/certificate.pem"
 kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
 password_protected_paths:
-  "localhost:8081":
-    - wp-admin
   "localhost":
+    - wp-admin_a
+    - wp-admin_b
+    - wp-admin_c
+    - wp-admin_d
+    - wp-admin_e
+    - wp-admin_f
+    - wp-admin_g
+    - wp-admin
+  "localhost:8081":
+    - wp-admin_a
+    - wp-admin_b
+    - wp-admin_c
+    - wp-admin_d
+    - wp-admin_e
+    - wp-admin_f
+    - wp-admin_g
     - wp-admin
 password_protected_path_exceptions:
   "localhost:8081":
@@ -80,7 +94,7 @@ banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
-password_cookie_ttl_seconds: 36000  # also modify internal/password-protected-path.html:168
+password_cookie_ttl_seconds: 14400  # also modify internal/password-protected-path.html:168
 sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.html:94
 hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
