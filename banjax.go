@@ -7,6 +7,7 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -21,6 +22,12 @@ import (
 	"github.com/deflect-ca/banjax/internal"
 	"gopkg.in/yaml.v2"
 )
+
+//go:embed internal/sha-inverse-challenge.html
+var shaInvChallengeEmbed embed.FS
+
+//go:embed internal/password-protected-path.html
+var passProtPathEmbed embed.FS
 
 func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
 	config.RestartTime = restartTime
@@ -47,13 +54,13 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	}
 	log.Printf("read %v\n", *config)
 	// XXX config
-	challengerBytes, err := ioutil.ReadFile("./internal/sha-inverse-challenge.html")
+	challengerBytes, err := shaInvChallengeEmbed.ReadFile("internal/sha-inverse-challenge.html")
 	if err != nil {
 		panic("!!! couldn't read sha-inverse-challenge.html")
 	}
 	config.ChallengerBytes = challengerBytes
 
-	passwordPageBytes, err := ioutil.ReadFile("./internal/password-protected-path.html")
+	passwordPageBytes, err := passProtPathEmbed.ReadFile("internal/password-protected-path.html")
 	if err != nil {
 		panic("!!! couldn't read password-protected-path.html")
 	}
