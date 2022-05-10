@@ -20,6 +20,8 @@ COPY ./banjax-config.yaml /etc/banjax/
 # COPY ./caroot.pem /etc/banjax/
 # COPY ./certificate.pem /etc/banjax/
 # COPY ./key.pem /etc/banjax/
+# COPY ./internal/sha-inverse-challenge.html /etc/banjax/
+# COPY ./internal/password-protected-path.html /etc/banjax/
 
 RUN mkdir -p /var/log/banjax
 
