@@ -50,12 +50,12 @@ regexes_with_rates:
   - decision: challenge
     hits_per_interval: 45
     interval: 60
-    regex: "^POST .*"
+    regex: "POST .*"
     rule: "All sites/POST: 45 req/60 sec"
   - decision: iptables_block
     hits_per_interval: 22
     interval: 10
-    regex: "^GET .*"
+    regex: "GET .*"
     rule: "All sites/GET on root: 22 req/10 sec"
   - decision: allow
     hits_per_interval: 0
