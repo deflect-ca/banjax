@@ -7,6 +7,7 @@
 package main
 
 import (
+	"embed"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
@@ -18,9 +19,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/equalitie/banjax/internal"
+	"github.com/deflect-ca/banjax/internal"
 	"gopkg.in/yaml.v2"
 )
+
+//go:embed internal/sha-inverse-challenge.html
+var shaInvChallengeEmbed embed.FS
+
+//go:embed internal/password-protected-path.html
+var passProtPathEmbed embed.FS
 
 func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
 	config.RestartTime = restartTime
@@ -46,18 +53,38 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		log.Fatal(err)
 	}
 	log.Printf("read %v\n", *config)
-	// XXX config
-	challengerBytes, err := ioutil.ReadFile("./internal/sha-inverse-challenge.html")
-	if err != nil {
-		panic("!!! couldn't read sha-inverse-challenge.html")
-	}
-	config.ChallengerBytes = challengerBytes
 
-	passwordPageBytes, err := ioutil.ReadFile("./internal/password-protected-path.html")
-	if err != nil {
-		panic("!!! couldn't read password-protected-path.html")
+	if config.ShaInvChallengeHTML != "" {
+		log.Printf("Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
+		challengerBytes, err := ioutil.ReadFile(config.ShaInvChallengeHTML)
+		if err != nil {
+			panic("!!! couldn't read sha-inverse-challenge.html")
+		}
+		config.ChallengerBytes = challengerBytes
+	} else {
+		log.Printf("Reading SHA-inverse challenge HTML from embed")
+		challengerBytes, err := shaInvChallengeEmbed.ReadFile("internal/sha-inverse-challenge.html")
+		if err != nil {
+			panic("!!! couldn't read sha-inverse-challenge.html")
+		}
+		config.ChallengerBytes = challengerBytes
 	}
-	config.PasswordPageBytes = passwordPageBytes
+
+	if config.PasswordProtectedPathHTML != "" {
+		log.Printf("Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
+		passwordPageBytes, err := ioutil.ReadFile(config.PasswordProtectedPathHTML)
+		if err != nil {
+			panic("!!! couldn't read password-protected-path.html")
+		}
+		config.PasswordPageBytes = passwordPageBytes
+	} else {
+		log.Printf("Reading Password protected path HTML from embed")
+		passwordPageBytes, err := passProtPathEmbed.ReadFile("internal/password-protected-path.html")
+		if err != nil {
+			panic("!!! couldn't read password-protected-path.html")
+		}
+		config.PasswordPageBytes = passwordPageBytes
+	}
 
 	for i, _ := range config.RegexesWithRates {
 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
