@@ -90,7 +90,7 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil}, // allow
 		{"GET", prefix + "/", 401, ClientIP("90.90.90.90"), nil}, // challenge
 		// global_decision_lists
-		{"GET", prefix + "/", 200, ClientIP("8.8.8.8"), nil},     // allow
+		{"GET", prefix + "/", 200, ClientIP("8.8.8.8"), nil},     // cleared
 		{"GET", prefix + "/", 401, ClientIP("20.20.20.20"), nil}, // challenge
 		// regexes_with_rates (rule removed)
 		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},

@@ -6,8 +6,7 @@ global_decision_lists:
     - 30.40.50.60
   nginx_block:
     - 70.80.90.100
-  allow:
-    - 8.8.8.8
+  allow: []
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -43,8 +42,7 @@ per_site_decision_lists:
   "localhost:8081":
     allow:
       - 91.91.91.91
-    challenge:
-      - 90.90.90.90
+    challenge: []
     block:
       - 92.92.92.92
 per_site_rate_limited_regexes: {}
