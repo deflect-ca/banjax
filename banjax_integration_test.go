@@ -64,6 +64,6 @@ func TestProtectedResources(t *testing.T) {
 		// protected resources
 		{"GET", prefix + "wp-admin2", 401, randomXClientIP(), nil},
 		// sitewide_sha_inv_list
-		{"GET", prefix + "/", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/", 401, randomXClientIP(), nil},
 	})
 }
