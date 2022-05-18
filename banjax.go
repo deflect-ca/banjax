@@ -133,6 +133,7 @@ func main() {
 		for _ = range sighup_channel {
 			log.Println("got SIGHUP; reloading config")
 			rateLimitMutex.Lock()
+			config := internal.Config{}
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
 			rateLimitMutex.Unlock()
 			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
