@@ -1,12 +1,12 @@
 config_version: 2022-02-03_00:00:00
 global_decision_lists:
-  allow:
+  challenge:
     - 20.20.20.20
   iptables_block:
     - 30.40.50.60
   nginx_block:
     - 70.80.90.100
-  challenge:
+  allow:
     - 8.8.8.8
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
