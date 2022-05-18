@@ -66,4 +66,10 @@ func TestProtectedResources(t *testing.T) {
 		// sitewide_sha_inv_list on
 		{"GET", prefix + "/", 401, randomXClientIP(), nil},
 	})
+
+	reloadConfig(fixtureConfigTest)
+	httpTester(t, []TestResource{
+		// sitewide_sha_inv_list off
+		{"GET", prefix + "/", 200, randomXClientIP(), nil},
+	})
 }
