@@ -40,6 +40,13 @@ per_site_decision_lists:
       - 90.90.90.90
     challenge:
       - 91.91.91.91
+  "localhost:8081":
+    allow:
+      - 91.91.91.91
+    challenge:
+      - 90.90.90.90
+    block:
+      - 92.92.92.92
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
   - decision: nginx_block
