@@ -93,6 +93,10 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		}
 		config.RegexesWithRates[i].CompiledRegex = *re
 	}
+
+	for site, failAction := range config.SitewideShaInvList {
+		log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
+	}
 }
 
 func main() {
