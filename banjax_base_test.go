@@ -153,6 +153,10 @@ func randomXClientIP() http.Header {
 	return http.Header{"X-Client-IP": {randomIP()}}
 }
 
+func ClientIP(ip string) http.Header {
+	return http.Header{"X-Client-IP": {ip}}
+}
+
 func randomIP() string {
 	octets := []string{}
 	for i := 0; i < 4; i++ {

@@ -57,8 +57,8 @@ func TestProtectedResources(t *testing.T) {
 		// sitewide_sha_inv_list off
 		{"GET", prefix + "/1", 200, randomXClientIP(), nil},
 		// per_site_decision_lists
-		{"GET", prefix + "/", 200, "90.90.90.90", nil}, // allow
-		{"GET", prefix + "/", 401, "91.91.91.91", nil}, // challenge
+		{"GET", prefix + "/", 200, ClientIP("90.90.90.90"), nil}, // allow
+		{"GET", prefix + "/", 401, ClientIP("91.91.91.91"), nil}, // challenge
 	})
 
 	reloadConfig(fixtureConfigTestReload)
@@ -76,7 +76,7 @@ func TestProtectedResources(t *testing.T) {
 		// sitewide_sha_inv_list off
 		{"GET", prefix + "/3", 200, randomXClientIP(), nil},
 		// per_site_decision_lists
-		{"GET", prefix + "/", 401, "90.90.90.90", nil}, // challenge
-		{"GET", prefix + "/", 200, "91.91.91.91", nil}, // allow
+		{"GET", prefix + "/", 401, ClientIP("90.90.90.90"), nil}, // challenge
+		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil}, // allow
 	})
 }
