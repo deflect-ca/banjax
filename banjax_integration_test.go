@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -63,8 +64,12 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/", 200, ClientIP("20.20.20.20"), nil}, // allow
 		{"GET", prefix + "/", 401, ClientIP("8.8.8.8"), nil},     // challenge
 		// regexes_with_rates
-		{"GET", prefix + "/?challengeme", 200, randomXClientIP(), nil}, // no challenge first time
-		{"GET", prefix + "/?challengeme", 401, randomXClientIP(), nil}, // challenge
+		{"GET", prefix + "/?challengeme", 200, randomXClientIP(), nil},
+	})
+
+	time.Sleep(2 * time.Second),
+	httpTester(t, []TestResource{
+		{"GET", prefix + "/?challengeme", 401, randomXClientIP(), nil}
 	})
 
 	reloadConfig(fixtureConfigTestReload)
@@ -89,6 +94,10 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/", 401, ClientIP("20.20.20.20"), nil}, // challenge
 		// regexes_with_rates (rule removed)
 		{"GET", prefix + "/?challengeme", 200, randomXClientIP(), nil},
-		{"GET", prefix + "/?challengeme", 200, randomXClientIP(), nil},
+	})
+
+	time.Sleep(2 * time.Second),
+	httpTester(t, []TestResource{
+		{"GET", prefix + "/?challengeme", 200, randomXClientIP(), nil}
 	})
 }
