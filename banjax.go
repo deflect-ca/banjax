@@ -129,11 +129,9 @@ func main() {
 		for _ = range sighup_channel {
 			log.Println("got SIGHUP; reloading config")
 			rateLimitMutex.Lock()
-			decisionListsMutex.Lock()
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
 			rateLimitMutex.Unlock()
-			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
-			decisionListsMutex.Unlock()
+			configToStructs(&config, &passwordProtectedPaths, &decisionLists, &decisionListsMutex)
 		}
 	}()
 
@@ -158,7 +156,7 @@ func main() {
 	}
 	log.Println(config.KafkaBrokers)
 
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+	configToStructs(&config, &passwordProtectedPaths, &decisionLists, &decisionListsMutex)
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
@@ -270,10 +268,13 @@ func configToStructs(
 	config *internal.Config,
 	passwordProtectedPaths *internal.PasswordProtectedPaths,
 	decisionLists *internal.DecisionLists,
+	decisionListsMutex *sync.Mutex,
 ) {
 	configToStructsMutex.Lock()
 	defer configToStructsMutex.Unlock()
 
 	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
+	decisionListsMutex.Lock()
 	*decisionLists = internal.ConfigToDecisionLists(config)
+	decisionListsMutex.Unlock()
 }
