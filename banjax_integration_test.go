@@ -69,7 +69,7 @@ func TestProtectedResources(t *testing.T) {
 
 	time.Sleep(2 * time.Second)
 	httpTester(t, []TestResource{
-		{"GET", prefix + "/?challengeme", 401, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReload)
