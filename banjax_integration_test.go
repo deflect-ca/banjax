@@ -55,7 +55,7 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/wp-admin/admin-ajax.php#test", 200, randomXClientIP(), nil},
 		{"GET", prefix + "wp-admin/admin-ajax.php/", 200, randomXClientIP(), nil},
 		// sitewide_sha_inv_list
-		{"GET", prefix + "/", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/", 200, randomXClientIP(), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReload)
@@ -64,6 +64,6 @@ func TestProtectedResources(t *testing.T) {
 		// protected resources
 		{"GET", prefix + "wp-admin2", 401, randomXClientIP(), nil},
 		// sitewide_sha_inv_list
-		{"GET", prefix + "/", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/", 200, randomXClientIP(), nil},
 	})
 }
