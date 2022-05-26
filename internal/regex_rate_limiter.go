@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"log"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,7 +112,13 @@ func consumeLine(
 	// log.Println(line.Text)
 
 	// timeIpRest[2] is what we match the regex on
+	// line.text = 1653565100.000000 11.11.11.11 GET localhost:8081 GET /45in60 HTTP/1.1 Go-http-client/1.1
+	// timeIpRest[0] = 1653565100.000000
+	// timeIpRest[1] = 11.11.11.11
+	// timeIpRest[2] = GET localhost:8081 GET /45in60 HTTP/1.1 Go-http-client/1.1
+	// XXX timeIpRest[2] is the regex test target
 	timeIpRest := strings.SplitN(line.Text, " ", 3)
+	// log.Printf("timeIpRest 0=%v 1=%v 2=%v\n", timeIpRest[0], timeIpRest[1], timeIpRest[2])
 	if len(timeIpRest) < 3 {
 		log.Println("expected at least 3 words in log line: time, ip, rest")
 		consumeLineResult.Error = true
@@ -130,7 +135,11 @@ func consumeLine(
 	ipString := timeIpRest[1]
 
 	// we need to parse the url and hostname out of timeIpRest[2]
+	// methodUrlRest[0] = GET
+	// methodUrlRest[1] = localhost:8081
+	// methodUrlRest[2] = GET /45in60 HTTP/1.1 Go-http-client/1.1
 	methodUrlRest := strings.SplitN(timeIpRest[2], " ", 3)
+	// log.Printf("methodUrlRest 0=%v 1=%v 2=%v\n", methodUrlRest[0], methodUrlRest[1], methodUrlRest[2])
 	if len(methodUrlRest) < 3 {
 		log.Println("expected at least method, url, rest")
 		consumeLineResult.Error = true
@@ -138,12 +147,7 @@ func consumeLine(
 	}
 	// methodString := methodUrlRest[0]
 	urlString := methodUrlRest[1]
-	parsedUrl, err := url.Parse(urlString)
-	if err != nil {
-		log.Printf("could not parse a host from the url: %v\n", urlString)
-		consumeLineResult.Error = true
-		return
-	}
+	// XXX We don't do url.Parse here because the urlString format is not 'http://hostname/path' but hostname only
 
 	// log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
 
@@ -168,7 +172,7 @@ func consumeLine(
 		ruleResult.RegexMatch = true
 
 		log.Println(regex_with_rate.HostsToSkip)
-		skip, ok := regex_with_rate.HostsToSkip[parsedUrl.Host]
+		skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
 		if ok && skip {
 			ruleResult.SkipHost = true
 			consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)

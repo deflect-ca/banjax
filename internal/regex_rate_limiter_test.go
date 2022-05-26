@@ -82,11 +82,11 @@ func TestConsumeLine(t *testing.T) {
 	configString := `
 regexes_with_rates:
   - rule: 'rule1'
-    regex: '^GET https?:\/\/\.*'
+    regex: 'GET example\.com GET .*'
     interval: 5
     hits_per_interval: 2
   - rule: 'rule2'
-    regex: '^POST https?:\/\/\.*'
+    regex: 'POST .*'
     interval: 5
     hits_per_interval: 1
 `
@@ -111,7 +111,7 @@ regexes_with_rates:
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
 	lineTime := fmt.Sprintf("%f", nowSeconds)
-	line := tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
+	line := tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -133,7 +133,7 @@ regexes_with_rates:
 
 	// 4 seconds after the first one
 	lineTime = fmt.Sprintf("%f", nowSeconds+4)
-	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
+	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 2 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -155,7 +155,7 @@ regexes_with_rates:
 
 	// a bit more than 5 seconds after the first one
 	lineTime = fmt.Sprintf("%f", nowSeconds+5.5)
-	line = tail.Line{Text: lineTime + " 1.2.3.4 GET http://example.com/whatever " +
+	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 3 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -177,7 +177,7 @@ regexes_with_rates:
 
 	// 1 second after the most recent one, but a POST instead of GET
 	lineTime = fmt.Sprintf("%f", nowSeconds+6.5)
-	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
+	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 4 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -206,7 +206,7 @@ regexes_with_rates:
 
 	// half a second after the most recent one, should exceed the rate limit
 	lineTime = fmt.Sprintf("%f", nowSeconds+7.0)
-	line = tail.Line{Text: lineTime + " 1.2.3.4 POST http://example.com/whatever " +
+	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 5 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -267,7 +267,7 @@ regexes_with_rates:
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
 	lineTime := fmt.Sprintf("%f", nowSeconds)
-	line := tail.Line{Text: lineTime + " 1.2.3.4 GET http://skiphost.com/whatever " +
+	line := tail.Line{Text: lineTime + " 1.2.3.4 GET skiphost.com GET/whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
