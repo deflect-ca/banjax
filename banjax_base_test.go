@@ -167,13 +167,18 @@ func randomIP() string {
 	return strings.Join(octets, ".")
 }
 
-func reloadConfig(path string) {
+func reloadConfig(path string, randomReqCount int) {
 	done := make(chan bool)
+
+	// just to make a mark in log so we know when the reload is done
+	httpStress(
+		[]TestResource{{"GET", "/auth_request?path=/reloadConfig", 200, randomXClientIP(), nil}}, 1)
+
 	// Simulate activity of http requests when the config is reloaded
 	go func() {
 		httpStress(
-			[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
-			50)
+			[]TestResource{{"GET", "/auth_request?path=/", 200, randomXClientIP(), nil}},
+			randomReqCount)
 		done <- true
 	}()
 

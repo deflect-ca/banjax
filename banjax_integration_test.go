@@ -33,7 +33,7 @@ func TestBanjaxEndpoint(t *testing.T) {
 }
 
 func TestProtectedResources(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest)
+	defer reloadConfig(fixtureConfigTest, 50)
 
 	/*
 		password_protected_paths:
@@ -77,7 +77,7 @@ func TestProtectedResources(t *testing.T) {
 			"localhost":
 				- wp-admin
 	*/
-	reloadConfig(fixtureConfigTestReload)
+	reloadConfig(fixtureConfigTestReload, 50)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// protected resources
@@ -86,7 +86,7 @@ func TestProtectedResources(t *testing.T) {
 }
 
 func TestGlobalDecisionLists(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest)
+	defer reloadConfig(fixtureConfigTest, 50)
 
 	/*
 		global_decision_lists:
@@ -116,7 +116,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 			challenge:
 				- 20.20.20.20  # test value change
 	*/
-	reloadConfig(fixtureConfigTestReload)
+	reloadConfig(fixtureConfigTestReload, 50)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// global_decision_lists
@@ -126,7 +126,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 }
 
 func TestPerSiteDecisionLists(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest)
+	defer reloadConfig(fixtureConfigTest, 50)
 
 	/*
 		per_site_decision_lists:
@@ -154,7 +154,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 				block:
 				- 92.92.92.92
 	*/
-	reloadConfig(fixtureConfigTestReload)
+	reloadConfig(fixtureConfigTestReload, 50)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// per_site_decision_lists
@@ -163,7 +163,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 }
 
 func TestSitewideShaInvList(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest)
+	defer reloadConfig(fixtureConfigTest, 50)
 
 	/*
 		sitewide_sha_inv_list:
@@ -182,7 +182,7 @@ func TestSitewideShaInvList(t *testing.T) {
 			foobar.com: no_block
 			"localhost:8081": block
 	*/
-	reloadConfig(fixtureConfigTestShaInv)
+	reloadConfig(fixtureConfigTestShaInv, 50)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// sitewide_sha_inv_list on
@@ -194,7 +194,7 @@ func TestSitewideShaInvList(t *testing.T) {
 			example.com: block
 			foobar.com: no_block
 	*/
-	reloadConfig(fixtureConfigTest)
+	reloadConfig(fixtureConfigTest, 50)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
 		// sitewide_sha_inv_list off
