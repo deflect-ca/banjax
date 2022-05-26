@@ -203,8 +203,8 @@ func TestSitewideShaInvList(t *testing.T) {
 	})
 }
 
-func TestRegexesWithRates(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 1)
+func TestRegexesWithRatesChallengeme(t *testing.T) {
+	defer reloadConfig(fixtureConfigTestRegexBanner, 1) // prepare for next test
 
 	/*
 		- decision: challenge
@@ -234,5 +234,50 @@ func TestRegexesWithRates(t *testing.T) {
 		// regexes_with_rates (rule removed)
 		{"GET", prefix + "/3?challengeme", 200, ClientIP("9.9.9.9"), nil},
 		{"GET", prefix + "/4?challengeme", 200, ClientIP("9.9.9.9"), nil},
+	})
+}
+
+func TestRegexesWithRates(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1)
+
+	/* (fixtureConfigTestRegexBanner)
+	# test target 1
+	- decision: challenge
+		hits_per_interval: 0
+		interval: 1
+		regex: .*
+		rule: "Challenge all but skip localhost:8081"
+		hosts_to_skip:
+			"localhost:8081": true
+	# test target 2
+	- decision: nginx_block
+		hits_per_interval: 45
+		interval: 60
+		regex: "GET .* /"
+		rule: "All sites/GET: 45 req/60 sec"
+	*/
+	prefix := "/auth_request?path="
+
+	// test target 1
+	httpTester(t, []TestResource{
+		// first test should pass
+		{"GET", prefix + "/1", 200, ClientIP("10.10.10.10"), nil},
+	})
+
+	time.Sleep(2 * time.Second)
+	httpTester(t, []TestResource{
+		// later should also pass since host is skipped
+		{"GET", prefix + "/2", 200, ClientIP("10.10.10.10"), nil},
+	})
+
+	// test target 2, make 45 req
+	httpStress(
+		[]TestResource{{"GET", prefix + "/45in60", 200, ClientIP("11.11.11.11"), nil}},
+		45)
+
+	time.Sleep(2 * time.Second)
+	httpTester(t, []TestResource{
+		// should be banned (nginx_block = 403)
+		{"GET", prefix + "/45in60", 403, ClientIP("11.11.11.11"), nil},
 	})
 }
