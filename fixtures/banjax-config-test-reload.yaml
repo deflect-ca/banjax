@@ -47,24 +47,6 @@ per_site_decision_lists:
       - 92.92.92.92
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
-  - decision: nginx_block
-    hits_per_interval: 800
-    interval: 30
-    regex: .*
-    rule: "All sites/methods: 800 req/30 sec"
-    hosts_to_skip:
-      example.com: true
-      foo.bar: true
-  - decision: challenge
-    hits_per_interval: 45
-    interval: 60
-    regex: "^POST .*"
-    rule: "All sites/POST: 45 req/60 sec"
-  - decision: iptables_block
-    hits_per_interval: 22
-    interval: 10
-    regex: "^GET .*"
-    rule: "All sites/GET on root: 22 req/10 sec"
   - decision: allow
     hits_per_interval: 0
     interval: 1

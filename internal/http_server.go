@@ -90,11 +90,21 @@ func RunHttpServer(
 		}
 		defer logFile.Close()
 
+		// XXX This is to simulate log coming from nginx to test regex banner
+		// nginx format '$msec $remote_addr $request_method $host $request $http_user_agent'
+		// nginx log example:
+		//   1653561078.839 127.0.0.1 POST example.com POST / HTTP/1.1 -
+		// standalone log example:
+		//   1653562803.000000 81.84.95.145 GET localhost:8081 GET / HTTP/1.1 Go-http-client/1.1
 		r.Use(func(c *gin.Context) {
-			_, err = io.WriteString(logFile, fmt.Sprintf("%f 127.0.0.1 GET example.com %s %s HTTP/1.1 Mozilla -\n",
+			_, err = io.WriteString(logFile, fmt.Sprintf("%f %s %s %s %s %s HTTP/1.1 %s\n",
 				float64(time.Now().Unix()),
+				c.Request.Header.Get("X-Client-IP"), // integration test gen IP in this field
 				c.Request.Method,
-				c.Query("path")))
+				c.Request.Host,
+				c.Request.Method,
+				c.Query("path"),
+				c.Request.Header.Get("User-Agent")))
 			if err != nil {
 				log.Printf("failed to write? %v\n", err)
 			}

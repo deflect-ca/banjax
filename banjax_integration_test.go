@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -199,5 +200,39 @@ func TestSitewideShaInvList(t *testing.T) {
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
 		// sitewide_sha_inv_list off
 		{"GET", prefix + "/3", 200, randomXClientIP(), nil},
+	})
+}
+
+func TestRegexesWithRates(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1)
+
+	/*
+		- decision: challenge
+			hits_per_interval: 0
+			interval: 1
+			regex: .*challengeme.*
+			rule: "instant challenge"
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		// first test should pass
+		{"GET", prefix + "/1?challengeme", 200, ClientIP("9.9.9.9"), nil},
+	})
+
+	time.Sleep(2 * time.Second)
+	httpTester(t, []TestResource{
+		// later should fail
+		{"GET", prefix + "/2?challengeme", 401, ClientIP("9.9.9.9"), nil},
+	})
+
+	/*
+		removed
+	*/
+	reloadConfig(fixtureConfigTestReload, 1)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
+		// regexes_with_rates (rule removed)
+		{"GET", prefix + "/3?challengeme", 200, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/4?challengeme", 200, ClientIP("9.9.9.9"), nil},
 	})
 }
