@@ -78,6 +78,7 @@ regexes_with_rates:
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
+  "localhost:8081": block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10

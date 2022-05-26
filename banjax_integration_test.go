@@ -5,7 +5,6 @@ package main
 import (
 	"os"
 	"testing"
-	"time"
 )
 
 func TestMain(m *testing.M) {
@@ -36,6 +35,18 @@ func TestBanjaxEndpoint(t *testing.T) {
 func TestProtectedResources(t *testing.T) {
 	defer reloadConfig(fixtureConfigTest)
 
+	/*
+		password_protected_paths:
+			"localhost:8081":
+				- wp-admin_a
+				- wp-admin_b
+				- wp-admin_c
+				- wp-admin_d
+				- wp-admin_e
+				- wp-admin_f
+				- wp-admin_g
+				- wp-admin
+	*/
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
@@ -55,49 +66,138 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/wp-admin/admin-ajax.php?a=1&b=2", 200, randomXClientIP(), nil},
 		{"GET", prefix + "/wp-admin/admin-ajax.php#test", 200, randomXClientIP(), nil},
 		{"GET", prefix + "wp-admin/admin-ajax.php/", 200, randomXClientIP(), nil},
-		// sitewide_sha_inv_list off
-		{"GET", prefix + "/1", 200, randomXClientIP(), nil},
-		// per_site_decision_lists
-		{"GET", prefix + "/", 200, ClientIP("90.90.90.90"), nil}, // allow
-		{"GET", prefix + "/", 401, ClientIP("91.91.91.91"), nil}, // challenge
-		// global_decision_lists
-		{"GET", prefix + "/", 200, ClientIP("20.20.20.20"), nil}, // allow
-		{"GET", prefix + "/", 401, ClientIP("8.8.8.8"), nil},     // challenge
-		// regexes_with_rates
-		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},
 	})
 
-	time.Sleep(2 * time.Second)
-	httpTester(t, []TestResource{
-		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},
-	})
-
+	/*
+		password_protected_paths:
+			"localhost:8081":
+				- wp-admin
+				- wp-admin2
+				- app/admin
+			"localhost":
+				- wp-admin
+	*/
 	reloadConfig(fixtureConfigTestReload)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// protected resources
 		{"GET", prefix + "wp-admin2", 401, randomXClientIP(), nil},
+	})
+}
+
+func TestGlobalDecisionLists(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest)
+
+	/*
+		global_decision_lists:
+			allow:
+				- 20.20.20.20
+			iptables_block:
+				- 30.40.50.60
+			nginx_block:
+				- 70.80.90.100
+			challenge:
+				- 8.8.8.8
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		// global_decision_lists
+		{"GET", prefix + "/global_allow20", 200, ClientIP("20.20.20.20"), nil},
+		{"GET", prefix + "/global_challenge_8", 401, ClientIP("8.8.8.8"), nil},
+	})
+
+	/*
+		global_decision_lists:
+			allow: []  # test remove
+			iptables_block:
+				- 30.40.50.60
+			nginx_block:
+				- 70.80.90.100
+			challenge:
+				- 20.20.20.20  # test value change
+	*/
+	reloadConfig(fixtureConfigTestReload)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
+		// global_decision_lists
+		{"GET", prefix + "/global_allow8", 200, ClientIP("8.8.8.8"), nil},
+		{"GET", prefix + "/global_challenge_20", 401, ClientIP("20.20.20.20"), nil},
+	})
+}
+
+func TestPerSiteDecisionLists(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest)
+
+	/*
+		per_site_decision_lists:
+			"localhost:8081":
+				allow:
+				- 90.90.90.90
+				challenge:
+				- 91.91.91.91
+				block:
+				- 92.92.92.92
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		// per_site_decision_lists
+		{"GET", prefix + "/", 200, ClientIP("90.90.90.90"), nil},
+		{"GET", prefix + "/", 401, ClientIP("91.91.91.91"), nil},
+	})
+
+	/*
+		per_site_decision_lists:
+			"localhost:8081":
+				allow:
+				- 91.91.91.91  # test change
+				challenge: []  # test remove
+				block:
+				- 92.92.92.92
+	*/
+	reloadConfig(fixtureConfigTestReload)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
+		// per_site_decision_lists
+		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil},
+	})
+}
+
+func TestSitewideShaInvList(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest)
+
+	/*
+		sitewide_sha_inv_list:
+			example.com: block
+			foobar.com: no_block
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		// sitewide_sha_inv_list off
+		{"GET", prefix + "/1", 200, randomXClientIP(), nil},
+	})
+
+	/*
+		sitewide_sha_inv_list:
+			example.com: block
+			foobar.com: no_block
+			"localhost:8081": block
+	*/
+	reloadConfig(fixtureConfigTestShaInv)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// sitewide_sha_inv_list on
 		{"GET", prefix + "/2", 401, randomXClientIP(), nil},
 	})
 
+	/*
+		sitewide_sha_inv_list:
+			example.com: block
+			foobar.com: no_block
+	*/
 	reloadConfig(fixtureConfigTest)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
 		// sitewide_sha_inv_list off
 		{"GET", prefix + "/3", 200, randomXClientIP(), nil},
-		// per_site_decision_lists
-		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil}, // allow
-		{"GET", prefix + "/", 401, ClientIP("90.90.90.90"), nil}, // challenge
-		// global_decision_lists
-		{"GET", prefix + "/", 200, ClientIP("8.8.8.8"), nil},     // cleared
-		{"GET", prefix + "/", 401, ClientIP("20.20.20.20"), nil}, // challenge
-		// regexes_with_rates (rule removed)
-		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},
-	})
-
-	time.Sleep(2 * time.Second)
-	httpTester(t, []TestResource{
-		{"GET", prefix + "/?challengeme", 200, ClientIP("9.9.9.9"), nil},
 	})
 }
