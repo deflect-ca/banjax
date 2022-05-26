@@ -8,8 +8,10 @@ package internal
 
 import (
 	"fmt"
+
 	"github.com/hpcloud/tail"
 	"gopkg.in/yaml.v2"
+
 	// "io/ioutil"
 	"regexp"
 	"sync"
@@ -267,7 +269,7 @@ regexes_with_rates:
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
 	lineTime := fmt.Sprintf("%f", nowSeconds)
-	line := tail.Line{Text: lineTime + " 1.2.3.4 GET skiphost.com GET/whatever " +
+	line := tail.Line{Text: lineTime + " 1.2.3.4 GET skiphost.com GET /whatever " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
 	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
