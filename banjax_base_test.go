@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const endpoint = "http://localhost:8081"
@@ -27,6 +29,7 @@ func setUp() {
 	createTempDir()
 	copyConfigFile(fixtureConfigTest)
 	setCommandLineFlags()
+	log.SetFlags(log.LstdFlags | log.Lshortfile) // show line num in logs
 	go main()
 	time.Sleep(1 * time.Second)
 }
@@ -85,19 +88,16 @@ func httpTester(t *testing.T, resources []TestResource) {
 	for _, resource := range resources {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
-			httpCheck(client, &resource)
+			httpCheck(client, &resource, t)
 		})
 	}
 }
 
-func httpCheck(client *http.Client, resource_ptr *TestResource) {
+func httpCheck(client *http.Client, resource_ptr *TestResource, t *testing.T) {
 	resource := *resource_ptr
 	resp := httpRequest(client, resource)
 
-	if resp.StatusCode != resource.response_code {
-		log.Fatalf("Expected %d and got %d when testing %s %s",
-			resource.response_code, resp.StatusCode, resource.method, resource.name)
-	}
+	assert.Equal(t, resource.response_code, resp.StatusCode, "Response code is not correct")
 
 	if len(resource.contains) > 0 {
 		body, err := io.ReadAll(resp.Body)
