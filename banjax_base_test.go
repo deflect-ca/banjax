@@ -14,11 +14,15 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const endpoint = "http://localhost:8081"
 const fixtureConfigTest = "./fixtures/banjax-config-test.yaml"
 const fixtureConfigTestReload = "./fixtures/banjax-config-test-reload.yaml"
+const fixtureConfigTestShaInv = "./fixtures/banjax-config-test-sha-inv.yaml"
+const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner.yaml"
 
 var tmpDir string
 var configFile string
@@ -27,6 +31,7 @@ func setUp() {
 	createTempDir()
 	copyConfigFile(fixtureConfigTest)
 	setCommandLineFlags()
+	log.SetFlags(log.LstdFlags | log.Lshortfile) // show line num in logs
 	go main()
 	time.Sleep(1 * time.Second)
 }
@@ -85,19 +90,16 @@ func httpTester(t *testing.T, resources []TestResource) {
 	for _, resource := range resources {
 		test_name := "Test_" + resource.method + "_" + resource.name
 		t.Run(test_name, func(t *testing.T) {
-			httpCheck(client, &resource)
+			httpCheck(client, &resource, t)
 		})
 	}
 }
 
-func httpCheck(client *http.Client, resource_ptr *TestResource) {
+func httpCheck(client *http.Client, resource_ptr *TestResource, t *testing.T) {
 	resource := *resource_ptr
 	resp := httpRequest(client, resource)
 
-	if resp.StatusCode != resource.response_code {
-		log.Fatalf("Expected %d and got %d when testing %s %s",
-			resource.response_code, resp.StatusCode, resource.method, resource.name)
-	}
+	assert.Equal(t, resource.response_code, resp.StatusCode, "Response code is not correct")
 
 	if len(resource.contains) > 0 {
 		body, err := io.ReadAll(resp.Body)
@@ -153,6 +155,10 @@ func randomXClientIP() http.Header {
 	return http.Header{"X-Client-IP": {randomIP()}}
 }
 
+func ClientIP(ip string) http.Header {
+	return http.Header{"X-Client-IP": {ip}}
+}
+
 func randomIP() string {
 	octets := []string{}
 	for i := 0; i < 4; i++ {
@@ -162,13 +168,18 @@ func randomIP() string {
 	return strings.Join(octets, ".")
 }
 
-func reloadConfig(path string) {
+func reloadConfig(path string, randomReqCount int) {
 	done := make(chan bool)
+
+	// just to make a mark in log so we know when the reload is done
+	httpStress(
+		[]TestResource{{"GET", "/auth_request?path=/reloadConfig", 200, randomXClientIP(), nil}}, 1)
+
 	// Simulate activity of http requests when the config is reloaded
 	go func() {
 		httpStress(
-			[]TestResource{{"GET", "/auth_request", 200, randomXClientIP(), nil}},
-			50)
+			[]TestResource{{"GET", "/auth_request?path=/", 200, randomXClientIP(), nil}},
+			randomReqCount)
 		done <- true
 	}()
 

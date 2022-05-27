@@ -1,13 +1,12 @@
 config_version: 2022-02-03_00:00:00
 global_decision_lists:
-  allow:
-    - 20.20.20.20
+  allow: []  # test remove
   iptables_block:
     - 30.40.50.60
   nginx_block:
     - 70.80.90.100
   challenge:
-    - 8.8.8.8
+    - 20.20.20.20  # test value change
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -40,26 +39,14 @@ per_site_decision_lists:
       - 90.90.90.90
     challenge:
       - 91.91.91.91
+  "localhost:8081":
+    allow:
+      - 91.91.91.91  # test change
+    challenge: []  # test remove
+    block:
+      - 92.92.92.92
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
-  - decision: nginx_block
-    hits_per_interval: 800
-    interval: 30
-    regex: .*
-    rule: "All sites/methods: 800 req/30 sec"
-    hosts_to_skip:
-      example.com: true
-      foo.bar: true
-  - decision: challenge
-    hits_per_interval: 45
-    interval: 60
-    regex: "^POST .*"
-    rule: "All sites/POST: 45 req/60 sec"
-  - decision: iptables_block
-    hits_per_interval: 22
-    interval: 10
-    regex: "^GET .*"
-    rule: "All sites/GET on root: 22 req/10 sec"
   - decision: allow
     hits_per_interval: 0
     interval: 1
@@ -70,15 +57,9 @@ regexes_with_rates:
     interval: 1
     regex: .*blockme.*
     rule: "instant block"
-  - decision: challenge
-    hits_per_interval: 0
-    interval: 1
-    regex: .*challengeme.*
-    rule: "instant challenge"
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
-  "localhost:8081": block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10

@@ -75,6 +75,20 @@ regexes_with_rates:
     interval: 1
     regex: .*challengeme.*
     rule: "instant challenge"
+  # test target 1
+  - decision: challenge
+    hits_per_interval: 0
+    interval: 1
+    regex: .*
+    rule: "Challenge all but skip localhost:8081"
+    hosts_to_skip:
+      "localhost:8081": true
+  # test target 2
+  - decision: nginx_block
+    hits_per_interval: 45
+    interval: 60
+    regex: "GET .* /"
+    rule: "All sites/GET: 45 req/60 sec"
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
