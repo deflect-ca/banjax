@@ -8,7 +8,6 @@ package internal
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/hpcloud/tail"
