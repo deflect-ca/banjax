@@ -289,7 +289,7 @@ func TestPerSiteRegexStress(t *testing.T) {
 	var rateLimitMutex sync.Mutex
 	var domains []string
 	var paths []string
-	testCount := 6000
+	testCount := 10000
 	configString := `
 regexes_with_rates:
 `
@@ -332,7 +332,7 @@ regexes_with_rates:
 		ip := gofakeit.IPv4Address()
 		logLine := fmt.Sprintf("%f %s GET %s GET %s HTTP/2.0 %s",
 			float64(time.Now().UnixNano()/1e9)+float64(j), ip, domains[j], paths[j], gofakeit.UserAgent())
-		log.Printf("Testing: " + logLine)
+		// log.Printf("Testing: " + logLine)
 		lineTail := tail.Line{Text: logLine}
 
 		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
@@ -351,6 +351,6 @@ regexes_with_rates:
 		if mockBanner.bannedIp != ip {
 			t.Errorf("should have banned this ip, but mockBanner.bannedIp is %s", mockBanner.bannedIp)
 		}
-		log.Printf("Pass")
+		// log.Printf("Pass")
 	}
 }
