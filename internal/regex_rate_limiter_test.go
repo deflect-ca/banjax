@@ -54,36 +54,6 @@ func (mb *MockBanner) LogRegexBan(
 	log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
 
-// XXX need think about how to test this well
-// func TestRunLogTailer(t *testing.T) {
-// 	config := Config{}
-// 	configBytes, err := ioutil.ReadFile("banjax-config.yaml") // XXX allow different location
-// 	if err != nil {
-// 		panic("couldn't read config file!")
-// 	}
-// 	fmt.Printf("read %v\n", string(configBytes[:]))
-//
-// 	err = yaml.Unmarshal(configBytes, &config)
-// 	if err != nil {
-// 		fmt.Printf("%v\n", err)
-// 		panic("couldn't parse config file!")
-// 	}
-//
-// 	for i, _ := range config.RegexesWithRates {
-// 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-// 		if err != nil {
-// 			panic("bad regex")
-// 		}
-// 		config.RegexesWithRates[i].CompiledRegex = *re
-// 	}
-//
-// 	decisionLists := ConfigToDecisionLists(&config)
-// 	var wg sync.WaitGroup
-// 	wg.Add(1)
-// 	RunLogTailer(&config, &decisionLists, &wg)
-// 	//wg.Wait()
-// }
-
 func TestConsumeLine(t *testing.T) {
 	var rateLimitMutex sync.Mutex
 	configString := `
