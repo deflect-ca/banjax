@@ -8,12 +8,15 @@ package internal
 
 import (
 	"fmt"
+	"log"
 
+	"github.com/brianvoe/gofakeit/v6"
 	"github.com/hpcloud/tail"
 	"gopkg.in/yaml.v2"
 
 	// "io/ioutil"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -47,6 +50,7 @@ func (mb *MockBanner) LogRegexBan(
 	logLine string,
 	decision Decision,
 ) {
+	log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
 
 // XXX need think about how to test this well
@@ -277,5 +281,71 @@ regexes_with_rates:
 	_, ok := ipToRegexStates["1.2.3.4"]
 	if ok {
 		t.Fatalf("should not have found a state since we skip this host")
+	}
+}
+
+func TestPerSiteRegexStress(t *testing.T) {
+	var rateLimitMutex sync.Mutex
+	var domains []string
+	var paths []string
+	configString := `
+regexes_with_rates:
+`
+	for i := 0; i < 10; i++ {
+		domain := gofakeit.DomainName()
+		path := gofakeit.Word()
+		configString += fmt.Sprintf(`
+  - rule: 'rule%d'
+    regex: 'GET %s GET \/%s HTTP\/[0-2.]+ .*'
+    interval: 1
+    hits_per_interval: 0
+`, i, strings.Replace(domain, ".", "\\.", -1), path)
+		domains = append(domains, domain)
+		paths = append(paths, path)
+	}
+	// log.Printf(configString)
+
+	config := Config{}
+	err := yaml.Unmarshal([]byte(configString), &config)
+	if err != nil {
+		panic("couldn't parse config file!")
+	}
+
+	for i, _ := range config.RegexesWithRates {
+		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
+		if err != nil {
+			panic("bad regex")
+		}
+		config.RegexesWithRates[i].CompiledRegex = *re
+	}
+
+	ipToRegexStates := IpToRegexStates{}
+	mockBanner := MockBanner{}
+
+	for j := 0; j < 10; j++ {
+		ip := gofakeit.IPv4Address()
+		logLine := fmt.Sprintf("%f %s GET %s GET /%s HTTP/1.1 "+
+			"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36",
+			float64(time.Now().UnixNano()/1e9), ip, domains[j], paths[j])
+		log.Printf("Testing: " + logLine)
+		lineTail := tail.Line{Text: logLine}
+
+		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
+
+		ipStates, ok := ipToRegexStates[ip]
+		if !ok {
+			t.Fatalf("fail1, IP not found in ipToRegexStates")
+		}
+		state, ok := (*ipStates)[fmt.Sprintf("rule%d", j)]
+		if !ok {
+			t.Errorf("fail2, rule not found in ipStates")
+		}
+		if state.NumHits != 0 {
+			t.Errorf("fail3, Num hit should be 0, but is %d", state.NumHits)
+		}
+		if mockBanner.bannedIp != ip {
+			t.Errorf("should have banned this ip, but mockBanner.bannedIp is %s", mockBanner.bannedIp)
+		}
+		log.Printf("Pass")
 	}
 }
