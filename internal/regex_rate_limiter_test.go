@@ -15,6 +15,7 @@ import (
 	"gopkg.in/yaml.v2"
 
 	// "io/ioutil"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -288,15 +289,20 @@ func TestPerSiteRegexStress(t *testing.T) {
 	var rateLimitMutex sync.Mutex
 	var domains []string
 	var paths []string
+	testCount := 6000
 	configString := `
 regexes_with_rates:
 `
-	for i := 0; i < 10; i++ {
+	for i := 0; i < testCount; i++ {
 		domain := gofakeit.DomainName()
-		path := gofakeit.Word()
+		url, err := url.Parse(gofakeit.URL())
+		if err != nil {
+			panic(err)
+		}
+		path := url.Path
 		configString += fmt.Sprintf(`
   - rule: 'rule%d'
-    regex: 'GET %s GET \/%s HTTP\/[0-2.]+ .*'
+    regex: 'GET %s GET \%s HTTP\/[0-2.]+ .*'
     interval: 1
     hits_per_interval: 0
 `, i, strings.Replace(domain, ".", "\\.", -1), path)
@@ -322,11 +328,10 @@ regexes_with_rates:
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
 
-	for j := 0; j < 10; j++ {
+	for j := 0; j < testCount; j++ {
 		ip := gofakeit.IPv4Address()
-		logLine := fmt.Sprintf("%f %s GET %s GET /%s HTTP/1.1 "+
-			"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36",
-			float64(time.Now().UnixNano()/1e9), ip, domains[j], paths[j])
+		logLine := fmt.Sprintf("%f %s GET %s GET %s HTTP/2.0 %s",
+			float64(time.Now().UnixNano()/1e9)+float64(j), ip, domains[j], paths[j], gofakeit.UserAgent())
 		log.Printf("Testing: " + logLine)
 		lineTail := tail.Line{Text: logLine}
 
