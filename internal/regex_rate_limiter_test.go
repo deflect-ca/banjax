@@ -51,7 +51,7 @@ func (mb *MockBanner) LogRegexBan(
 	logLine string,
 	decision Decision,
 ) {
-	log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
+	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
 
 func TestConsumeLine(t *testing.T) {
@@ -263,6 +263,7 @@ func TestPerSiteRegexStress(t *testing.T) {
 	configString := `
 regexes_with_rates:
 `
+	// make yaml config file
 	for i := 0; i < testCount; i++ {
 		domain := gofakeit.DomainName()
 		url, err := url.Parse(gofakeit.URL())
@@ -276,6 +277,7 @@ regexes_with_rates:
     interval: 1
     hits_per_interval: 0
 `, i, strings.Replace(domain, ".", "\\.", -1), path)
+		// save domain and path to generate log line
 		domains = append(domains, domain)
 		paths = append(paths, path)
 	}
@@ -299,6 +301,8 @@ regexes_with_rates:
 	mockBanner := MockBanner{}
 
 	for j := 0; j < testCount; j++ {
+		// make nginx logs
+		// we must provide valid timestamp here as regex banner will check and drop old logs
 		ip := gofakeit.IPv4Address()
 		logLine := fmt.Sprintf("%f %s GET %s GET %s HTTP/2.0 %s",
 			float64(time.Now().UnixNano()/1e9)+float64(j), ip, domains[j], paths[j], gofakeit.UserAgent())
@@ -321,6 +325,5 @@ regexes_with_rates:
 		if mockBanner.bannedIp != ip {
 			t.Errorf("should have banned this ip, but mockBanner.bannedIp is %s", mockBanner.bannedIp)
 		}
-		// log.Printf("Pass")
 	}
 }
