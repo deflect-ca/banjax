@@ -171,7 +171,7 @@ func consumeLine(
 		}
 		ruleResult.RegexMatch = true
 
-		log.Println(regex_with_rate.HostsToSkip)
+		// log.Println(regex_with_rate.HostsToSkip)
 		skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
 		if ok && skip {
 			ruleResult.SkipHost = true
