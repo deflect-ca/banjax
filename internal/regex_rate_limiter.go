@@ -42,11 +42,9 @@ func RunLogTailer(
 					banner,
 					config,
 				)
-				bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
+				_, err := json.MarshalIndent(consumeLineResult, "", "  ")
 				if err != nil {
 					log.Println("error marshalling consumeLineResult")
-				} else {
-					log.Println(string(bytes))
 				}
 			}
 		}
