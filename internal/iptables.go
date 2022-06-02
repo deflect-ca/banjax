@@ -8,9 +8,9 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/coreos/go-iptables/iptables"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coreos/go-iptables/iptables"
 )
 
 func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
@@ -154,6 +156,20 @@ func purgeNginxAuthCacheForIp(ip string) {
 		log.Println("instead got: ", string(body))
 	}
 }
+
+type LogJson struct {
+	Path        string `json:"path"`
+	Datestamp   string `json:"datestamp"`
+	Trigger     string `json:"trigger"`
+	Client_ua   string `json:"client_ua"`
+	Client_ip   string `json:"client_ip"`
+	Rule_type   string `json:"rule_type"`
+	Http_method string `json:"http_method"`
+	Http_schema string `json:"http_schema"`
+	Http_host   string `json:"http_host"`
+	Action      string `json:"action"`
+}
+
 func (b Banner) LogRegexBan(
 	logTime time.Time,
 	ip string,
@@ -166,17 +182,28 @@ func (b Banner) LogRegexBan(
 	words := strings.Split(logLine, " ")
 	log.Println(words)
 	if len(words) < 6 {
-        log.Println("not enough words")
-        return
-    }
-	method := words[0]
-	host := words[1]
-	path := words[3]
-	userAgent := words[5]
+		log.Println("not enough words")
+		return
+	}
 
-	b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
-		ip, timeString, ruleName, method, path, host, userAgent,
-	)
+	//b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
+	//	ip, timeString, ruleName, method, path, host, userAgent,
+	//)
+
+	logObj := LogJson{
+		words[3], // path
+		timeString,
+		ruleName,
+		words[5], // client_ua
+		ip,
+		"regex",
+		words[0], // method
+		"https",  // XXX nginx did not tell in log
+		words[1], // host
+		"banned",
+	}
+	bytesJson, _ := json.Marshal(logObj)
+	b.Logger.Printf(string(bytesJson))
 }
 
 func (b Banner) LogFailedChallengeBan(
@@ -190,9 +217,24 @@ func (b Banner) LogFailedChallengeBan(
 ) {
 	timeString := time.Now().Format("[2006-01-02T15:04:05]")
 
-	b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
-		ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
-	)
+	//b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
+	//	ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
+	//)
+
+	logObj := LogJson{
+		path,
+		timeString,
+		fmt.Sprintf("failed challenge %s for host %s %d times", challengeType, host, tooManyFailedChallengesThreshold),
+		userAgent,
+		ip,
+		"regex",
+		"-",     /// XXX
+		"https", // XXX
+		host,
+		"banned",
+	}
+	bytesJson, _ := json.Marshal(logObj)
+	b.Logger.Printf(string(bytesJson))
 }
 
 func (b Banner) BanOrChallengeIp(
