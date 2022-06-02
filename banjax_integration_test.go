@@ -15,6 +15,23 @@ func TestMain(m *testing.M) {
 	os.Exit(exit_code)
 }
 
+func TestTooManyFailedChallenge(t *testing.T) {
+	/*
+		too_many_failed_challenges_interval_seconds: 10
+		too_many_failed_challenges_threshold: 6
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 401, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 403, ClientIP("60.60.60.60"), nil},
+	})
+}
+
 func TestBanjaxEndpoint(t *testing.T) {
 	banjax_resources := []TestResource{
 		{"GET", "/auth_request", 200, randomXClientIP(), nil},

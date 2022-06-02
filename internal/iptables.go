@@ -243,7 +243,7 @@ func (b Banner) BanOrChallengeIp(
 	ip string,
 	decision Decision,
 ) {
-	log.Println("BanOrChallengeIp()")
+	log.Println("BanOrChallengeIp", ip, decision)
 
 	updateExpiringDecisionLists(
 		config,
@@ -262,6 +262,10 @@ func (b Banner) BanOrChallengeIp(
 func banIp(config *Config, ip string) {
 	if ip == "127.0.0.1" {
 		log.Println("Not going to block localhost")
+		return
+	}
+	if config.StandaloneTesting {
+		log.Println("Not calling iptables in testing")
 		return
 	}
 

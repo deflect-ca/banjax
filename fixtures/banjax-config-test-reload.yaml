@@ -64,7 +64,7 @@ server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
-too_many_failed_challenges_threshold: 3
+too_many_failed_challenges_threshold: 10000  # we don't want to test this here so set it very big
 password_cookie_ttl_seconds: 14400  # also modify internal/password-protected-path.html:168
 sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.html:94
 hmac_secret: secret
