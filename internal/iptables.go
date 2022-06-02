@@ -159,7 +159,7 @@ func purgeNginxAuthCacheForIp(ip string) {
 
 type LogJson struct {
 	Path        string `json:"path"`
-	Datestamp   string `json:"datestamp"`
+	Timestring  string `json:"timestring"`
 	Trigger     string `json:"trigger"`
 	Client_ua   string `json:"client_ua"`
 	Client_ip   string `json:"client_ip"`
@@ -177,7 +177,7 @@ func (b Banner) LogRegexBan(
 	logLine string,
 	decision Decision,
 ) {
-	timeString := logTime.Format("[2006-01-02T15:04:05]") // XXX should this be the log timestamp or time.Now()?
+	timeString := logTime.Format("2006-01-02T15:04:05") // XXX should this be the log timestamp or time.Now()?
 
 	words := strings.Split(logLine, " ")
 	log.Println(words)
@@ -216,7 +216,7 @@ func (b Banner) LogFailedChallengeBan(
 	decision Decision,
 	method string,
 ) {
-	timeString := time.Now().Format("[2006-01-02T15:04:05]")
+	timeString := time.Now().Format("2006-01-02T15:04:05")
 
 	//b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
 	//	ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
