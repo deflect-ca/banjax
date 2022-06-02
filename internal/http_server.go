@@ -236,6 +236,7 @@ func tooManyFailedChallenges(
 	challengeType string,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
+	method string,
 ) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
 	rateLimitMutex.Lock()
 	defer rateLimitMutex.Unlock()
@@ -269,6 +270,7 @@ func tooManyFailedChallenges(
 			config.TooManyFailedChallengesThreshold,
 			userAgent,
 			IptablesBlock,
+			method,
 		)
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
 		tooManyFailedChallengesResult.TooManyFailedChallenges = true
@@ -329,6 +331,7 @@ func sendOrValidateShaChallenge(
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	challengeCookie, err := c.Cookie("deflect_challenge2")
+	requestedMethod := c.Request.Method
 	if err == nil {
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
 		if err != nil {
@@ -357,6 +360,7 @@ func sendOrValidateShaChallenge(
 			"sha_inv",
 			rateLimitMutex,
 			failedChallengeStates,
+			requestedMethod,
 		)
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.TooManyFailedChallenges {
@@ -423,6 +427,7 @@ func sendOrValidatePassword(
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	passwordCookie, err := c.Cookie("deflect_password2")
+	requestedMethod := c.Request.Method
 	// log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
 		expectedHashedPassword, ok := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
@@ -458,6 +463,7 @@ func sendOrValidatePassword(
 		"password",
 		rateLimitMutex,
 		failedChallengeStates,
+		requestedMethod,
 	)
 	sendOrValidatePasswordResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 	// log.Println(tooManyFailedChallengesResult)

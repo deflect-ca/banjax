@@ -37,6 +37,7 @@ func (mb *MockBanner) LogFailedChallengeBan(
 	tooManyFailedChallengesThreshold int,
 	userAgent string,
 	decision Decision,
+	method string,
 ) {
 }
 

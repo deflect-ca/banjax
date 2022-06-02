@@ -117,7 +117,7 @@ type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision)
 	LogRegexBan(logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
-		userAgent string, decision Decision)
+		userAgent string, decision Decision, method string)
 }
 
 type Banner struct {
@@ -214,6 +214,7 @@ func (b Banner) LogFailedChallengeBan(
 	tooManyFailedChallengesThreshold int,
 	userAgent string,
 	decision Decision,
+	method string,
 ) {
 	timeString := time.Now().Format("[2006-01-02T15:04:05]")
 
@@ -227,8 +228,8 @@ func (b Banner) LogFailedChallengeBan(
 		fmt.Sprintf("failed challenge %s for host %s %d times", challengeType, host, tooManyFailedChallengesThreshold),
 		userAgent,
 		ip,
-		"regex",
-		"-",     /// XXX
+		"failed_challenge",
+		method,
 		"https", // XXX
 		host,
 		"banned",
