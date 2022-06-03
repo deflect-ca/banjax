@@ -164,9 +164,9 @@ type LogJson struct {
 	Client_ua   string `json:"client_ua"`
 	Client_ip   string `json:"client_ip"`
 	Rule_type   string `json:"rule_type"`
-	Http_method string `json:"http_method"`
-	Http_schema string `json:"http_schema"`
-	Http_host   string `json:"http_host"`
+	Http_method string `json:"client_request_method"`
+	Http_schema string `json:"http_request_scheme"`
+	Http_host   string `json:"client_request_host"`
 	Action      string `json:"action"`
 }
 
