@@ -197,7 +197,7 @@ func sendBytesToMessageChan(bytes []byte) {
 	// non-blocking send in case the RunKafkaWriter loop isn't receiving
 	select {
 	case messageChan <- bytes:
-		log.Println("put message on channel")
+		// log.Println("put message on channel")
 	default:
 		log.Println("did not put message on channel")
 	}
@@ -230,7 +230,7 @@ func RunKafkaWriter(
 
 		for {
 			msgBytes := <-messageChan
-			log.Println("got message from messageChan")
+			// log.Println("got message from messageChan")
 
 			err := w.WriteMessages(context.Background(),
 				kafka.Message{

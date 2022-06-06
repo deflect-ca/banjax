@@ -256,7 +256,7 @@ func main() {
 		for {
 			select {
 			case <-statusTicker.C:
-				log.Println("calling ReportStatusMessage")
+				// log.Println("calling ReportStatusMessage")
 				internal.ReportStatusMessage(
 					&config,
 				)
