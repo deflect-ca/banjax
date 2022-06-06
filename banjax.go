@@ -29,7 +29,7 @@ var shaInvChallengeEmbed embed.FS
 //go:embed internal/password-protected-path.html
 var passProtPathEmbed embed.FS
 
-func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int) {
+func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int, debugPtr *bool) {
 	config.RestartTime = restartTime
 	config.ReloadTime = int(time.Now().Unix()) // XXX
 
@@ -103,6 +103,11 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
 		}
 	}
+
+	if !config.Debug && *debugPtr {
+		log.Printf("debug mode enabled by command line param")
+		config.Debug = true
+	}
 }
 
 func main() {
@@ -120,6 +125,7 @@ func main() {
 
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
+	debugPtr := flag.Bool("debug", false, "debug mode with verbose logging")
 	flag.Parse()
 
 	restartTime := int(time.Now().Unix()) // XXX
@@ -127,7 +133,7 @@ func main() {
 	log.Println("config file: ", *configFilenamePtr)
 
 	config := internal.Config{}
-	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
+	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
 
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
@@ -140,7 +146,7 @@ func main() {
 			log.Println("got SIGHUP; reloading config")
 			rateLimitMutex.Lock()
 			config = internal.Config{}
-			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime)
+			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
 			rateLimitMutex.Unlock()
 			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 		}
@@ -165,7 +171,7 @@ func main() {
 	if len(config.KafkaBrokers) < 1 {
 		panic("config needs kafka_brokers!!")
 	}
-	log.Println(config.KafkaBrokers)
+	log.Println("Kafka brokers: ", config.KafkaBrokers)
 
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
