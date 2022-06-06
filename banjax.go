@@ -52,7 +52,11 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("read %v\n", *config)
+
+	// boolean default = false
+	if config.Debug {
+		log.Printf("read config %v\n", *config)
+	}
 
 	if config.ShaInvChallengeHTML != "" {
 		log.Printf("Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
@@ -94,8 +98,10 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		config.RegexesWithRates[i].CompiledRegex = *re
 	}
 
-	for site, failAction := range config.SitewideShaInvList {
-		log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
+	if config.Debug {
+		for site, failAction := range config.SitewideShaInvList {
+			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
+		}
 	}
 }
 

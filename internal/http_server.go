@@ -547,11 +547,13 @@ func decisionForNginx(
 			failedChallengeStates,
 			banner,
 		)
-		bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
-		if err != nil {
-			log.Println("error marshalling decisionForNginxResult")
-		} else {
-			log.Println(string(bytes))
+		if config.Debug {
+			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
+			if err != nil {
+				log.Println("error marshalling decisionForNginxResult")
+			} else {
+				log.Println(string(bytes))
+			}
 		}
 	}
 }

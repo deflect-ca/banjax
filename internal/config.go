@@ -55,6 +55,7 @@ type Config struct {
 	MetricsLogFileName                     string            `yaml:"metrics_log_file"`
 	ShaInvChallengeHTML                    string            `yaml:"sha_inv_challenge_html"`
 	PasswordProtectedPathHTML              string            `yaml:"password_protected_path_html"`
+	Debug                                  bool              `yaml:"debug"`
 }
 
 type RegexWithRate struct {
@@ -147,7 +148,9 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 				siteToPathToBool[site] = make(StringToBool)
 			}
 			siteToPathToBool[site][path] = true
-			log.Printf("password protected path: %s/%s\n", site, path)
+			if config.Debug {
+				log.Printf("password protected path: %s/%s\n", site, path)
+			}
 		}
 	}
 
@@ -168,8 +171,10 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 			log.Fatal("bad password hash!")
 		}
 		siteToPasswordHash[site] = passwordHashBytes
-		log.Println("passwordhashbytes:")
-		log.Println(passwordHashBytes)
+		if config.Debug {
+			log.Println("passwordhashbytes:")
+			log.Println(passwordHashBytes)
+		}
 	}
 
 	return PasswordProtectedPaths{siteToPathToBool, siteToExceptionToBool, siteToPasswordHash}
@@ -189,7 +194,9 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 					perSiteDecisionLists[site] = make(StringToDecision)
 				}
 				perSiteDecisionLists[site][ip] = stringToDecision[decisionString]
-				log.Printf("site: %s, decision: %s, ip: %s\n", site, decisionString, ip)
+				if config.Debug {
+					log.Printf("site: %s, decision: %s, ip: %s\n", site, decisionString, ip)
+				}
 			}
 		}
 	}
@@ -197,12 +204,16 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	for decisionString, ips := range config.GlobalDecisionLists {
 		for _, ip := range ips {
 			globalDecisionLists[ip] = stringToDecision[decisionString]
-			log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+			if config.Debug {
+				log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+			}
 		}
 	}
 
 	for site, failAction := range config.SitewideShaInvList {
-		log.Printf("sitewide site: %s, failAction: %s\n", site, failAction)
+		if config.Debug {
+			log.Printf("sitewide site: %s, failAction: %s\n", site, failAction)
+		}
 		if failAction == "block" {
 			sitewideShaInvList[site] = Block
 		} else if failAction == "no_block" {
