@@ -179,7 +179,7 @@ func accessDenied(c *gin.Context) {
 
 func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
-	log.Println("Serving new cookie: ", newCookie)
+	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 	c.Data(401, "text/html", *pageBytes)
