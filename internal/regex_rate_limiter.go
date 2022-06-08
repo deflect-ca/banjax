@@ -25,7 +25,9 @@ func RunLogTailer(
 	ipToRegexStates *IpToRegexStates,
 	wg *sync.WaitGroup,
 ) {
-	log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
+	if config.Debug {
+		log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
+	}
 	// if TailFile() fails or we hit EOF, we should retry
 	for {
 		defer wg.Done()
@@ -42,11 +44,13 @@ func RunLogTailer(
 					banner,
 					config,
 				)
-				bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
-				if err != nil {
-					log.Println("error marshalling consumeLineResult")
-				} else {
-					log.Println(string(bytes))
+				if config.Debug {
+					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
+					if err != nil {
+						log.Println("error marshalling consumeLineResult")
+					} else {
+						log.Println(string(bytes))
+					}
 				}
 			}
 		}

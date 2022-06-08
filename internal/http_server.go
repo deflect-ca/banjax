@@ -179,7 +179,7 @@ func accessDenied(c *gin.Context) {
 
 func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
-	log.Println("Serving new cookie: ", newCookie)
+	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 	c.Data(401, "text/html", *pageBytes)
@@ -547,11 +547,13 @@ func decisionForNginx(
 			failedChallengeStates,
 			banner,
 		)
-		bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
-		if err != nil {
-			log.Println("error marshalling decisionForNginxResult")
-		} else {
-			log.Println(string(bytes))
+		if config.Debug {
+			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
+			if err != nil {
+				log.Println("error marshalling decisionForNginxResult")
+			} else {
+				log.Println(string(bytes))
+			}
 		}
 	}
 }
