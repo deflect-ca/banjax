@@ -75,6 +75,7 @@ func setCommandLineFlags() {
 	os.Args = []string{os.Args[0]}
 	os.Args = append(os.Args, "-config-file", configFile)
 	os.Args = append(os.Args, "-standalone-testing")
+	os.Args = append(os.Args, "-debug")
 }
 
 type TestResource struct {

@@ -25,7 +25,9 @@ func RunLogTailer(
 	ipToRegexStates *IpToRegexStates,
 	wg *sync.WaitGroup,
 ) {
-	log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
+	if config.Debug {
+		log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
+	}
 	// if TailFile() fails or we hit EOF, we should retry
 	for {
 		defer wg.Done()
@@ -42,9 +44,13 @@ func RunLogTailer(
 					banner,
 					config,
 				)
-				_, err := json.MarshalIndent(consumeLineResult, "", "  ")
-				if err != nil {
-					log.Println("error marshalling consumeLineResult")
+				if config.Debug {
+					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
+					if err != nil {
+						log.Println("error marshalling consumeLineResult")
+					} else {
+						log.Println(string(bytes))
+					}
 				}
 			}
 		}
@@ -169,7 +175,7 @@ func consumeLine(
 		}
 		ruleResult.RegexMatch = true
 
-		log.Println(regex_with_rate.HostsToSkip)
+		// log.Println(regex_with_rate.HostsToSkip)
 		skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
 		if ok && skip {
 			ruleResult.SkipHost = true
