@@ -9,11 +9,14 @@ package internal
 import (
 	"fmt"
 
+	"github.com/brianvoe/gofakeit/v6"
 	"github.com/hpcloud/tail"
 	"gopkg.in/yaml.v2"
 
 	// "io/ioutil"
+	"net/url"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -47,37 +50,8 @@ func (mb *MockBanner) LogRegexBan(
 	logLine string,
 	decision Decision,
 ) {
+	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
-
-// XXX need think about how to test this well
-// func TestRunLogTailer(t *testing.T) {
-// 	config := Config{}
-// 	configBytes, err := ioutil.ReadFile("banjax-config.yaml") // XXX allow different location
-// 	if err != nil {
-// 		panic("couldn't read config file!")
-// 	}
-// 	fmt.Printf("read %v\n", string(configBytes[:]))
-//
-// 	err = yaml.Unmarshal(configBytes, &config)
-// 	if err != nil {
-// 		fmt.Printf("%v\n", err)
-// 		panic("couldn't parse config file!")
-// 	}
-//
-// 	for i, _ := range config.RegexesWithRates {
-// 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-// 		if err != nil {
-// 			panic("bad regex")
-// 		}
-// 		config.RegexesWithRates[i].CompiledRegex = *re
-// 	}
-//
-// 	decisionLists := ConfigToDecisionLists(&config)
-// 	var wg sync.WaitGroup
-// 	wg.Add(1)
-// 	RunLogTailer(&config, &decisionLists, &wg)
-// 	//wg.Wait()
-// }
 
 func TestConsumeLine(t *testing.T) {
 	var rateLimitMutex sync.Mutex
@@ -277,5 +251,78 @@ regexes_with_rates:
 	_, ok := ipToRegexStates["1.2.3.4"]
 	if ok {
 		t.Fatalf("should not have found a state since we skip this host")
+	}
+}
+
+func TestPerSiteRegexStress(t *testing.T) {
+	var rateLimitMutex sync.Mutex
+	var domains []string
+	var paths []string
+	testCount := 10000
+	configString := `
+regexes_with_rates:
+`
+	// make yaml config file
+	for i := 0; i < testCount; i++ {
+		domain := gofakeit.DomainName()
+		url, err := url.Parse(gofakeit.URL())
+		if err != nil {
+			panic(err)
+		}
+		path := url.Path
+		configString += fmt.Sprintf(`
+  - rule: 'rule%d'
+    regex: 'GET %s GET \%s HTTP\/[0-2.]+ .*'
+    interval: 1
+    hits_per_interval: 0
+`, i, strings.Replace(domain, ".", "\\.", -1), path)
+		// save domain and path to generate log line
+		domains = append(domains, domain)
+		paths = append(paths, path)
+	}
+	// log.Printf(configString)
+
+	config := Config{}
+	err := yaml.Unmarshal([]byte(configString), &config)
+	if err != nil {
+		panic("couldn't parse config file!")
+	}
+
+	for i, _ := range config.RegexesWithRates {
+		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
+		if err != nil {
+			panic("bad regex")
+		}
+		config.RegexesWithRates[i].CompiledRegex = *re
+	}
+
+	ipToRegexStates := IpToRegexStates{}
+	mockBanner := MockBanner{}
+
+	for j := 0; j < testCount; j++ {
+		// make nginx logs
+		// we must provide valid timestamp here as regex banner will check and drop old logs
+		ip := gofakeit.IPv4Address()
+		logLine := fmt.Sprintf("%f %s GET %s GET %s HTTP/2.0 %s",
+			float64(time.Now().UnixNano()/1e9)+float64(j), ip, domains[j], paths[j], gofakeit.UserAgent())
+		// log.Printf("Testing: " + logLine)
+		lineTail := tail.Line{Text: logLine}
+
+		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config)
+
+		ipStates, ok := ipToRegexStates[ip]
+		if !ok {
+			t.Fatalf("fail1, IP not found in ipToRegexStates")
+		}
+		state, ok := (*ipStates)[fmt.Sprintf("rule%d", j)]
+		if !ok {
+			t.Errorf("fail2, rule not found in ipStates")
+		}
+		if state.NumHits != 0 {
+			t.Errorf("fail3, Num hit should be 0, but is %d", state.NumHits)
+		}
+		if mockBanner.bannedIp != ip {
+			t.Errorf("should have banned this ip, but mockBanner.bannedIp is %s", mockBanner.bannedIp)
+		}
 	}
 }
