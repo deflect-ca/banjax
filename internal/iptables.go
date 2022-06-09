@@ -8,9 +8,9 @@ package internal
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/coreos/go-iptables/iptables"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/coreos/go-iptables/iptables"
 )
 
 func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
@@ -115,7 +117,7 @@ type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision)
 	LogRegexBan(logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
-		userAgent string, decision Decision)
+		userAgent string, decision Decision, method string)
 }
 
 type Banner struct {
@@ -154,6 +156,20 @@ func purgeNginxAuthCacheForIp(ip string) {
 		log.Println("instead got: ", string(body))
 	}
 }
+
+type LogJson struct {
+	Path        string `json:"path"`
+	Timestring  string `json:"timestring"`
+	Trigger     string `json:"trigger"`
+	Client_ua   string `json:"client_ua"`
+	Client_ip   string `json:"client_ip"`
+	Rule_type   string `json:"rule_type"`
+	Http_method string `json:"client_request_method"`
+	Http_schema string `json:"http_request_scheme"`
+	Http_host   string `json:"client_request_host"`
+	Action      string `json:"action"`
+}
+
 func (b Banner) LogRegexBan(
 	logTime time.Time,
 	ip string,
@@ -161,22 +177,33 @@ func (b Banner) LogRegexBan(
 	logLine string,
 	decision Decision,
 ) {
-	timeString := logTime.Format("[2006-01-02T15:04:05]") // XXX should this be the log timestamp or time.Now()?
+	timeString := logTime.Format("2006-01-02T15:04:05") // XXX should this be the log timestamp or time.Now()?
 
 	words := strings.Split(logLine, " ")
 	log.Println(words)
 	if len(words) < 6 {
-        log.Println("not enough words")
-        return
-    }
-	method := words[0]
-	host := words[1]
-	path := words[3]
-	userAgent := words[5]
+		log.Println("not enough words")
+		return
+	}
 
-	b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
-		ip, timeString, ruleName, method, path, host, userAgent,
-	)
+	//b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
+	//	ip, timeString, ruleName, method, path, host, userAgent,
+	//)
+
+	logObj := LogJson{
+		words[3], // path
+		timeString,
+		ruleName,
+		words[5], // client_ua
+		ip,
+		"regex",
+		words[0], // method
+		"https",  // XXX nginx did not tell in log
+		words[1], // host
+		"banned",
+	}
+	bytesJson, _ := json.Marshal(logObj)
+	b.Logger.Printf(string(bytesJson))
 }
 
 func (b Banner) LogFailedChallengeBan(
@@ -187,12 +214,28 @@ func (b Banner) LogFailedChallengeBan(
 	tooManyFailedChallengesThreshold int,
 	userAgent string,
 	decision Decision,
+	method string,
 ) {
-	timeString := time.Now().Format("[2006-01-02T15:04:05]")
+	timeString := time.Now().Format("2006-01-02T15:04:05")
 
-	b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
-		ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
-	)
+	//b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
+	//	ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
+	//)
+
+	logObj := LogJson{
+		path,
+		timeString,
+		fmt.Sprintf("failed challenge %s for host %s %d times", challengeType, host, tooManyFailedChallengesThreshold),
+		userAgent,
+		ip,
+		"failed_challenge",
+		method,
+		"https", // XXX
+		host,
+		"banned",
+	}
+	bytesJson, _ := json.Marshal(logObj)
+	b.Logger.Printf(string(bytesJson))
 }
 
 func (b Banner) BanOrChallengeIp(
@@ -200,7 +243,7 @@ func (b Banner) BanOrChallengeIp(
 	ip string,
 	decision Decision,
 ) {
-	log.Println("BanOrChallengeIp()")
+	log.Println("BanOrChallengeIp", ip, decision)
 
 	updateExpiringDecisionLists(
 		config,
@@ -219,6 +262,10 @@ func (b Banner) BanOrChallengeIp(
 func banIp(config *Config, ip string) {
 	if ip == "127.0.0.1" {
 		log.Println("Not going to block localhost")
+		return
+	}
+	if config.StandaloneTesting {
+		log.Println("Not calling iptables in testing")
 		return
 	}
 
