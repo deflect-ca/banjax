@@ -619,6 +619,8 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
+			log.Printf("per-site allow: %s %s %s", clientIp, requestedHost, requestedPath)
+			log.Printf("per-site allow: %v", (*decisionLists).PerSiteDecisionLists)
 			accessGranted(c)
 			// log.Println("access granted from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
@@ -653,6 +655,8 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
+			log.Printf("global allow: %s %s %s", clientIp, requestedHost, requestedPath)
+			log.Printf("global allow: %v", (*decisionLists).GlobalDecisionLists)
 			accessGranted(c)
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
