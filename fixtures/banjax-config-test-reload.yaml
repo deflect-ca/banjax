@@ -7,6 +7,7 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 20.20.20.20  # test value change
+    - 192.168.1.0/24
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -45,6 +46,7 @@ per_site_decision_lists:
     challenge: []  # test remove
     block:
       - 92.92.92.92
+      - 192.168.1.0/24
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
   - decision: allow

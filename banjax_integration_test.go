@@ -178,6 +178,11 @@ func TestPerSiteDecisionLists(t *testing.T) {
 		// per_site_decision_lists
 		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil},
 	})
+
+	httpTester(t, []TestResource{
+		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
+		{"GET", prefix + "/per_site_mask_64_ban", 403, ClientIP("192.168.1.64"), nil},
+	})
 }
 
 func TestSitewideShaInvList(t *testing.T) {
