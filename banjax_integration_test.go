@@ -18,13 +18,13 @@ func TestMain(m *testing.M) {
 func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
-		{"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
+		// {"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
 		{"GET", prefix + "/global_mask_64_ban", 401, ClientIP("192.168.1.64"), nil},
 	})
-	httpTester(t, []TestResource{
-		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
-		{"GET", prefix + "/per_site_mask_64_ban", 401, ClientIP("192.168.1.64"), nil},
-	})
+	//httpTester(t, []TestResource{
+	//	{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
+	//	{"GET", prefix + "/per_site_mask_64_ban", 401, ClientIP("192.168.1.64"), nil},
+	//})
 }
 
 func TestTooManyFailedChallenge(t *testing.T) {
