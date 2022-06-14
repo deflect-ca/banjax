@@ -18,7 +18,9 @@ func TestMain(m *testing.M) {
 func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
-		// {"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
+		// we should not treat CIDR as normal IP, will be skipped in map
+		{"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
+		// test if CIDR 192.168.1.0/24 is working
 		{"GET", prefix + "/global_mask_64_ban", 401, ClientIP("192.168.1.64"), nil},
 	})
 	//httpTester(t, []TestResource{

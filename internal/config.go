@@ -209,9 +209,15 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	for decisionString, ips := range config.GlobalDecisionLists {
 		decision := stringToDecision[decisionString]
 		for _, ip := range ips {
-			globalDecisionLists[ip] = decision
-			if config.Debug {
-				log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+			if !strings.Contains(ip, "/") {
+				globalDecisionLists[ip] = decision
+				if config.Debug {
+					log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+				}
+			} else {
+				if config.Debug {
+					log.Printf("global decision: %s, CIDR: %s, put in IPFilter\n", decisionString, ip)
+				}
 			}
 		}
 		globalDecisionListsIPFilter[decision] = ipfilter.New(ipfilter.Options{
