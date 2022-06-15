@@ -214,10 +214,14 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 					}
 				}
 			}
-			perSiteDecisionListsIPFilter[site][decision] = ipfilter.New(ipfilter.Options{
-				AllowedIPs:     ips,
-				BlockByDefault: true,
-			})
+			if len(ips) > 0 {
+				// only init ipfilter if there is IP
+				// or there might be panic: assignment to entry in nil map
+				perSiteDecisionListsIPFilter[site][decision] = ipfilter.New(ipfilter.Options{
+					AllowedIPs:     ips,
+					BlockByDefault: true,
+				})
+			}
 		}
 	}
 
