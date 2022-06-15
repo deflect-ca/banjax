@@ -616,9 +616,20 @@ func decisionForNginx2(
 	decisionListsMutex.Lock()
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
 	decisionListsMutex.Unlock()
+	foundInIpPerSiteFilter := false
 	if !ok {
-		// log.Println("no mention in per-site lists")
-	} else {
+		if _, ok := (*decisionLists).PerSiteDecisionLists[requestedHost]; ok {
+			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
+				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
+					log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+					decision = iterateDecision
+					foundInIpPerSiteFilter = true
+					break
+				}
+			}
+		}
+	}
+	if ok || foundInIpPerSiteFilter {
 		switch decision {
 		case Allow:
 			accessGranted(c, DecisionListResultToString[PerSiteAccessGranted])

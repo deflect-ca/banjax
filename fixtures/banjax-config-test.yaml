@@ -58,6 +58,7 @@ per_site_decision_lists:
       - 90.90.90.90
     challenge:
       - 91.91.91.91
+      - 192.168.0.0/24
     block:
       - 92.92.92.92
 per_site_rate_limited_regexes: {}
