@@ -166,12 +166,14 @@ func addOurXHeadersForTesting(c *gin.Context) {
 }
 
 func accessGranted(c *gin.Context) {
+	c.Header("X-Banjax-Decision", "granted")
 	c.Header("Cache-Control", "no-cache,no-store")  // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
 	c.String(200, "access granted\n")
 }
 
 func accessDenied(c *gin.Context) {
+	c.Header("X-Banjax-Decision", "denied")
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that proxy_passes to origin
 	c.String(403, "access denied\n")
