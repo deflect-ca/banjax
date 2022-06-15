@@ -114,7 +114,7 @@ type StringToDecision map[string]Decision
 type StringToExpiringDecision map[string]ExpiringDecision
 type StringToStringToDecision map[string]StringToDecision
 type StringToFailAction map[string]FailAction
-type StringToIPFilter map[Decision]*ipfilter.IPFilter
+type DecisionToIPFilter map[Decision]*ipfilter.IPFilter
 
 type DecisionLists struct {
 	// static blocklists, allowlists, challengelists populated from the config file
@@ -126,7 +126,7 @@ type DecisionLists struct {
 	// XXX someday need sha-inv *and* captcha
 	// XXX could be merged with PerSiteDecisionLists if we matched on ip ranges
 	SitewideShaInvList          StringToFailAction // site -> Challenge (block after many failures or don't)
-	GlobalDecisionListsIPFilter StringToIPFilter
+	GlobalDecisionListsIPFilter DecisionToIPFilter
 }
 
 type StringToBool map[string]bool
@@ -189,7 +189,7 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	globalDecisionLists := make(StringToDecision)
 	expiringDecisionLists := make(StringToExpiringDecision)
 	sitewideShaInvList := make(StringToFailAction)
-	globalDecisionListsIPFilter := make(StringToIPFilter)
+	globalDecisionListsIPFilter := make(DecisionToIPFilter)
 
 	for site, decisionToIps := range config.PerSiteDecisionLists {
 		for decisionString, ips := range decisionToIps {
