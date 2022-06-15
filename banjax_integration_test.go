@@ -33,7 +33,8 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	reloadConfig(fixtureConfigTestReloadCIDR, 1)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-03-02"}},
-		{"GET", prefix + "/global_mask_64_nginx_block", 403, ClientIP("192.168.1.64"), nil},
+		{"GET", prefix + "/global_mask_64_nginx_block", 403, ClientIP("192.168.2.64"), nil},
+		{"GET", prefix + "/global_mask_64_no_cha", 200, ClientIP("192.168.1.64"), nil},
 		//{"GET", prefix + "/per_site_mask_noban_128", 200, ClientIP("192.168.0.128"), nil},
 	})
 }
