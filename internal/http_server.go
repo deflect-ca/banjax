@@ -650,40 +650,44 @@ func decisionForNginx2(
 	decisionListsMutex.Lock()
 	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
 	decisionListsMutex.Unlock()
+	foundInIpFilter := false
 	if !ok {
-		log.Println("no exact hit found, search in ipfilter")
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
 			if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
-				log.Printf("ipfilter %v %s", iterateDecision, clientIp)
+				log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
 				decision = iterateDecision
+				foundInIpFilter = true
+				break
 			}
 		}
 	}
-	switch decision {
-	case Allow:
-		accessGranted(c)
-		// log.Println("access granted from global lists")
-		decisionForNginxResult.DecisionListResult = GlobalAccessGranted
-		return
-	case Challenge:
-		// log.Println("challenge from global lists")
-		sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-			config,
-			c,
-			banner,
-			rateLimitMutex,
-			failedChallengeStates,
-			Block, // FailAction
-		)
-		decisionForNginxResult.DecisionListResult = GlobalChallenge
-		decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-		return
-	case NginxBlock, IptablesBlock:
-		accessDenied(c)
-		// log.Println("access denied from global lists")
-		decisionForNginxResult.DecisionListResult = GlobalBlock
-		return
+	if ok || foundInIpFilter {
+		switch decision {
+		case Allow:
+			accessGranted(c)
+			// log.Println("access granted from global lists")
+			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
+			return
+		case Challenge:
+			// log.Println("challenge from global lists")
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				Block, // FailAction
+			)
+			decisionForNginxResult.DecisionListResult = GlobalChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c)
+			// log.Println("access denied from global lists")
+			decisionForNginxResult.DecisionListResult = GlobalBlock
+			return
+		}
 	}
 
 	// i think this needs to point to a struct {decision: Decision, expires: Time}.
