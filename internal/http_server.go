@@ -165,15 +165,15 @@ func addOurXHeadersForTesting(c *gin.Context) {
 	c.Next()
 }
 
-func accessGranted(c *gin.Context) {
-	c.Header("X-Banjax-Decision", "granted")
+func accessGranted(c *gin.Context, decisionListResultString string) {
+	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store")  // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
 	c.String(200, "access granted\n")
 }
 
-func accessDenied(c *gin.Context) {
-	c.Header("X-Banjax-Decision", "denied")
+func accessDenied(c *gin.Context, decisionListResultString string) {
+	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that proxy_passes to origin
 	c.String(403, "access denied\n")
@@ -341,7 +341,7 @@ func sendOrValidateShaChallenge(
 			// log.Println(err)
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedBadCookie
 		} else {
-			accessGranted(c)
+			accessGranted(c, ShaChallengeResultToString[ShaChallengePassed])
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Sha-inverse challenge passed")
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassed
@@ -367,7 +367,7 @@ func sendOrValidateShaChallenge(
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.TooManyFailedChallenges {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-			accessDenied(c)
+			accessDenied(c, "TooManyFailedChallenges")
 			return sendOrValidateShaChallengeResult
 		}
 	}
@@ -445,7 +445,7 @@ func sendOrValidatePassword(
 			// log.Println(err)
 			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
 		} else {
-			accessGranted(c)
+			accessGranted(c, PasswordChallengeResultToString[PasswordChallengePassed])
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Password challenge passed")
 			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengePassed
@@ -471,7 +471,7 @@ func sendOrValidatePassword(
 	// log.Println(tooManyFailedChallengesResult)
 	if tooManyFailedChallengesResult.TooManyFailedChallenges {
 		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-		accessDenied(c)
+		accessDenied(c, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
 	}
 	passwordChallenge(c, config)
@@ -621,7 +621,7 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
-			accessGranted(c)
+			accessGranted(c, DecisionListResultToString[PerSiteAccessGranted])
 			// log.Println("access granted from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
 			return
@@ -640,7 +640,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c)
+			accessDenied(c, DecisionListResultToString[PerSiteBlock])
 			// log.Println("block from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteBlock
 			return
@@ -655,7 +655,7 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
-			accessGranted(c)
+			accessGranted(c, DecisionListResultToString[GlobalAccessGranted])
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
 			return
@@ -674,7 +674,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c)
+			accessDenied(c, DecisionListResultToString[GlobalBlock])
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
 			return
@@ -693,7 +693,7 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
-			accessGranted(c)
+			accessGranted(c, DecisionListResultToString[ExpiringAccessGranted])
 			// log.Println("access granted from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
@@ -712,7 +712,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c)
+			accessDenied(c, DecisionListResultToString[ExpiringBlock])
 			// log.Println("access denied from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringBlock
 			return
@@ -743,7 +743,7 @@ func decisionForNginx2(
 	}
 
 	// log.Println("no mention in any lists, access granted")
-	accessGranted(c)
+	accessGranted(c, DecisionListResultToString[NoMention])
 	decisionForNginxResult.DecisionListResult = NoMention
 	return
 }
