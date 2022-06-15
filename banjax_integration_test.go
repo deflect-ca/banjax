@@ -16,6 +16,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1)
+
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
 		// we should not treat CIDR as normal IP, will be skipped in map
@@ -26,6 +28,13 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	httpTester(t, []TestResource{
 		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.0.0/24"), nil},
 		{"GET", prefix + "/per_site_mask_64_ban", 401, ClientIP("192.168.0.128"), nil},
+	})
+
+	reloadConfig(fixtureConfigTestReloadCIDR, 1)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2022-03-02"}},
+		{"GET", prefix + "/global_mask_64_nginx_block", 403, ClientIP("192.168.1.64"), nil},
+		//{"GET", prefix + "/per_site_mask_noban_128", 200, ClientIP("192.168.0.128"), nil},
 	})
 }
 

@@ -23,6 +23,7 @@ const fixtureConfigTest = "./fixtures/banjax-config-test.yaml"
 const fixtureConfigTestReload = "./fixtures/banjax-config-test-reload.yaml"
 const fixtureConfigTestShaInv = "./fixtures/banjax-config-test-sha-inv.yaml"
 const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner.yaml"
+const fixtureConfigTestReloadCIDR = "./fixtures/banjax-config-test-reload-cidr.yaml"
 
 var tmpDir string
 var configFile string
