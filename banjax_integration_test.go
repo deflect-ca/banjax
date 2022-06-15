@@ -27,7 +27,7 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	})
 	httpTester(t, []TestResource{
 		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.0.0/24"), nil},
-		{"GET", prefix + "/per_site_mask_64_ban", 401, ClientIP("192.168.0.128"), nil},
+		{"GET", prefix + "/per_site_mask_128_ban", 401, ClientIP("192.168.0.128"), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReloadCIDR, 1)
@@ -35,7 +35,8 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 		{"GET", "/info", 200, nil, []string{"2022-03-02"}},
 		{"GET", prefix + "/global_mask_64_nginx_block", 403, ClientIP("192.168.2.64"), nil},
 		{"GET", prefix + "/global_mask_64_no_cha", 200, ClientIP("192.168.1.64"), nil},
-		//{"GET", prefix + "/per_site_mask_noban_128", 200, ClientIP("192.168.0.128"), nil},
+		{"GET", prefix + "/per_site_mask_noban_128", 200, ClientIP("192.168.0.128"), nil},
+		{"GET", prefix + "/per_site_mask_noban_128", 403, ClientIP("192.168.3.128"), nil},
 	})
 }
 

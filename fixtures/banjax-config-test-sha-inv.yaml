@@ -43,7 +43,7 @@ per_site_decision_lists:
     allow:
       - 91.91.91.91  # test change
     challenge: []  # test remove
-    block:
+    nginx_block:
       - 92.92.92.92
 per_site_rate_limited_regexes: {}
 regexes_with_rates:

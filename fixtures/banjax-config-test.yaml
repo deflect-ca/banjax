@@ -59,7 +59,7 @@ per_site_decision_lists:
     challenge:
       - 91.91.91.91
       - 192.168.0.0/24
-    block:
+    nginx_block:
       - 92.92.92.92
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
