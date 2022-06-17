@@ -675,7 +675,7 @@ func decisionForNginx2(
 	if ok || foundInIpFilter {
 		switch decision {
 		case Allow:
-			accessGranted(c)
+			accessGranted(c, DecisionListResultToString[GlobalAccessGranted])
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
 			return
@@ -694,7 +694,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c)
+			accessDenied(c, DecisionListResultToString[GlobalBlock])
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
 			return
