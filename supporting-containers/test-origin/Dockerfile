@@ -10,6 +10,8 @@ RUN go get -u github.com/gin-gonic/gin
 
 RUN mkdir -p /opt/hello-world
 COPY ./hello-world.go /opt/hello-world/
+COPY ./go.mod /opt/hello-world/
+COPY ./go.sum /opt/hello-world/
 
 EXPOSE 8080
 

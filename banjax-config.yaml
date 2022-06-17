@@ -85,6 +85,6 @@ sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.
 hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
-debug: false
+debug: true
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html
