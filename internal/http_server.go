@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -75,7 +76,13 @@ func RunHttpServer(
 		return string(bytes) + "\n" // XXX ?
 	}))
 
-	r.Use(gin.Recovery())
+	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
+		if err, ok := recovered.(string); ok {
+			c.Header("X-Accel-Redirect", "@fail_open") // ensure banjax panic don't block client viewing sites
+			c.Header("X-Banjax-Error", fmt.Sprintf("%s", err))
+			c.String(http.StatusInternalServerError, "panic")
+		}
+	}))
 
 	if config.StandaloneTesting {
 		log.Println("!!! standalone-testing mode enabled. adding some X- headers here")
