@@ -82,6 +82,7 @@ func RunHttpServer(
 			c.Header("X-Banjax-Error", fmt.Sprintf("%s", err))
 			c.String(http.StatusInternalServerError, "panic")
 		}
+		c.AbortWithStatus(http.StatusInternalServerError)
 	}))
 
 	if config.StandaloneTesting {
