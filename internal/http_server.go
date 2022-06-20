@@ -623,11 +623,11 @@ func decisionForNginx2(
 	// i got bit by just checking against the zero value here, which is a valid iota enum
 	decisionListsMutex.Lock()
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
+	decisionListsMutex.Unlock()
 	foundInIpPerSiteFilter := false
 	if !ok {
 		if _, perSiteOk := (*decisionLists).PerSiteDecisionLists[requestedHost]; perSiteOk {
 			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
-				log.Printf("Calling persite ipfilter for %s %v %s", requestedHost, iterateDecision, clientIp)
 				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
 					log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
 					decision = iterateDecision
@@ -637,7 +637,6 @@ func decisionForNginx2(
 			}
 		}
 	}
-	decisionListsMutex.Unlock()
 	if ok || foundInIpPerSiteFilter {
 		switch decision {
 		case Allow:
@@ -669,6 +668,7 @@ func decisionForNginx2(
 
 	decisionListsMutex.Lock()
 	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
+	decisionListsMutex.Unlock()
 	foundInIpFilter := false
 	if !ok {
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
@@ -684,7 +684,6 @@ func decisionForNginx2(
 			}
 		}
 	}
-	decisionListsMutex.Unlock()
 	if ok || foundInIpFilter {
 		switch decision {
 		case Allow:
