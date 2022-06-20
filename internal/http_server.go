@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 )
 
@@ -159,6 +160,7 @@ func RunHttpServer(
 		rateLimitMutex.Unlock()
 	})
 
+	pprof.Register(r, "dev/pprof")
 	r.Run("127.0.0.1:8081") // XXX config
 }
 
