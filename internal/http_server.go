@@ -625,7 +625,7 @@ func decisionForNginx2(
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
 	foundInIpPerSiteFilter := false
 	if !ok {
-		if _, ok := (*decisionLists).PerSiteDecisionLists[requestedHost]; ok {
+		if _, perSiteOk := (*decisionLists).PerSiteDecisionLists[requestedHost]; perSiteOk {
 			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
 				log.Printf("Calling persite ipfilter for %s %v %s", requestedHost, iterateDecision, clientIp)
 				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
@@ -672,12 +672,15 @@ func decisionForNginx2(
 	foundInIpFilter := false
 	if !ok {
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-			log.Printf("Calling global ipfilter for %v %s", iterateDecision, clientIp)
-			if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
-				log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
-				decision = iterateDecision
-				foundInIpFilter = true
-				break
+			// check if Ipfilter ref associated to this iterateDecision exists
+			if _, globalOk := (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision]; globalOk {
+				log.Printf("Calling global ipfilter for %v %s", iterateDecision, clientIp)
+				if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
+					log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
+					decision = iterateDecision
+					foundInIpFilter = true
+					break
+				}
 			}
 		}
 	}
