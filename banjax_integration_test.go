@@ -24,6 +24,7 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 		{"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
 		// test if CIDR 192.168.1.0/24 is working
 		{"GET", prefix + "/global_mask_64_ban", 401, ClientIP("192.168.1.64"), nil},
+		{"GET", prefix + "/global_mask_bypass", 200, ClientIP("192.168.87.87"), nil},
 	})
 	httpTester(t, []TestResource{
 		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.0.0/24"), nil},

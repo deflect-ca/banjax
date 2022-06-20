@@ -629,7 +629,9 @@ func decisionForNginx2(
 		if _, perSiteOk := (*decisionLists).PerSiteDecisionLists[requestedHost]; perSiteOk {
 			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
 				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
-					log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+					if config.Debug {
+						log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+					}
 					decision = iterateDecision
 					foundInIpPerSiteFilter = true
 					break
@@ -674,9 +676,10 @@ func decisionForNginx2(
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
 			// check if Ipfilter ref associated to this iterateDecision exists
 			if _, globalOk := (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision]; globalOk {
-				log.Printf("Calling global ipfilter for %v %s", iterateDecision, clientIp)
 				if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
-					log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
+					if config.Debug {
+						log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
+					}
 					decision = iterateDecision
 					foundInIpFilter = true
 					break
