@@ -14,6 +14,7 @@ services:
       - NET_ADMIN  # we use iptables for banning
     volumes:
       - var-log-banjax:/var/log/banjax/
+      - ./pprof:/root/pprof
 
   nginx:
     build:
