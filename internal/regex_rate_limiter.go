@@ -140,9 +140,12 @@ func consumeLine(
 	decisionListsMutex.Unlock()
 	foundInIpFilter := false
 	// not found with direct match, try to match if contain within CIDR subnet
-	if !ok && (*decisionLists).GlobalDecisionListsIPFilter[Allow].Allowed(timeIpRest[1]) {
-		// log.Printf("matched in ipfilter %v %s", Allow, timeIpRest[1])
-		foundInIpFilter = true
+	_, globalIpfilterOk := (*decisionLists).GlobalDecisionListsIPFilter[Allow]
+	if !ok && globalIpfilterOk {
+		if (*decisionLists).GlobalDecisionListsIPFilter[Allow].Allowed(timeIpRest[1]) {
+			// log.Printf("matched in ipfilter %v %s", Allow, timeIpRest[1])
+			foundInIpFilter = true
+		}
 	}
 	if (ok && decision == Allow) || foundInIpFilter {
 		// log.Printf("matched in global decision list %v %s, exit regex banner", Allow, timeIpRest[1])
