@@ -183,25 +183,26 @@ func accessGranted(c *gin.Context, decisionListResultString string) {
 func accessDenied(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
-	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that proxy_passes to origin
+	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that will show a deflect ban page
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
+func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string, decisionListResultString string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
+	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store")
 	c.Data(401, "text/html", *pageBytes)
 	c.Abort() // XXX is this still needed, or was it just for my old middleware approach?
 }
 
-func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.PasswordPageBytes, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+func passwordChallenge(c *gin.Context, config *Config, decisionListResultString string) {
+	challenge(c, &config.PasswordPageBytes, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret, decisionListResultString)
 }
 
-func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+func shaInvChallenge(c *gin.Context, config *Config, decisionListResultString string) {
+	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret, decisionListResultString)
 }
 
 type FailedChallengeRateLimitResult uint
@@ -379,7 +380,7 @@ func sendOrValidateShaChallenge(
 			return sendOrValidateShaChallengeResult
 		}
 	}
-	shaInvChallenge(c, config)
+	shaInvChallenge(c, config, ShaChallengeResultToString[sendOrValidateShaChallengeResult.ShaChallengeResult])
 	return sendOrValidateShaChallengeResult
 }
 
@@ -482,7 +483,7 @@ func sendOrValidatePassword(
 		accessDenied(c, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
 	}
-	passwordChallenge(c, config)
+	passwordChallenge(c, config, PasswordChallengeResultToString[sendOrValidatePasswordResult.PasswordChallengeResult])
 	return sendOrValidatePasswordResult
 }
 
