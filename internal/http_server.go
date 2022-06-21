@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -76,13 +76,44 @@ func RunHttpServer(
 		return string(bytes) + "\n" // XXX ?
 	}))
 
+	/*
+		example panic:
+
+		runtime error: invalid memory address or nil pointer dereference
+		[3] /usr/local/go/src/runtime/panic.go:221 (0x44aca6)
+			panicmem: panic(memoryError)
+		[4] /usr/local/go/src/runtime/signal_unix.go:735 (0x44ac76)
+			sigpanic: panicmem()
+		[5] /go/pkg/mod/github.com/jeremy5189/ipfilter-no-iploc/v2@v2.0.3/ipfilter.go:154 (0x6e6f5b)
+			(*IPFilter).NetAllowed: f.mut.RLock()
+		[6] /go/pkg/mod/github.com/jeremy5189/ipfilter-no-iploc/v2@v2.0.3/ipfilter.go:143 (0x6e6ebb)
+			(*IPFilter).Allowed: return f.NetAllowed(net.ParseIP(ipstr))
+	*/
 	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
-		if err, ok := recovered.(string); ok {
-			c.Header("X-Accel-Redirect", "@fail_open") // ensure banjax panic don't block client viewing sites
-			c.Header("X-Banjax-Error", fmt.Sprintf("%s", err))
-			c.String(http.StatusInternalServerError, "panic")
+		// getting error message
+		errStr := "get error failed in CustomRecovery"
+		traceSkip := 3
+		if err, ok := recovered.(error); ok {
+			errStr = err.Error()
+			// getting the 5th line of stack trace, usually the first 4 is not helping
+			// in CustomRecovery, skip = 3, thats why we do 3 + 2 here
+			traceSkip = 3 + 2
+		} else if err, ok := recovered.(string); ok {
+			// this way of getting error is required when raised by panic()
+			errStr = err
 		}
-		c.AbortWithStatus(http.StatusInternalServerError)
+
+		// getting stack trace
+		_, file, line, stackOk := runtime.Caller(traceSkip)
+		if stackOk {
+			c.Header("X-Banjax-Error", fmt.Sprintf("%v (%s:%d)", errStr, file, line))
+		} else {
+			c.Header("X-Banjax-Error", errStr)
+		}
+
+		// ensure banjax panic don't block client viewing sites
+		c.Header("X-Accel-Redirect", "@fail_open")
+		c.AbortWithStatus(500)
 	}))
 
 	if config.StandaloneTesting {
