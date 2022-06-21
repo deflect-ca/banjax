@@ -23,6 +23,8 @@ func RunLogTailer(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	ipToRegexStates *IpToRegexStates,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
 	wg *sync.WaitGroup,
 ) {
 	if config.Debug {
@@ -43,6 +45,8 @@ func RunLogTailer(
 					ipToRegexStates,
 					banner,
 					config,
+					decisionListsMutex,
+					decisionLists,
 				)
 				if config.Debug {
 					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
@@ -112,6 +116,8 @@ func consumeLine(
 	ipToRegexStates *IpToRegexStates,
 	banner BannerInterface,
 	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
 ) (consumeLineResult ConsumeLineResult) {
 	// log.Println(line.Text)
 
@@ -128,6 +134,22 @@ func consumeLine(
 		consumeLineResult.Error = true
 		return
 	}
+
+	decisionListsMutex.Lock()
+	decision, ok := (*decisionLists).GlobalDecisionLists[timeIpRest[1]]
+	decisionListsMutex.Unlock()
+	foundInIpFilter := false
+	// not found with direct match, try to match if contain within CIDR subnet
+	if !ok && (*decisionLists).GlobalDecisionListsIPFilter[Allow].Allowed(timeIpRest[1]) {
+		// log.Printf("matched in ipfilter %v %s", Allow, timeIpRest[1])
+		foundInIpFilter = true
+	}
+	if (ok && decision == Allow) || foundInIpFilter {
+		// log.Printf("matched in global decision list %v %s, exit regex banner", Allow, timeIpRest[1])
+		// we exit here to prevent logging the ban for this IP
+		return
+	}
+
 	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
 	if err != nil {
 		log.Println("could not parse a float")
