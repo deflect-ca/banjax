@@ -26,7 +26,7 @@ require (
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.16.0
-	github.com/jpillora/ipfilter v1.2.6
+	github.com/jeremy5189/ipfilter-no-iploc/v2 v2.0.3
 	github.com/stretchr/testify v1.7.1
 )
 
@@ -37,7 +37,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.0 // indirect
 	github.com/leodido/go-urn v1.2.1 // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/phuslu/iploc v1.0.20220530 // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/tomasen/realip v0.0.0-20180522021738-f0c99a92ddce // indirect

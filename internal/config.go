@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jpillora/ipfilter"
+	"github.com/jeremy5189/ipfilter-no-iploc/v2"
 )
 
 type Config struct {
