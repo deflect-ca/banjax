@@ -200,7 +200,7 @@ func (b Banner) LogRegexBan(
 		words[0], // method
 		"https",  // XXX nginx did not tell in log
 		words[1], // host
-		"banned",
+		fmt.Sprintf("%s", decision),
 	}
 	bytesJson, _ := json.Marshal(logObj)
 	b.Logger.Printf(string(bytesJson))
@@ -232,7 +232,7 @@ func (b Banner) LogFailedChallengeBan(
 		method,
 		"https", // XXX
 		host,
-		"banned",
+		fmt.Sprintf("%s", decision),
 	}
 	bytesJson, _ := json.Marshal(logObj)
 	b.Logger.Printf(string(bytesJson))
