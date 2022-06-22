@@ -323,4 +323,15 @@ func TestRegexesWithRates(t *testing.T) {
 		// should be banned (nginx_block = 403)
 		{"GET", prefix + "/45in60", 403, ClientIP("11.11.11.11"), nil},
 	})
+
+	// test target 3, make 45 req
+	httpStress(
+		[]TestResource{{"GET", prefix + "/45in60-whitelist", 200, ClientIP("12.12.12.12"), nil}},
+		45)
+
+	time.Sleep(2 * time.Second)
+	httpTester(t, []TestResource{
+		// should not be banned due to global whitelist
+		{"GET", prefix + "/45in60-whitelist", 200, ClientIP("12.12.12.12"), nil},
+	})
 }
