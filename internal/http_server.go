@@ -214,25 +214,29 @@ func accessGranted(c *gin.Context, decisionListResultString string) {
 func accessDenied(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
-	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that proxy_passes to origin
+	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
+func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
-	c.Data(401, "text/html", *pageBytes)
-	c.Abort() // XXX is this still needed, or was it just for my old middleware approach?
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.PasswordPageBytes, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+	// custom status code, not defined in RFC
+	c.Data(446, "text/html", config.PasswordPageBytes)
+	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	// custom status code, not defined in RFC
+	c.Data(445, "text/html", config.ChallengerBytes)
+	c.Abort()
 }
 
 type FailedChallengeRateLimitResult uint
