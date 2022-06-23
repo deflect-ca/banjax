@@ -23,12 +23,12 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 		// we should not treat CIDR as normal IP, will be skipped in map
 		{"GET", prefix + "/global_mask_noban", 200, ClientIP("192.168.1.0/24"), nil},
 		// test if CIDR 192.168.1.0/24 is working
-		{"GET", prefix + "/global_mask_64_ban", 445, ClientIP("192.168.1.64"), nil},
+		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("192.168.1.64"), nil},
 		{"GET", prefix + "/global_mask_bypass", 200, ClientIP("192.168.87.87"), nil},
 	})
 	httpTester(t, []TestResource{
 		{"GET", prefix + "/per_site_mask_noban", 200, ClientIP("192.168.0.0/24"), nil},
-		{"GET", prefix + "/per_site_mask_128_ban", 445, ClientIP("192.168.0.128"), nil},
+		{"GET", prefix + "/per_site_mask_128_ban", 429, ClientIP("192.168.0.128"), nil},
 	})
 
 	reloadConfig(fixtureConfigTestReloadCIDR, 1)
@@ -48,12 +48,12 @@ func TestTooManyFailedChallenge(t *testing.T) {
 	*/
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
-		{"GET", prefix + "/too_many", 445, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
+		{"GET", prefix + "/too_many", 429, ClientIP("60.60.60.60"), nil},
 		{"GET", prefix + "/too_many", 403, ClientIP("60.60.60.60"), nil},
 	})
 }
@@ -97,12 +97,12 @@ func TestProtectedResources(t *testing.T) {
 		// this variation shouldn't be protected
 		{"GET", prefix + "wp-adm/in", 200, randomXClientIP(), nil},
 		// protected resources
-		{"GET", prefix + "wp-admin", 446, randomXClientIP(), nil},
-		{"GET", prefix + "/wp-admin", 446, randomXClientIP(), nil},
-		{"GET", prefix + "/wp-admin//", 446, randomXClientIP(), nil},
-		{"GET", prefix + "wp-admin/admin.php", 446, randomXClientIP(), nil},
-		{"GET", prefix + "wp-admin/admin.php#test", 446, randomXClientIP(), nil},
-		{"GET", prefix + "wp-admin/admin.php?a=1&b=2", 446, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin", 401, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin//", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php#test", 401, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/admin.php?a=1&b=2", 401, randomXClientIP(), nil},
 		// exceptions
 		{"GET", prefix + "wp-admin/admin-ajax.php", 200, randomXClientIP(), nil},
 		{"GET", prefix + "/wp-admin/admin-ajax.php", 200, randomXClientIP(), nil},
@@ -125,7 +125,7 @@ func TestProtectedResources(t *testing.T) {
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// protected resources
-		{"GET", prefix + "wp-admin2", 446, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin2", 401, randomXClientIP(), nil},
 	})
 }
 
@@ -147,7 +147,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 	httpTester(t, []TestResource{
 		// global_decision_lists
 		{"GET", prefix + "/global_allow20", 200, ClientIP("20.20.20.20"), nil},
-		{"GET", prefix + "/global_challenge_8", 445, ClientIP("8.8.8.8"), nil},
+		{"GET", prefix + "/global_challenge_8", 429, ClientIP("8.8.8.8"), nil},
 	})
 
 	/*
@@ -165,7 +165,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// global_decision_lists
 		{"GET", prefix + "/global_allow8", 200, ClientIP("8.8.8.8"), nil},
-		{"GET", prefix + "/global_challenge_20", 445, ClientIP("20.20.20.20"), nil},
+		{"GET", prefix + "/global_challenge_20", 429, ClientIP("20.20.20.20"), nil},
 	})
 }
 
@@ -186,7 +186,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 	httpTester(t, []TestResource{
 		// per_site_decision_lists
 		{"GET", prefix + "/", 200, ClientIP("90.90.90.90"), nil},
-		{"GET", prefix + "/", 445, ClientIP("91.91.91.91"), nil},
+		{"GET", prefix + "/", 429, ClientIP("91.91.91.91"), nil},
 	})
 
 	/*
@@ -230,7 +230,7 @@ func TestSitewideShaInvList(t *testing.T) {
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// sitewide_sha_inv_list on
-		{"GET", prefix + "/2", 445, randomXClientIP(), nil},
+		{"GET", prefix + "/2", 429, randomXClientIP(), nil},
 	})
 
 	/*
@@ -265,7 +265,7 @@ func TestRegexesWithRatesChallengeme(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	httpTester(t, []TestResource{
 		// later should fail
-		{"GET", prefix + "/2?challengeme", 445, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/2?challengeme", 429, ClientIP("9.9.9.9"), nil},
 	})
 
 	/*

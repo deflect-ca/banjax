@@ -228,14 +228,14 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 func passwordChallenge(c *gin.Context, config *Config) {
 	challenge(c, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
 	// custom status code, not defined in RFC
-	c.Data(446, "text/html", config.PasswordPageBytes)
+	c.Data(401, "text/html", config.PasswordPageBytes)
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
 	challenge(c, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
 	// custom status code, not defined in RFC
-	c.Data(445, "text/html", config.ChallengerBytes)
+	c.Data(429, "text/html", config.ChallengerBytes)
 	c.Abort()
 }
 
