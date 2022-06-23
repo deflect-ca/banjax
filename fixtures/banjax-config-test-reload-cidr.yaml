@@ -1,14 +1,15 @@
-config_version: 2022-01-02_00:00:00
+config_version: 2022-03-02_00:00:00
 global_decision_lists:
   allow:
     - 20.20.20.20
-    - 12.12.12.12  # test whitelist working in regex
   iptables_block:
     - 30.40.50.60
   nginx_block:
     - 70.80.90.100
+    - 192.168.2.0/24
   challenge:
     - 8.8.8.8
+    - 60.60.60.60
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -59,6 +60,7 @@ per_site_decision_lists:
       - 91.91.91.91
     nginx_block:
       - 92.92.92.92
+      - 192.168.3.0/24
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
   - decision: allow
@@ -76,20 +78,6 @@ regexes_with_rates:
     interval: 1
     regex: .*challengeme.*
     rule: "instant challenge"
-  # test target 1
-  - decision: challenge
-    hits_per_interval: 0
-    interval: 1
-    regex: .*
-    rule: "Challenge all but skip localhost:8081"
-    hosts_to_skip:
-      "localhost:8081": true
-  # test target 2
-  - decision: nginx_block
-    hits_per_interval: 45
-    interval: 60
-    regex: "GET .* /"
-    rule: "All sites/GET: 45 req/60 sec"
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
@@ -97,7 +85,7 @@ server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
-too_many_failed_challenges_threshold: 10000  # we don't want to test this here so set it very big
+too_many_failed_challenges_threshold: 6
 password_cookie_ttl_seconds: 14400  # also modify internal/password-protected-path.html:168
 sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.html:94
 hmac_secret: secret

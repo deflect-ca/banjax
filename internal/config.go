@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jeremy5189/ipfilter-no-iploc/v2"
 )
 
 type Config struct {
@@ -112,6 +114,8 @@ type StringToDecision map[string]Decision
 type StringToExpiringDecision map[string]ExpiringDecision
 type StringToStringToDecision map[string]StringToDecision
 type StringToFailAction map[string]FailAction
+type DecisionToIPFilter map[Decision]*ipfilter.IPFilter
+type StringToDecisionToIPFilter map[string]DecisionToIPFilter
 
 type DecisionLists struct {
 	// static blocklists, allowlists, challengelists populated from the config file
@@ -122,7 +126,9 @@ type DecisionLists struct {
 	// static site-wide lists (legacy banjax_sha_inv and user_banjax_sha_inv)
 	// XXX someday need sha-inv *and* captcha
 	// XXX could be merged with PerSiteDecisionLists if we matched on ip ranges
-	SitewideShaInvList StringToFailAction // site -> Challenge (block after many failures or don't)
+	SitewideShaInvList           StringToFailAction // site -> Challenge (block after many failures or don't)
+	GlobalDecisionListsIPFilter  DecisionToIPFilter
+	PerSiteDecisionListsIPFilter StringToDecisionToIPFilter
 }
 
 type StringToBool map[string]bool
@@ -185,29 +191,58 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	globalDecisionLists := make(StringToDecision)
 	expiringDecisionLists := make(StringToExpiringDecision)
 	sitewideShaInvList := make(StringToFailAction)
+	globalDecisionListsIPFilter := make(DecisionToIPFilter)
+	perSiteDecisionListsIPFilter := make(StringToDecisionToIPFilter)
 
 	for site, decisionToIps := range config.PerSiteDecisionLists {
 		for decisionString, ips := range decisionToIps {
+			decision := stringToDecision[decisionString]
 			for _, ip := range ips {
 				_, ok := perSiteDecisionLists[site]
 				if !ok {
 					perSiteDecisionLists[site] = make(StringToDecision)
+					perSiteDecisionListsIPFilter[site] = make(DecisionToIPFilter)
 				}
-				perSiteDecisionLists[site][ip] = stringToDecision[decisionString]
-				if config.Debug {
-					log.Printf("site: %s, decision: %s, ip: %s\n", site, decisionString, ip)
+				if !strings.Contains(ip, "/") {
+					perSiteDecisionLists[site][ip] = decision
+					if config.Debug {
+						log.Printf("site: %s, decision: %s, ip: %s\n", site, decisionString, ip)
+					}
+				} else {
+					if config.Debug {
+						log.Printf("per-site decision: %s, CIDR: %s, put in IPFilter\n", decisionString, ip)
+					}
 				}
+			}
+			if len(ips) > 0 {
+				// only init ipfilter if there is IP
+				// or there might be panic: assignment to entry in nil map
+				perSiteDecisionListsIPFilter[site][decision] = ipfilter.New(ipfilter.Options{
+					AllowedIPs:     ips,
+					BlockByDefault: true,
+				})
 			}
 		}
 	}
 
 	for decisionString, ips := range config.GlobalDecisionLists {
+		decision := stringToDecision[decisionString]
 		for _, ip := range ips {
-			globalDecisionLists[ip] = stringToDecision[decisionString]
-			if config.Debug {
-				log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+			if !strings.Contains(ip, "/") {
+				globalDecisionLists[ip] = decision
+				if config.Debug {
+					log.Printf("global decision: %s, ip: %s\n", decisionString, ip)
+				}
+			} else {
+				if config.Debug {
+					log.Printf("global decision: %s, CIDR: %s, put in IPFilter\n", decisionString, ip)
+				}
 			}
 		}
+		globalDecisionListsIPFilter[decision] = ipfilter.New(ipfilter.Options{
+			AllowedIPs:     ips,
+			BlockByDefault: true,
+		})
 	}
 
 	for site, failAction := range config.SitewideShaInvList {
@@ -225,7 +260,10 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 
 	// log.Printf("per-site decisions: %v\n", perSiteDecisionLists)
 	// log.Printf("global decisions: %v\n", globalDecisionLists)
-	return DecisionLists{globalDecisionLists, perSiteDecisionLists, expiringDecisionLists, sitewideShaInvList}
+	return DecisionLists{
+		globalDecisionLists, perSiteDecisionLists,
+		expiringDecisionLists, sitewideShaInvList,
+		globalDecisionListsIPFilter, perSiteDecisionListsIPFilter}
 }
 
 // XXX use string.Builder

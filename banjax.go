@@ -212,6 +212,8 @@ func main() {
 		banner,
 		&rateLimitMutex,
 		&ipToRegexStates,
+		&decisionListsMutex,
+		&decisionLists,
 		&wg,
 	)
 

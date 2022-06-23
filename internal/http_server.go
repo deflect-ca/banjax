@@ -13,6 +13,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -75,7 +76,45 @@ func RunHttpServer(
 		return string(bytes) + "\n" // XXX ?
 	}))
 
-	r.Use(gin.Recovery())
+	/*
+		example panic:
+
+		runtime error: invalid memory address or nil pointer dereference
+		[3] /usr/local/go/src/runtime/panic.go:221 (0x44aca6)
+			panicmem: panic(memoryError)
+		[4] /usr/local/go/src/runtime/signal_unix.go:735 (0x44ac76)
+			sigpanic: panicmem()
+		[5] /go/pkg/mod/github.com/jeremy5189/ipfilter-no-iploc/v2@v2.0.3/ipfilter.go:154 (0x6e6f5b)
+			(*IPFilter).NetAllowed: f.mut.RLock()
+		[6] /go/pkg/mod/github.com/jeremy5189/ipfilter-no-iploc/v2@v2.0.3/ipfilter.go:143 (0x6e6ebb)
+			(*IPFilter).Allowed: return f.NetAllowed(net.ParseIP(ipstr))
+	*/
+	r.Use(gin.CustomRecovery(func(c *gin.Context, recovered interface{}) {
+		// getting error message
+		errStr := "get error failed in CustomRecovery"
+		traceSkip := 3
+		if err, ok := recovered.(error); ok {
+			errStr = err.Error()
+			// getting the 5th line of stack trace, usually the first 4 is not helping
+			// in CustomRecovery, skip = 3, thats why we do 3 + 2 here
+			traceSkip = 3 + 2
+		} else if err, ok := recovered.(string); ok {
+			// this way of getting error is required when raised by panic()
+			errStr = err
+		}
+
+		// getting stack trace
+		_, file, line, stackOk := runtime.Caller(traceSkip)
+		if stackOk {
+			c.Header("X-Banjax-Error", fmt.Sprintf("%v (%s:%d)", errStr, file, line))
+		} else {
+			c.Header("X-Banjax-Error", errStr)
+		}
+
+		// ensure banjax panic don't block client viewing sites
+		c.Header("X-Accel-Redirect", "@fail_open")
+		c.AbortWithStatus(500)
+	}))
 
 	if config.StandaloneTesting {
 		log.Println("!!! standalone-testing mode enabled. adding some X- headers here")
@@ -175,25 +214,29 @@ func accessGranted(c *gin.Context, decisionListResultString string) {
 func accessDenied(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
-	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that proxy_passes to origin
+	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, pageBytes *[]byte, cookieName string, cookieTtlSeconds int, secret string) {
+func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
-	c.Data(401, "text/html", *pageBytes)
-	c.Abort() // XXX is this still needed, or was it just for my old middleware approach?
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.PasswordPageBytes, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+	// custom status code, not defined in RFC
+	c.Data(401, "text/html", config.PasswordPageBytes)
+	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, &config.ChallengerBytes, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	// custom status code, not defined in RFC
+	c.Data(429, "text/html", config.ChallengerBytes)
+	c.Abort()
 }
 
 type FailedChallengeRateLimitResult uint
@@ -616,9 +659,22 @@ func decisionForNginx2(
 	decisionListsMutex.Lock()
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
 	decisionListsMutex.Unlock()
+	foundInIpPerSiteFilter := false
 	if !ok {
-		// log.Println("no mention in per-site lists")
-	} else {
+		if _, perSiteOk := (*decisionLists).PerSiteDecisionLists[requestedHost]; perSiteOk {
+			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
+				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
+					if config.Debug {
+						log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+					}
+					decision = iterateDecision
+					foundInIpPerSiteFilter = true
+					break
+				}
+			}
+		}
+	}
+	if ok || foundInIpPerSiteFilter {
 		switch decision {
 		case Allow:
 			accessGranted(c, DecisionListResultToString[PerSiteAccessGranted])
@@ -650,9 +706,23 @@ func decisionForNginx2(
 	decisionListsMutex.Lock()
 	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
 	decisionListsMutex.Unlock()
+	foundInIpFilter := false
 	if !ok {
-		// log.Println("no mention in global lists")
-	} else {
+		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+			// check if Ipfilter ref associated to this iterateDecision exists
+			if _, globalOk := (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision]; globalOk {
+				if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
+					if config.Debug {
+						log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
+					}
+					decision = iterateDecision
+					foundInIpFilter = true
+					break
+				}
+			}
+		}
+	}
+	if ok || foundInIpFilter {
 		switch decision {
 		case Allow:
 			accessGranted(c, DecisionListResultToString[GlobalAccessGranted])
