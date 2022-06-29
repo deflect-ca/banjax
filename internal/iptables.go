@@ -219,7 +219,7 @@ func (b Banner) LogFailedChallengeBan(
 	logObj := LogJson{
 		path,
 		timeString,
-		fmt.Sprintf("failed challenge %s for host %s %d times", challengeType, host, tooManyFailedChallengesThreshold),
+		fmt.Sprintf("failed challenge %s", challengeType),
 		userAgent,
 		ip,
 		"failed_challenge",
