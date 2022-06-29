@@ -158,16 +158,17 @@ func purgeNginxAuthCacheForIp(ip string) {
 }
 
 type LogJson struct {
-	Path        string `json:"path"`
-	Timestring  string `json:"timestring"`
-	Trigger     string `json:"trigger"`
-	Client_ua   string `json:"client_ua"`
-	Client_ip   string `json:"client_ip"`
-	Rule_type   string `json:"rule_type"`
-	Http_method string `json:"client_request_method"`
-	Http_schema string `json:"http_request_scheme"`
-	Http_host   string `json:"client_request_host"`
-	Action      string `json:"action"`
+	Path          string `json:"path"`
+	Timestring    string `json:"timestring"`
+	Trigger       string `json:"trigger"`
+	Client_ua     string `json:"client_ua"`
+	Client_ip     string `json:"client_ip"`
+	Rule_type     string `json:"rule_type"`
+	Http_method   string `json:"client_request_method"`
+	Http_schema   string `json:"http_request_scheme"`
+	Http_host     string `json:"client_request_host"`
+	Action        string `json:"action"`
+	NumberOfFails int    `json:"number_of_fails"`
 }
 
 func (b Banner) LogRegexBan(
@@ -197,6 +198,7 @@ func (b Banner) LogRegexBan(
 		"https",  // XXX nginx did not tell in log
 		words[1], // host
 		fmt.Sprintf("%s", decision),
+		1, // there is acutally no need to regex ban to have this, but put 1 here so it make sense
 	}
 	bytesJson, _ := json.Marshal(logObj)
 	b.Logger.Printf(string(bytesJson))
@@ -225,6 +227,7 @@ func (b Banner) LogFailedChallengeBan(
 		"https", // XXX
 		host,
 		fmt.Sprintf("%s", decision),
+		tooManyFailedChallengesThreshold,
 	}
 	bytesJson, _ := json.Marshal(logObj)
 	b.Logger.Printf(string(bytesJson))
