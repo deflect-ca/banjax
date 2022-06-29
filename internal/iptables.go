@@ -179,16 +179,12 @@ func (b Banner) LogRegexBan(
 ) {
 	timeString := logTime.Format("2006-01-02T15:04:05") // XXX should this be the log timestamp or time.Now()?
 
-	words := strings.Split(logLine, " ")
-	log.Println(words)
+	// logLine = GET localhost:8081 GET /45in60 HTTP/1.1 Go-http-client/1.1
+	words := strings.SplitN(logLine, " ", 6)
 	if len(words) < 6 {
 		log.Println("not enough words")
 		return
 	}
-
-	//b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
-	//	ip, timeString, ruleName, method, path, host, userAgent,
-	//)
 
 	logObj := LogJson{
 		words[3], // path
@@ -217,10 +213,6 @@ func (b Banner) LogFailedChallengeBan(
 	method string,
 ) {
 	timeString := time.Now().Format("2006-01-02T15:04:05")
-
-	//b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
-	//	ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
-	//)
 
 	logObj := LogJson{
 		path,
