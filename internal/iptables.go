@@ -201,7 +201,7 @@ func (b Banner) LogRegexBan(
 		1, // there is acutally no need to regex ban to have this, but put 1 here so it make sense
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Printf(string(bytesJson))
+	b.Logger.Println(string(bytesJson))
 }
 
 func (b Banner) LogFailedChallengeBan(
@@ -230,7 +230,7 @@ func (b Banner) LogFailedChallengeBan(
 		tooManyFailedChallengesThreshold,
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Printf(string(bytesJson))
+	b.Logger.Println(string(bytesJson))
 }
 
 func (b Banner) BanOrChallengeIp(
