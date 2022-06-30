@@ -44,6 +44,10 @@ func RunHttpServer(
 	ginLogFile, _ := os.Create(ginLogFileName)
 	gin.DefaultWriter = io.MultiWriter(ginLogFile)
 
+	if !config.Debug {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	r := gin.New()
 
 	type LogLine struct {

@@ -158,16 +158,17 @@ func purgeNginxAuthCacheForIp(ip string) {
 }
 
 type LogJson struct {
-	Path        string `json:"path"`
-	Timestring  string `json:"timestring"`
-	Trigger     string `json:"trigger"`
-	Client_ua   string `json:"client_ua"`
-	Client_ip   string `json:"client_ip"`
-	Rule_type   string `json:"rule_type"`
-	Http_method string `json:"client_request_method"`
-	Http_schema string `json:"http_request_scheme"`
-	Http_host   string `json:"client_request_host"`
-	Action      string `json:"action"`
+	Path          string `json:"path"`
+	Timestring    string `json:"timestring"`
+	Trigger       string `json:"trigger"`
+	Client_ua     string `json:"client_ua"`
+	Client_ip     string `json:"client_ip"`
+	Rule_type     string `json:"rule_type"`
+	Http_method   string `json:"client_request_method"`
+	Http_schema   string `json:"http_request_scheme"`
+	Http_host     string `json:"client_request_host"`
+	Action        string `json:"action"`
+	NumberOfFails int    `json:"number_of_fails"`
 }
 
 func (b Banner) LogRegexBan(
@@ -179,16 +180,12 @@ func (b Banner) LogRegexBan(
 ) {
 	timeString := logTime.Format("2006-01-02T15:04:05") // XXX should this be the log timestamp or time.Now()?
 
-	words := strings.Split(logLine, " ")
-	log.Println(words)
+	// logLine = GET localhost:8081 GET /45in60 HTTP/1.1 Go-http-client/1.1
+	words := strings.SplitN(logLine, " ", 6)
 	if len(words) < 6 {
 		log.Println("not enough words")
 		return
 	}
-
-	//b.Logger.Printf("%s, %s, matched regex rule %s, %s, \"http:///%s\", %s, %q, banned\n",
-	//	ip, timeString, ruleName, method, path, host, userAgent,
-	//)
 
 	logObj := LogJson{
 		words[3], // path
@@ -201,9 +198,10 @@ func (b Banner) LogRegexBan(
 		"https",  // XXX nginx did not tell in log
 		words[1], // host
 		fmt.Sprintf("%s", decision),
+		1, // there is actually no need for regex ban to have this, but put 1 here so it make sense
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Printf(string(bytesJson))
+	b.Logger.Println(string(bytesJson))
 }
 
 func (b Banner) LogFailedChallengeBan(
@@ -218,14 +216,10 @@ func (b Banner) LogFailedChallengeBan(
 ) {
 	timeString := time.Now().Format("2006-01-02T15:04:05")
 
-	//b.Logger.Printf("%s, %s, failed challenge %s for host %s %d times, \"http://%s/%s\", %s, %q, banned\n",
-	//	ip, timeString, challengeType, host, tooManyFailedChallengesThreshold, host, path, host, userAgent,
-	//)
-
 	logObj := LogJson{
 		path,
 		timeString,
-		fmt.Sprintf("failed challenge %s for host %s %d times", challengeType, host, tooManyFailedChallengesThreshold),
+		fmt.Sprintf("failed challenge %s", challengeType),
 		userAgent,
 		ip,
 		"failed_challenge",
@@ -233,9 +227,10 @@ func (b Banner) LogFailedChallengeBan(
 		"https", // XXX
 		host,
 		fmt.Sprintf("%s", decision),
+		tooManyFailedChallengesThreshold,
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Printf(string(bytesJson))
+	b.Logger.Println(string(bytesJson))
 }
 
 func (b Banner) BanOrChallengeIp(
