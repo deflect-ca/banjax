@@ -198,7 +198,7 @@ func (b Banner) LogRegexBan(
 		"https",  // XXX nginx did not tell in log
 		words[1], // host
 		fmt.Sprintf("%s", decision),
-		1, // there is acutally no need to regex ban to have this, but put 1 here so it make sense
+		1, // there is actually no need to regex ban to have this, but put 1 here so it make sense
 	}
 	bytesJson, _ := json.Marshal(logObj)
 	b.Logger.Println(string(bytesJson))
