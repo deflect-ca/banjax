@@ -181,6 +181,7 @@ func main() {
 	// together, which should probably happen for the other things
 	// protected by a mutex.
 	banningLogFile, err := os.OpenFile(config.BanningLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	banningLogFileTemp, err := os.OpenFile(config.BanningLogFileTemp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -189,6 +190,7 @@ func main() {
 		&decisionListsMutex,
 		&decisionLists,
 		log.New(banningLogFile, "", 0),
+		log.New(banningLogFileTemp, "", 0),
 	}
 
 	var wg sync.WaitGroup

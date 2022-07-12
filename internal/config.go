@@ -58,6 +58,8 @@ type Config struct {
 	ShaInvChallengeHTML                    string            `yaml:"sha_inv_challenge_html"`
 	PasswordProtectedPathHTML              string            `yaml:"password_protected_path_html"`
 	Debug                                  bool              `yaml:"debug"`
+	DisableLogging                         map[string]bool   `yaml:"disable_logging"`
+	BanningLogFileTemp                     string            `yaml:"banning_log_file_temp"`
 }
 
 type RegexWithRate struct {

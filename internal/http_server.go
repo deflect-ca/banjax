@@ -312,6 +312,7 @@ func tooManyFailedChallenges(
 		// log.Println("IP has failed too many challenges; blocking them")
 		banner.BanOrChallengeIp(config, ip, IptablesBlock)
 		banner.LogFailedChallengeBan(
+			config,
 			ip,
 			challengeType,
 			host,

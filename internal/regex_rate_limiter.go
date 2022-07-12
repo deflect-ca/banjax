@@ -242,7 +242,7 @@ func consumeLine(
 			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
 			banner.BanOrChallengeIp(config, ipString, decision)
 			// log.Println(line.Text)
-			banner.LogRegexBan(timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
+			banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 		}
 
