@@ -170,7 +170,7 @@ type LogJson struct {
 	Http_host      string `json:"client_request_host"`
 	Action         string `json:"action"`
 	NumberOfFails  int    `json:"number_of_fails"`
-	DisableLogging bool   `json:"disable_logging"`
+	DisableLogging int    `json:"disable_logging"`
 }
 
 func (b Banner) LogRegexBan(
@@ -190,9 +190,9 @@ func (b Banner) LogRegexBan(
 		return
 	}
 
-	disableLogging := false
+	disableLogging := 0
 	if val, ok := config.DisableLogging[words[1]]; ok && val {
-		disableLogging = true
+		disableLogging = 1
 	}
 
 	logObj := LogJson{
@@ -211,7 +211,9 @@ func (b Banner) LogRegexBan(
 	}
 	bytesJson, _ := json.Marshal(logObj)
 
-	if disableLogging {
+	if disableLogging == 1 {
+		// we still log it to file, but this will be treated differently
+		// in filebeat to different ES index, and later deleted
 		b.LoggerTemp.Println(string(bytesJson))
 	} else {
 		b.Logger.Println(string(bytesJson))
@@ -231,9 +233,9 @@ func (b Banner) LogFailedChallengeBan(
 ) {
 	timeString := time.Now().Format("2006-01-02T15:04:05")
 
-	disableLogging := false
+	disableLogging := 0
 	if val, ok := config.DisableLogging[host]; ok && val {
-		disableLogging = true
+		disableLogging = 1
 	}
 
 	logObj := LogJson{
@@ -252,7 +254,9 @@ func (b Banner) LogFailedChallengeBan(
 	}
 	bytesJson, _ := json.Marshal(logObj)
 
-	if disableLogging {
+	if disableLogging == 1 {
+		// we still log it to file, but this will be treated differently
+		// in filebeat to different ES index, and later deleted
 		b.LoggerTemp.Println(string(bytesJson))
 	} else {
 		b.Logger.Println(string(bytesJson))
