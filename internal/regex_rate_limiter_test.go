@@ -33,6 +33,7 @@ func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decis
 }
 
 func (mb *MockBanner) LogFailedChallengeBan(
+	config *Config,
 	ip string,
 	challengeType string,
 	host string,
@@ -45,6 +46,7 @@ func (mb *MockBanner) LogFailedChallengeBan(
 }
 
 func (mb *MockBanner) LogRegexBan(
+	config *Config,
 	logTime time.Time,
 	ip string,
 	ruleName string,

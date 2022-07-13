@@ -10,6 +10,7 @@ import (
 	"embed"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -184,11 +185,23 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	if config.BanningLogFileTemp == "" {
+		config.BanningLogFileTemp = fmt.Sprintf("%s.tmp", config.BanningLogFile)
+	}
+	banningLogFileTemp, err := os.OpenFile(config.BanningLogFileTemp, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	defer banningLogFile.Close()
+	defer banningLogFileTemp.Close()
+
 	banner := internal.Banner{
 		&decisionListsMutex,
 		&decisionLists,
 		log.New(banningLogFile, "", 0),
+		log.New(banningLogFileTemp, "", 0),
 	}
 
 	var wg sync.WaitGroup

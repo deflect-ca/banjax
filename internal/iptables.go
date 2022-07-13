@@ -115,8 +115,8 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 
 type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision)
-	LogRegexBan(logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
-	LogFailedChallengeBan(ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
+	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
+	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
 }
 
@@ -124,6 +124,7 @@ type Banner struct {
 	DecisionListsMutex *sync.Mutex
 	DecisionLists      *DecisionLists
 	Logger             *log.Logger
+	LoggerTemp         *log.Logger
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -158,20 +159,22 @@ func purgeNginxAuthCacheForIp(ip string) {
 }
 
 type LogJson struct {
-	Path          string `json:"path"`
-	Timestring    string `json:"timestring"`
-	Trigger       string `json:"trigger"`
-	Client_ua     string `json:"client_ua"`
-	Client_ip     string `json:"client_ip"`
-	Rule_type     string `json:"rule_type"`
-	Http_method   string `json:"client_request_method"`
-	Http_schema   string `json:"http_request_scheme"`
-	Http_host     string `json:"client_request_host"`
-	Action        string `json:"action"`
-	NumberOfFails int    `json:"number_of_fails"`
+	Path           string `json:"path"`
+	Timestring     string `json:"timestring"`
+	Trigger        string `json:"trigger"`
+	Client_ua      string `json:"client_ua"`
+	Client_ip      string `json:"client_ip"`
+	Rule_type      string `json:"rule_type"`
+	Http_method    string `json:"client_request_method"`
+	Http_schema    string `json:"http_request_scheme"`
+	Http_host      string `json:"client_request_host"`
+	Action         string `json:"action"`
+	NumberOfFails  int    `json:"number_of_fails"`
+	DisableLogging int    `json:"disable_logging"`
 }
 
 func (b Banner) LogRegexBan(
+	config *Config,
 	logTime time.Time,
 	ip string,
 	ruleName string,
@@ -187,6 +190,11 @@ func (b Banner) LogRegexBan(
 		return
 	}
 
+	disableLogging := 0
+	if val, ok := config.DisableLogging[words[1]]; ok && val {
+		disableLogging = 1
+	}
+
 	logObj := LogJson{
 		words[3], // path
 		timeString,
@@ -199,12 +207,21 @@ func (b Banner) LogRegexBan(
 		words[1], // host
 		fmt.Sprintf("%s", decision),
 		1, // there is actually no need for regex ban to have this, but put 1 here so it make sense
+		disableLogging,
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Println(string(bytesJson))
+
+	if disableLogging == 1 {
+		// we still log it to file, but this will be treated differently
+		// in filebeat to different ES index, and later deleted
+		b.LoggerTemp.Println(string(bytesJson))
+	} else {
+		b.Logger.Println(string(bytesJson))
+	}
 }
 
 func (b Banner) LogFailedChallengeBan(
+	config *Config,
 	ip string,
 	challengeType string,
 	host string,
@@ -215,6 +232,11 @@ func (b Banner) LogFailedChallengeBan(
 	method string,
 ) {
 	timeString := time.Now().Format("2006-01-02T15:04:05")
+
+	disableLogging := 0
+	if val, ok := config.DisableLogging[host]; ok && val {
+		disableLogging = 1
+	}
 
 	logObj := LogJson{
 		path,
@@ -228,9 +250,17 @@ func (b Banner) LogFailedChallengeBan(
 		host,
 		fmt.Sprintf("%s", decision),
 		tooManyFailedChallengesThreshold,
+		disableLogging,
 	}
 	bytesJson, _ := json.Marshal(logObj)
-	b.Logger.Println(string(bytesJson))
+
+	if disableLogging == 1 {
+		// we still log it to file, but this will be treated differently
+		// in filebeat to different ES index, and later deleted
+		b.LoggerTemp.Println(string(bytesJson))
+	} else {
+		b.Logger.Println(string(bytesJson))
+	}
 }
 
 func (b Banner) BanOrChallengeIp(
