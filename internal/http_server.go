@@ -210,6 +210,7 @@ func addOurXHeadersForTesting(c *gin.Context) {
 
 func accessGranted(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
+	c.Header("X-Accel-Expires", "600")
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
 	c.String(200, "access granted\n")
 }
