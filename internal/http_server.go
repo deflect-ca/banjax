@@ -210,14 +210,12 @@ func addOurXHeadersForTesting(c *gin.Context) {
 
 func accessGranted(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
-	c.Header("Cache-Control", "no-cache,no-store")  // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
 	c.String(200, "access granted\n")
 }
 
 func accessDenied(c *gin.Context, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
-	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	c.String(403, "access denied\n")
 }
@@ -226,7 +224,6 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
-	c.Header("Cache-Control", "no-cache,no-store")
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
