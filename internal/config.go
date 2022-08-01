@@ -156,6 +156,13 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 				siteToPathToBool[site] = make(StringToBool)
 			}
 			siteToPathToBool[site][path] = true
+			// Add www to map so its protected
+			www_site := "www." + site
+			_, ok = siteToPathToBool[www_site]
+			if !ok {
+				siteToPathToBool[www_site] = make(StringToBool)
+			}
+			siteToPathToBool[www_site][path] = true
 			if config.Debug {
 				log.Printf("password protected path: %s/%s\n", site, path)
 			}
@@ -179,6 +186,7 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 			log.Fatal("bad password hash!")
 		}
 		siteToPasswordHash[site] = passwordHashBytes
+		siteToPasswordHash["www."+site] = passwordHashBytes
 		if config.Debug {
 			log.Println("passwordhashbytes:")
 			log.Println(passwordHashBytes)
