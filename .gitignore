@@ -10,3 +10,5 @@ testing-log-file.txt
 
 banjax
 *.tmp
+tmp
+logs
