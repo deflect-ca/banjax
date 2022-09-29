@@ -530,6 +530,7 @@ type DecisionListResult uint
 const (
 	_ DecisionListResult = iota
 	PasswordProtectedPath
+	PasswordProtectedPathException
 	PerSiteAccessGranted
 	PerSiteChallenge
 	PerSiteBlock
@@ -540,22 +541,27 @@ const (
 	ExpiringChallenge
 	ExpiringBlock
 	SiteWideChallenge
+	SiteWideChallengeException
 	NoMention
+	NotSet
 )
 
 var DecisionListResultToString = map[DecisionListResult]string{
-	PasswordProtectedPath: "PasswordProtectedPath",
-	PerSiteAccessGranted:  "PerSiteAccessGranted",
-	PerSiteChallenge:      "PerSiteChallenge",
-	PerSiteBlock:          "PerSiteBlock",
-	GlobalAccessGranted:   "GlobalAccessGranted",
-	GlobalChallenge:       "GlobalChallenge",
-	GlobalBlock:           "GlobalBlock",
-	ExpiringAccessGranted: "ExpiringAccessGranted",
-	ExpiringChallenge:     "ExpiringChallenge",
-	ExpiringBlock:         "ExpiringBlock",
-	SiteWideChallenge:     "SiteWideChallenge",
-	NoMention:             "NoMention",
+	PasswordProtectedPath:          "PasswordProtectedPath",
+	PasswordProtectedPathException: "PasswordProtectedPathException",
+	PerSiteAccessGranted:           "PerSiteAccessGranted",
+	PerSiteChallenge:               "PerSiteChallenge",
+	PerSiteBlock:                   "PerSiteBlock",
+	GlobalAccessGranted:            "GlobalAccessGranted",
+	GlobalChallenge:                "GlobalChallenge",
+	GlobalBlock:                    "GlobalBlock",
+	ExpiringAccessGranted:          "ExpiringAccessGranted",
+	ExpiringChallenge:              "ExpiringChallenge",
+	ExpiringBlock:                  "ExpiringBlock",
+	SiteWideChallenge:              "SiteWideChallenge",
+	SiteWideChallengeException:     "SiteWideChallengeException",
+	NoMention:                      "NoMention",
+	NotSet:                         "NotSet",
 }
 
 func (dfnr DecisionListResult) String() string {
@@ -634,6 +640,7 @@ func decisionForNginx2(
 	decisionForNginxResult.ClientIp = clientIp
 	decisionForNginxResult.RequestedHost = requestedHost
 	decisionForNginxResult.RequestedPath = requestedPath
+	decisionForNginxResult.DecisionListResult = NotSet
 
 	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
 	if ok {
@@ -655,6 +662,8 @@ func decisionForNginx2(
 					return
 				}
 			}
+		} else {
+			decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
 		}
 	}
 
@@ -802,23 +811,31 @@ func decisionForNginx2(
 		// log.Println("no mention in sitewide list")
 	} else {
 		// log.Println("challenge from sitewide list")
-		sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-			config,
-			c,
-			banner,
-			rateLimitMutex,
-			failedChallengeStates,
-			failAction,
-		)
-		decisionForNginxResult.DecisionListResult = SiteWideChallenge
-		decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-		return
+		// Reuse the exception from password prot for site-wide sha inv exceptions path
+		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
+		if !hasExceptions || !exceptions[requestedProtectedPath] {
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				rateLimitMutex,
+				failedChallengeStates,
+				failAction,
+			)
+			decisionForNginxResult.DecisionListResult = SiteWideChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		} else {
+			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
+		}
 	}
 
 	// log.Println("no mention in any lists, access granted")
-	accessGranted(c, DecisionListResultToString[NoMention])
-	decisionForNginxResult.DecisionListResult = NoMention
+	if decisionForNginxResult.DecisionListResult == NotSet {
+		decisionForNginxResult.DecisionListResult = NoMention
+	}
+	accessGranted(c, DecisionListResultToString[decisionForNginxResult.DecisionListResult])
 	return
 }
 
