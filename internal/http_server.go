@@ -167,6 +167,18 @@ func RunHttpServer(
 		),
 	)
 
+	r.Any("/auth_request_static",
+		decisionForNginxStatic(
+			config,
+			decisionListsMutex,
+			decisionLists,
+			passwordProtectedPaths,
+			rateLimitMutex,
+			failedChallengeStates,
+			banner,
+		),
+	)
+
 	r.GET("/info", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"config_version": config.ConfigVersion,
@@ -533,15 +545,19 @@ const (
 	PasswordProtectedPathException
 	PerSiteAccessGranted
 	PerSiteChallenge
+	PerSiteChallengeStaticSkip
 	PerSiteBlock
 	GlobalAccessGranted
 	GlobalChallenge
+	GlobalChallengeStaticSkip
 	GlobalBlock
 	ExpiringAccessGranted // XXX should this even exist?
 	ExpiringChallenge
+	ExpiringChallengeStaticSkip
 	ExpiringBlock
 	SiteWideChallenge
 	SiteWideChallengeException
+	SiteWideChallengeStaticSkip
 	NoMention
 	NotSet
 )
@@ -551,15 +567,19 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	PasswordProtectedPathException: "PasswordProtectedPathException",
 	PerSiteAccessGranted:           "PerSiteAccessGranted",
 	PerSiteChallenge:               "PerSiteChallenge",
+	PerSiteChallengeStaticSkip:     "PerSiteChallengeStaticSkip",
 	PerSiteBlock:                   "PerSiteBlock",
 	GlobalAccessGranted:            "GlobalAccessGranted",
 	GlobalChallenge:                "GlobalChallenge",
+	GlobalChallengeStaticSkip:      "GlobalChallengeStaticSkip",
 	GlobalBlock:                    "GlobalBlock",
 	ExpiringAccessGranted:          "ExpiringAccessGranted",
 	ExpiringChallenge:              "ExpiringChallenge",
+	ExpiringChallengeStaticSkip:    "ExpiringChallengeStaticSkip",
 	ExpiringBlock:                  "ExpiringBlock",
 	SiteWideChallenge:              "SiteWideChallenge",
 	SiteWideChallengeException:     "SiteWideChallengeException",
+	SiteWideChallengeStaticSkip:    "SiteWideChallengeStaticSkip",
 	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
@@ -607,6 +627,39 @@ func decisionForNginx(
 			rateLimitMutex,
 			failedChallengeStates,
 			banner,
+			false,
+		)
+		if config.Debug {
+			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
+			if err != nil {
+				log.Println("error marshalling decisionForNginxResult")
+			} else {
+				log.Println(string(bytes))
+			}
+		}
+	}
+}
+
+func decisionForNginxStatic(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	passwordProtectedPaths *PasswordProtectedPaths,
+	rateLimitMutex *sync.Mutex,
+	failedChallengeStates *FailedChallengeStates,
+	banner BannerInterface,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		decisionForNginxResult := decisionForNginx2(
+			c,
+			config,
+			decisionListsMutex,
+			decisionLists,
+			passwordProtectedPaths,
+			rateLimitMutex,
+			failedChallengeStates,
+			banner,
+			true,
 		)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
@@ -628,6 +681,7 @@ func decisionForNginx2(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	banner BannerInterface,
+	static bool,
 ) (decisionForNginxResult DecisionForNginxResult) {
 	// XXX duplication
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -696,18 +750,22 @@ func decisionForNginx2(
 			return
 		case Challenge:
 			// log.Println("challenge from per-site lists")
-			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-				config,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-				Block, // FailAction
-			)
-			decisionForNginxResult.DecisionListResult = PerSiteChallenge
-			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-			return
+			if static {
+				decisionForNginxResult.DecisionListResult = PerSiteChallengeStaticSkip
+			} else {
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					rateLimitMutex,
+					failedChallengeStates,
+					Block, // FailAction
+				)
+				decisionForNginxResult.DecisionListResult = PerSiteChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, DecisionListResultToString[PerSiteBlock])
 			// log.Println("block from per-site lists")
@@ -744,18 +802,22 @@ func decisionForNginx2(
 			return
 		case Challenge:
 			// log.Println("challenge from global lists")
-			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-				config,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-				Block, // FailAction
-			)
-			decisionForNginxResult.DecisionListResult = GlobalChallenge
-			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-			return
+			if static {
+				decisionForNginxResult.DecisionListResult = GlobalChallengeStaticSkip
+			} else {
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					rateLimitMutex,
+					failedChallengeStates,
+					Block, // FailAction
+				)
+				decisionForNginxResult.DecisionListResult = GlobalChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, DecisionListResultToString[GlobalBlock])
 			// log.Println("access denied from global lists")
@@ -782,18 +844,22 @@ func decisionForNginx2(
 			return
 		case Challenge:
 			// log.Println("challenge from expiring lists")
-			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-				config,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-				Block, // FailAction
-			)
-			decisionForNginxResult.DecisionListResult = ExpiringChallenge
-			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-			return
+			if static {
+				decisionForNginxResult.DecisionListResult = ExpiringChallengeStaticSkip
+			} else {
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					rateLimitMutex,
+					failedChallengeStates,
+					Block, // FailAction
+				)
+				decisionForNginxResult.DecisionListResult = ExpiringChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, DecisionListResultToString[ExpiringBlock])
 			// log.Println("access denied from expiring lists")
@@ -813,7 +879,9 @@ func decisionForNginx2(
 		// log.Println("challenge from sitewide list")
 		// Reuse the exception from password prot for site-wide sha inv exceptions path
 		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
-		if !hasExceptions || !exceptions[requestedProtectedPath] {
+		if static {
+			decisionForNginxResult.DecisionListResult = SiteWideChallengeStaticSkip
+		} else if !hasExceptions || !exceptions[requestedProtectedPath] {
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
