@@ -25,6 +25,8 @@ password_protected_paths:
   "localhost":
     - wp-admin
 password_protected_path_exceptions:
+  localhost:
+    - wp-admin/admin-ajax.php
   "localhost:8081":
     - wp-admin/admin-ajax.php
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
@@ -72,9 +74,16 @@ regexes_with_rates:
     interval: 1
     regex: .*challengeme.*
     rule: "instant challenge"
+  - decision: iptables_block
+    hits_per_interval: 0
+    interval: 1
+    regex: ^- .*
+    rule: Empty domain name instant block
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
+  localhost: no_block
+  "localhost:8081": no_block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
