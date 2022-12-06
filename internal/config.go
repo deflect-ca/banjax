@@ -60,6 +60,7 @@ type Config struct {
 	Debug                                  bool              `yaml:"debug"`
 	DisableLogging                         map[string]bool   `yaml:"disable_logging"`
 	BanningLogFileTemp                     string            `yaml:"banning_log_file_temp"`
+	DisableKafka                           bool              `yaml:"disable_kafka"`
 }
 
 type RegexWithRate struct {
