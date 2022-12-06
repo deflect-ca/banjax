@@ -109,6 +109,10 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		log.Printf("debug mode enabled by command line param")
 		config.Debug = true
 	}
+
+	if config.StandaloneTesting {
+		config.DisableKafka = true
+	}
 }
 
 func main() {
@@ -236,7 +240,9 @@ func main() {
 		&wg,
 	)
 
-	if !config.StandaloneTesting {
+	if !config.DisableKafka {
+		log.Println("starting RunKafkaReader/RunKafkaWriter")
+
 		wg.Add(1)
 		go internal.RunKafkaReader(
 			&config,
@@ -250,6 +256,8 @@ func main() {
 			&config,
 			&wg,
 		)
+	} else {
+		log.Println("not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
 	metricsLogFileName := ""
