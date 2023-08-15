@@ -6,7 +6,7 @@
 
 FROM golang:1.17.0-buster
 
-RUN go get -u github.com/gin-gonic/gin
+RUN go get -u github.com/gin-gonic/gin@v1.7.7
 
 RUN mkdir -p /opt/hello-world
 COPY ./hello-world.go /opt/hello-world/
