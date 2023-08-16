@@ -195,11 +195,15 @@ func (b Banner) LogRegexBan(
 		disableLogging = 1
 	}
 
+	// we append "| <http status code>" at the end of banjax-format.log for special regex rule
+	// here we split | and ignore everything on the right
+	vertical_bar_split := strings.SplitN(words[5], "|", 2)
+
 	logObj := LogJson{
 		words[3], // path
 		timeString,
 		ruleName,
-		words[5], // client_ua
+		strings.TrimSpace(vertical_bar_split[0]), // client_ua
 		ip,
 		"regex",
 		words[0], // method
