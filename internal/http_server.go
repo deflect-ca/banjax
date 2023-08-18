@@ -619,6 +619,40 @@ func decisionForNginx(
 	}
 }
 
+func checkPerSiteDecisionLists(
+	config *Config,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	requestedHost string,
+	clientIp string,
+) (bool, Decision) {
+	// XXX ugh this locking is awful
+	// i got bit by just checking against the zero value here, which is a valid iota enum
+	decisionListsMutex.Lock()
+	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
+	decisionListsMutex.Unlock()
+	foundInIpPerSiteFilter := false
+	if !ok {
+		// PerSiteDecisionListsIPFilter haa different struct as PerSiteDecisionLists
+		if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost]; ok {
+			// decision must iterate in order, once found in one of the list, break the loop
+			for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+				if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
+					if instanceIPFilter.Allowed(clientIp) {
+						if config.Debug {
+							log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+						}
+						decision = iterateDecision
+						foundInIpPerSiteFilter = true
+						break
+					}
+				}
+			}
+		}
+	}
+	return (ok || foundInIpPerSiteFilter), decision
+}
+
 func decisionForNginx2(
 	c *gin.Context,
 	config *Config,
@@ -667,31 +701,15 @@ func decisionForNginx2(
 		}
 	}
 
-	// XXX ugh this locking is awful
-	// i got bit by just checking against the zero value here, which is a valid iota enum
-	decisionListsMutex.Lock()
-	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
-	decisionListsMutex.Unlock()
-	foundInIpPerSiteFilter := false
-	if !ok {
-		// PerSiteDecisionListsIPFilter haa different struct as PerSiteDecisionLists
-		if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost]; ok {
-			// decision must iterate in order, once found in one of the list, break the loop
-			for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-				if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
-					if instanceIPFilter.Allowed(clientIp) {
-						if config.Debug {
-							log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
-						}
-						decision = iterateDecision
-						foundInIpPerSiteFilter = true
-						break
-					}
-				}
-			}
-		}
-	}
-	if ok || foundInIpPerSiteFilter {
+	foundInPerSiteList, decision := checkPerSiteDecisionLists(
+		config,
+		decisionListsMutex,
+		decisionLists,
+		requestedHost,
+		clientIp,
+	)
+
+	if foundInPerSiteList {
 		switch decision {
 		case Allow:
 			accessGranted(c, DecisionListResultToString[PerSiteAccessGranted])
