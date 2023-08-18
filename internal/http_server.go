@@ -285,6 +285,8 @@ func tooManyFailedChallenges(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	method string,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
 ) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
 	rateLimitMutex.Lock()
 	defer rateLimitMutex.Unlock()
@@ -308,8 +310,21 @@ func tooManyFailedChallenges(
 	}
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
+		foundInPerSiteList, decision := checkPerSiteDecisionLists(
+			config,
+			decisionListsMutex,
+			decisionLists,
+			host,
+			ip,
+		)
+		var decisionType Decision
+		decisionType = IptablesBlock
+		if foundInPerSiteList && decision == Allow {
+			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
+			decisionType = NginxBlock
+		}
 		// log.Println("IP has failed too many challenges; blocking them")
-		banner.BanOrChallengeIp(config, ip, IptablesBlock)
+		banner.BanOrChallengeIp(config, ip, decisionType)
 		banner.LogFailedChallengeBan(
 			config,
 			ip,
@@ -318,7 +333,7 @@ func tooManyFailedChallenges(
 			path,
 			config.TooManyFailedChallengesThreshold,
 			userAgent,
-			IptablesBlock,
+			decisionType,
 			method,
 		)
 		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
@@ -374,6 +389,8 @@ func sendOrValidateShaChallenge(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	failAction FailAction,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -410,6 +427,8 @@ func sendOrValidateShaChallenge(
 			rateLimitMutex,
 			failedChallengeStates,
 			requestedMethod,
+			decisionListsMutex,
+			decisionLists,
 		)
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.TooManyFailedChallenges {
@@ -470,6 +489,8 @@ func sendOrValidatePassword(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
 ) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -513,6 +534,8 @@ func sendOrValidatePassword(
 		rateLimitMutex,
 		failedChallengeStates,
 		requestedMethod,
+		decisionListsMutex,
+		decisionLists,
 	)
 	sendOrValidatePasswordResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 	// log.Println(tooManyFailedChallengesResult)
@@ -633,7 +656,7 @@ func checkPerSiteDecisionLists(
 	decisionListsMutex.Unlock()
 	foundInIpPerSiteFilter := false
 	if !ok {
-		// PerSiteDecisionListsIPFilter haa different struct as PerSiteDecisionLists
+		// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
 		if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost]; ok {
 			// decision must iterate in order, once found in one of the list, break the loop
 			for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
@@ -689,6 +712,8 @@ func decisionForNginx2(
 						banner,
 						rateLimitMutex,
 						failedChallengeStates,
+						decisionListsMutex,
+						decisionLists,
 					)
 					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
 					decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
@@ -725,6 +750,8 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				Block, // FailAction
+				decisionListsMutex,
+				decisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = PerSiteChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -773,6 +800,8 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				Block, // FailAction
+				decisionListsMutex,
+				decisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = GlobalChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -811,6 +840,8 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				Block, // FailAction
+				decisionListsMutex,
+				decisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = ExpiringChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -843,6 +874,8 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				failAction,
+				decisionListsMutex,
+				decisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = SiteWideChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
