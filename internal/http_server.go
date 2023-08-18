@@ -674,15 +674,19 @@ func decisionForNginx2(
 	decisionListsMutex.Unlock()
 	foundInIpPerSiteFilter := false
 	if !ok {
-		if _, perSiteOk := (*decisionLists).PerSiteDecisionLists[requestedHost]; perSiteOk {
-			for _, iterateDecision := range (*decisionLists).PerSiteDecisionLists[requestedHost] {
-				if (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision].Allowed(clientIp) {
-					if config.Debug {
-						log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+		// PerSiteDecisionListsIPFilter haa different struct as PerSiteDecisionLists
+		if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost]; ok {
+			// decision must iterate in order, once found in one of the list, break the loop
+			for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+				if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
+					if instanceIPFilter.Allowed(clientIp) {
+						if config.Debug {
+							log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
+						}
+						decision = iterateDecision
+						foundInIpPerSiteFilter = true
+						break
 					}
-					decision = iterateDecision
-					foundInIpPerSiteFilter = true
-					break
 				}
 			}
 		}
