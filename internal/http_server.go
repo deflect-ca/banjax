@@ -654,26 +654,30 @@ func checkPerSiteDecisionLists(
 	decisionListsMutex.Lock()
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
 	decisionListsMutex.Unlock()
+
+	// found as plain IP form, no need to check IPFilter
+	if ok {
+		return ok, decision
+	}
+
 	foundInIpPerSiteFilter := false
-	if !ok {
-		// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
-		if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost]; ok {
-			// decision must iterate in order, once found in one of the list, break the loop
-			for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-				if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
-					if instanceIPFilter.Allowed(clientIp) {
-						if config.Debug {
-							log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
-						}
-						decision = iterateDecision
-						foundInIpPerSiteFilter = true
-						break
-					}
+
+	// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
+	// decision must iterate in order, once found in one of the list, break the loop
+	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+		if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
+			if instanceIPFilter.Allowed(clientIp) {
+				if config.Debug {
+					log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
 				}
+				decision = iterateDecision
+				foundInIpPerSiteFilter = true
+				break
 			}
 		}
 	}
-	return (ok || foundInIpPerSiteFilter), decision
+
+	return foundInIpPerSiteFilter, decision
 }
 
 func decisionForNginx2(
