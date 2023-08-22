@@ -317,8 +317,8 @@ func tooManyFailedChallenges(
 			host,
 			ip,
 		)
-		var decisionType Decision
-		decisionType = IptablesBlock
+
+		var decisionType Decision = IptablesBlock
 		if foundInPerSiteList && decision == Allow {
 			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
 			decisionType = NginxBlock
