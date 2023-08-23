@@ -36,7 +36,8 @@ password_hashes:
 per_site_decision_lists:
   "localhost:8081":
     allow:
-      - 91.91.91.91
+      - 92.92.92.92
+      - 192.168.1.0/24
 per_site_rate_limited_regexes: {}
 regexes_with_rates:
   - decision: allow
