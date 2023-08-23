@@ -204,6 +204,17 @@ func TestPerSiteDecisionLists(t *testing.T) {
 		// per_site_decision_lists
 		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil},
 	})
+
+	// test if return 403 after too many failed password page
+	reloadConfig(fixtureConfigTestPersiteFail, 1)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2023-08-23"}},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("91.91.91.91"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("91.91.91.91"), nil},
+		{"GET", prefix + "/wp-admin", 403, ClientIP("91.91.91.91"), nil},
+		// except to see 401 again
+		{"GET", prefix + "/wp-admin", 401, ClientIP("91.91.91.91"), nil},
+	})
 }
 
 func TestSitewideShaInvList(t *testing.T) {

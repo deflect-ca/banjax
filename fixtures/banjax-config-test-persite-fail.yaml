@@ -1,0 +1,64 @@
+config_version: 2023-08-23_00:00:00
+global_decision_lists:
+  allow: []  # test remove
+  iptables_block:
+    - 30.40.50.60
+  nginx_block:
+    - 70.80.90.100
+  challenge:
+    - 20.20.20.20  # test value change
+iptables_ban_seconds: 10
+iptables_unbanner_seconds: 5
+kafka_brokers:
+  - "localhost:9092"
+kafka_security_protocol: 'ssl'
+kafka_ssl_ca: "/etc/banjax/caroot.pem"
+#kafka_ssl_cert: "/etc/banjax/certificate.pem"
+kafka_ssl_key: "/etc/banjax/key.pem"
+kafka_ssl_key_password: password
+kafka_report_topic: 'banjax_report_topic'
+kafka_command_topic: 'banjax_command_topic'
+password_protected_paths:
+  "localhost:8081":
+    - wp-admin
+    - wp-admin2
+    - app/admin
+  "localhost":
+    - wp-admin
+password_protected_path_exceptions:
+  "localhost:8081":
+    - wp-admin/admin-ajax.php
+    - app/admin/no-ban.php
+# python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
+password_hashes:
+  "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+  "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+per_site_decision_lists:
+  "localhost:8081":
+    allow:
+      - 91.91.91.91
+per_site_rate_limited_regexes: {}
+regexes_with_rates:
+  - decision: allow
+    hits_per_interval: 0
+    interval: 1
+    regex: .*allowme.*
+    rule: "unblock backdoor"
+  - decision: nginx_block
+    hits_per_interval: 0
+    interval: 1
+    regex: .*blockme.*
+    rule: "instant block"
+sitewide_sha_inv_list:
+  example.com: block
+  foobar.com: no_block
+server_log_file: /var/log/banjax/banjax-format.log
+banning_log_file: /etc/banjax/ban_ip_list.log
+expiring_decision_ttl_seconds: 10
+too_many_failed_challenges_interval_seconds: 10
+too_many_failed_challenges_threshold: 3
+password_cookie_ttl_seconds: 14400  # also modify internal/password-protected-path.html:168
+sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.html:94
+hmac_secret: secret
+gin_log_file: /var/log/banjax/gin.log
+metrics_log_file: /var/log/banjax/metrics.log
