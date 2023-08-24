@@ -204,6 +204,26 @@ func TestPerSiteDecisionLists(t *testing.T) {
 		// per_site_decision_lists
 		{"GET", prefix + "/", 200, ClientIP("91.91.91.91"), nil},
 	})
+
+	// test if return 403 after too many failed password page, after it should see 401 immediately
+	reloadConfig(fixtureConfigTestPersiteFail, 1)
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2023-08-23"}},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("92.92.92.92"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("92.92.92.92"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("92.92.92.92"), nil},
+		{"GET", prefix + "/wp-admin", 403, ClientIP("92.92.92.92"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("92.92.92.92"), nil},
+	})
+
+	// test CIDR format (192.168.1.0/24)
+	httpTester(t, []TestResource{
+		{"GET", prefix + "/wp-admin", 401, ClientIP("192.168.1.87"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("192.168.1.87"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("192.168.1.87"), nil},
+		{"GET", prefix + "/wp-admin", 403, ClientIP("192.168.1.87"), nil},
+		{"GET", prefix + "/wp-admin", 401, ClientIP("192.168.1.87"), nil},
+	})
 }
 
 func TestSitewideShaInvList(t *testing.T) {
