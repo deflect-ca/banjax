@@ -365,7 +365,7 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 	} else {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete((*decisionLists).ExpiringDecisionLists, clientIp)
-			log.Println("deleted expired decision from expiring lists")
+			// log.Println("deleted expired decision from expiring lists")
 			ok = false
 		}
 	}
@@ -383,7 +383,7 @@ func RemoveExpiredDecisions(
 	for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete((*decisionLists).ExpiringDecisionLists, ip)
-			log.Println("deleted expired decision from expiring lists")
+			// log.Println("deleted expired decision from expiring lists")
 		}
 	}
 }
@@ -400,15 +400,13 @@ func updateExpiringDecisionLists(
 	defer decisionListsMutex.Unlock()
 
 	existingExpiringDecision, ok := (*decisionLists).ExpiringDecisionLists[ip]
-	if !ok {
-		log.Println("no existing expiringDecision")
-	} else {
+	if ok {
 		if newDecision <= existingExpiringDecision.Decision {
 			log.Println("not updating expiringDecision with less serious one", existingExpiringDecision.Decision, newDecision)
 			return
 		}
 	}
-	log.Println("!!! existing and new: ", existingExpiringDecision.Decision, newDecision)
+	// log.Println("!!! existing and new: ", existingExpiringDecision.Decision, newDecision)
 
 	purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)

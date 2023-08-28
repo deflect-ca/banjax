@@ -68,9 +68,9 @@ func ValidateExpirationAndHmac(secretKey string,
 	return nil
 }
 
-func ParseCookie(cookieString string) ([]byte, []byte, []byte, error) {
+func ParseCookie(cookieString string, clientIp string) ([]byte, []byte, []byte, error) {
 	cookieBytes := make([]byte, 20+32+8)
-	log.Println("cookieString: ", cookieString)
+	log.Printf("ParseCookie[%s]: cookieString: %s", clientIp, cookieString)
 
 	cookieBytes, err := base64.StdEncoding.DecodeString(cookieString)
 	if err != nil {
@@ -82,7 +82,7 @@ func ParseCookie(cookieString string) ([]byte, []byte, []byte, error) {
 			return nil, nil, nil, errors.New("bad base64")
 		}
 	}
-	log.Println("cookieBytes: ", cookieBytes)
+	// log.Printf("SHA-INV[%s]: cookieBytes: %d", clientIp, cookieBytes)
 
 	if len(cookieBytes) != 20+32+8 {
 		return nil, nil, nil, errors.New("bad length")
@@ -92,9 +92,9 @@ func ParseCookie(cookieString string) ([]byte, []byte, []byte, error) {
 	solutionBytes := cookieBytes[20 : 20+32]
 	expirationBytes := cookieBytes[20+32 : 20+32+8]
 
-	log.Println("hmacFromClient: ", hmacFromClient)
-	log.Println("solutionBytes1: ", solutionBytes)
-	log.Println("expirationBytes: ", expirationBytes)
+	// log.Printf("SHA-INV[%s]: hmacFromClient: %d", clientIp, hmacFromClient)
+	log.Printf("ParseCookie[%s]: solutionBytes1: %d", clientIp, solutionBytes)
+	// log.Printf("SHA-INV[%s]: expirationBytes: %d", clientIp, expirationBytes)
 	return hmacFromClient, solutionBytes, expirationBytes, nil
 }
 
@@ -104,7 +104,7 @@ func ValidateShaInvCookie(secretKey string,
 	clientIp string,
 	expectedZeroBits uint32) error {
 
-	hmacFromClient, solutionBytes, expirationBytes, err := ParseCookie(cookieString)
+	hmacFromClient, solutionBytes, expirationBytes, err := ParseCookie(cookieString, clientIp)
 	if err != nil {
 		return err
 	}
@@ -121,8 +121,8 @@ func ValidateShaInvCookie(secretKey string,
 	hashedMaybeSolution := sha256.New()
 	hashedMaybeSolution.Write(maybeSolution)
 	actualZeroBits := CountZeroBitsFromLeft(hashedMaybeSolution.Sum(nil))
-	log.Printf("expected %d zero bits, found %d", expectedZeroBits, actualZeroBits)
 	if actualZeroBits < expectedZeroBits {
+		log.Printf("SHA-INV: [%s] expected %d zero bits, found %d", clientIp, expectedZeroBits, actualZeroBits)
 		return errors.New("not enough zero bits in hash")
 	}
 
@@ -144,11 +144,11 @@ func ValidatePasswordCookie(secretKey string,
 	clientIp string,
 	hashedPassword []byte) error {
 
-	hmacFromClient, solutionBytes, expirationBytes, err := ParseCookie(cookieString)
+	hmacFromClient, solutionBytes, expirationBytes, err := ParseCookie(cookieString, clientIp)
 	if err != nil {
 		return err
 	}
-	log.Println("solutionBytes2: ", solutionBytes)
+	// log.Println("solutionBytes2: ", solutionBytes)
 
 	// we assume hmacFromClient is good later, so be careful about re-ordering this
 	err = ValidateExpirationAndHmac(secretKey, expirationBytes, nowTime, hmacFromClient, clientIp)
@@ -156,7 +156,7 @@ func ValidatePasswordCookie(secretKey string,
 		return err
 	}
 
-	log.Println("hashedPassword: ", hashedPassword)
+	// log.Println("hashedPassword: ", hashedPassword)
 
 	// we know the hmac is good at this point
 	expectedSolution := make([]byte, 20+32)
@@ -167,8 +167,8 @@ func ValidatePasswordCookie(secretKey string,
 	hashedExpectedSolution.Write(expectedSolution)
 	expectedSolutionBytes := hashedExpectedSolution.Sum(nil)
 	if !bytes.Equal(expectedSolutionBytes, solutionBytes) {
-		log.Println("client solution: ", solutionBytes)
-		log.Println("expected solution: ", expectedSolutionBytes)
+		log.Printf("PASS[%s]: client solution: %d", clientIp, solutionBytes)
+		log.Printf("PASS[%s]: expected solution: %d", clientIp, expectedSolutionBytes)
 		return errors.New("bad password")
 	}
 
