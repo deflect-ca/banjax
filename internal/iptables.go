@@ -98,7 +98,7 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 					continue
 				}
 
-				log.Println("Delete succeeded")
+				// log.Println("Delete succeeded")
 			}
 			// i++
 			// if i > 100 {
@@ -150,9 +150,7 @@ func purgeNginxAuthCacheForIp(ip string) {
 
 	defer response.Body.Close()
 
-	if bytes.Contains(body, []byte("Successful purge")) {
-		log.Println("purgeNginxAuthCacheForIp() got 'Successful purge' response'")
-	} else {
+	if !bytes.Contains(body, []byte("Successful purge")) {
 		log.Println("purgeNginxAuthCacheForIp() DID NOT GET 'Successful purge' response'")
 		log.Println("instead got: ", string(body))
 	}
@@ -272,7 +270,7 @@ func (b Banner) BanOrChallengeIp(
 	ip string,
 	decision Decision,
 ) {
-	log.Println("BanOrChallengeIp", ip, decision)
+	log.Println("IPTABLES: BanOrChallengeIp", ip, decision)
 
 	updateExpiringDecisionLists(
 		config,
@@ -290,24 +288,26 @@ func (b Banner) BanOrChallengeIp(
 
 func banIp(config *Config, ip string) {
 	if ip == "127.0.0.1" {
-		log.Println("Not going to block localhost")
+		log.Println("IPTABLES: Not going to block localhost")
 		return
 	}
 	if config.StandaloneTesting {
-		log.Println("Not calling iptables in testing")
+		log.Println("IPTABLES: Not calling iptables in testing")
 		return
 	}
 
 	ipt, err := iptables.New()
 
 	ruleSpec := ipAndTimestampToRuleSpec(ip, time.Now().Unix())
-	log.Printf("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
+	if config.Debug {
+		log.Printf("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
+	}
 	err = ipt.Append("filter", "INPUT", ruleSpec...)
 	if err != nil {
-		//log.Println("Append failed")
+		log.Println("IPTABLES: Append failed")
 		return
 	}
-	log.Println("Append succeeded")
+	// log.Println("Append succeeded")
 }
 
 // XXX

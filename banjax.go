@@ -40,7 +40,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		hostname = "unknown-hostname"
 	}
 	config.Hostname = hostname
-	log.Printf("hostname: %s", hostname)
+	log.Printf("INIT: hostname: %s", hostname)
 
 	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
@@ -60,14 +60,14 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	}
 
 	if config.ShaInvChallengeHTML != "" {
-		log.Printf("Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
+		log.Printf("INIT: Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
 		challengerBytes, err := ioutil.ReadFile(config.ShaInvChallengeHTML)
 		if err != nil {
 			panic("!!! couldn't read sha-inverse-challenge.html")
 		}
 		config.ChallengerBytes = challengerBytes
 	} else {
-		log.Printf("Reading SHA-inverse challenge HTML from embed")
+		log.Printf("INIT: Reading SHA-inverse challenge HTML from embed")
 		challengerBytes, err := shaInvChallengeEmbed.ReadFile("internal/sha-inverse-challenge.html")
 		if err != nil {
 			panic("!!! couldn't read sha-inverse-challenge.html")
@@ -76,14 +76,14 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	}
 
 	if config.PasswordProtectedPathHTML != "" {
-		log.Printf("Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
+		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
 		passwordPageBytes, err := ioutil.ReadFile(config.PasswordProtectedPathHTML)
 		if err != nil {
 			panic("!!! couldn't read password-protected-path.html")
 		}
 		config.PasswordPageBytes = passwordPageBytes
 	} else {
-		log.Printf("Reading Password protected path HTML from embed")
+		log.Printf("INIT: Reading Password protected path HTML from embed")
 		passwordPageBytes, err := passProtPathEmbed.ReadFile("internal/password-protected-path.html")
 		if err != nil {
 			panic("!!! couldn't read password-protected-path.html")
@@ -135,7 +135,7 @@ func main() {
 
 	restartTime := int(time.Now().Unix()) // XXX
 
-	log.Println("config file: ", *configFilenamePtr)
+	log.Println("INIT: config file: ", *configFilenamePtr)
 
 	config := internal.Config{}
 	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
@@ -148,7 +148,7 @@ func main() {
 	// referenced old config values.
 	go func() {
 		for _ = range sighup_channel {
-			log.Println("got SIGHUP; reloading config")
+			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
 			rateLimitMutex.Lock()
 			config = internal.Config{}
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
@@ -176,7 +176,7 @@ func main() {
 	if len(config.KafkaBrokers) < 1 {
 		panic("config needs kafka_brokers!!")
 	}
-	log.Println("Kafka brokers: ", config.KafkaBrokers)
+	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
@@ -241,7 +241,7 @@ func main() {
 	)
 
 	if !config.DisableKafka {
-		log.Println("starting RunKafkaReader/RunKafkaWriter")
+		log.Println("INIT: starting RunKafkaReader/RunKafkaWriter")
 
 		wg.Add(1)
 		go internal.RunKafkaReader(
@@ -257,7 +257,7 @@ func main() {
 			&wg,
 		)
 	} else {
-		log.Println("not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
+		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
 	metricsLogFileName := ""
@@ -280,9 +280,11 @@ func main() {
 			select {
 			case <-statusTicker.C:
 				// log.Println("calling ReportStatusMessage")
-				internal.ReportStatusMessage(
-					&config,
-				)
+				if !config.DisableKafka {
+					internal.ReportStatusMessage(
+						&config,
+					)
+				}
 			case <-expireTicker.C:
 				internal.RemoveExpiredDecisions(
 					&decisionListsMutex,

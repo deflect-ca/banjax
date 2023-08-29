@@ -35,9 +35,9 @@ func RunLogTailer(
 		defer wg.Done()
 		t, err := tail.TailFile(config.ServerLogFile, tail.Config{Follow: true})
 		if err != nil {
-			log.Println("log tailer failed to start. waiting a bit and trying again.")
+			log.Println("RunLogTailer: log tailer failed to start. waiting a bit and trying again.")
 		} else {
-			log.Println("log tailer started")
+			log.Println("RunLogTailer: log tailer started")
 			for line := range t.Lines {
 				consumeLineResult := consumeLine(
 					line,

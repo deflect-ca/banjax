@@ -11,12 +11,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"github.com/google/uuid"
-	"github.com/segmentio/kafka-go"
 	"io/ioutil"
 	"log"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/segmentio/kafka-go"
 )
 
 type commandMessage struct {
@@ -30,18 +31,18 @@ func getDialer(config *Config) *kafka.Dialer {
 	if config.KafkaSslCert != "" {
 		keypair, err := tls.LoadX509KeyPair(config.KafkaSslCert, config.KafkaSslKey)
 		if err != nil {
-			log.Fatalf("failed to load cert + key pair: %s", err)
+			log.Fatalf("KAFKA: failed to load cert + key pair: %s", err)
 		}
 
 		caCert, err := ioutil.ReadFile(config.KafkaSslCa)
 		if err != nil {
-			log.Fatalf("failed to read CA root: %s", err)
+			log.Fatalf("KAFKA: failed to read CA root: %s", err)
 		}
 
 		caCertPool := x509.NewCertPool()
 		ok := caCertPool.AppendCertsFromPEM(caCert)
 		if !ok {
-			log.Fatalf("failed to parse CA root: %s", err)
+			log.Fatalf("KAFKA: failed to parse CA root: %s", err)
 		}
 
 		tlsConfig = tls.Config{
@@ -78,7 +79,7 @@ func RunKafkaReader(
 		r.SetOffset(kafka.LastOffset)
 		defer r.Close()
 
-		log.Printf("NewReader started")
+		log.Printf("KAFKA: NewReader started")
 
 		for {
 			// XXX read about go contexts
@@ -87,17 +88,17 @@ func RunKafkaReader(
 			ctx := context.Background()
 			m, err := r.ReadMessage(ctx)
 			if err != nil {
-				log.Println("r.ReadMessage() failed")
+				log.Println("KAFKA: r.ReadMessage() failed")
 				log.Println(err.Error())
 				continue // XXX what to do here?
 			}
 
-			log.Printf("message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
+			log.Printf("KAFKA: message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
 
 			command := commandMessage{}
 			err = json.Unmarshal(m.Value, &command)
 			if err != nil {
-				log.Println("json.Unmarshal() failed")
+				log.Println("KAFKA: json.Unmarshal() failed")
 				continue
 			}
 
@@ -131,12 +132,12 @@ func handleCommand(
 				time.Now(),
 				Challenge,
 			)
-			log.Printf("kafka added added to global challenge lists: Challenge %s\n", command.Value)
+			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
 		} else {
-			log.Printf("kafka command value looks malformed: %s\n", command.Value)
+			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
 	default:
-		log.Printf("unrecognized command name: %s\n", command.Name)
+		log.Printf("KAFKA:unrecognized command name: %s\n", command.Name)
 	}
 }
 
@@ -157,7 +158,7 @@ func ReportStatusMessage(
 
 	bytes, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("error marshalling status message\n")
+		log.Printf("KAFKA: error marshalling status message\n")
 		return
 	}
 	sendBytesToMessageChan(bytes)
@@ -183,7 +184,7 @@ func ReportPassedFailedBannedMessage(config *Config, name string, ip string, sit
 
 	bytes, err := json.Marshal(message)
 	if err != nil {
-		log.Printf("error marshalling %s message\n", name)
+		log.Printf("KAFKA: error marshalling %s message\n", name)
 		return
 	}
 	sendBytesToMessageChan(bytes)
@@ -199,7 +200,7 @@ func sendBytesToMessageChan(bytes []byte) {
 	case messageChan <- bytes:
 		// log.Println("put message on channel")
 	default:
-		log.Println("did not put message on channel")
+		log.Println("KAFKA: did not put message on channel")
 	}
 }
 
@@ -221,7 +222,7 @@ func RunKafkaWriter(
 		})
 		defer w.Close()
 
-		log.Printf("NewWriter started")
+		log.Printf("KAFKA: NewWriter started")
 
 		// XXX weird?
 		once.Do(func() {
@@ -239,12 +240,12 @@ func RunKafkaWriter(
 				},
 			)
 			if err != nil {
-				log.Println("WriteMessages() failed")
+				log.Println("KAFKA: WriteMessages() failed")
 				log.Println(err)
 				break
 			}
 
-			log.Println("WriteMessages() succeeded")
+			// log.Println("WriteMessages() succeeded")
 
 			// time.Sleep(2 * time.Second) // XXX just for testing at the moment
 		}
