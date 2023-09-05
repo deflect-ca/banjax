@@ -632,11 +632,15 @@ func decisionForNginx(
 			failedChallengeStates,
 			banner,
 		)
-		if config.Debug || decisionForNginxResult.DecisionListResult != NoMention {
+		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
-			if err != nil {
-				log.Println("error marshalling decisionForNginxResult")
-			} else {
+			if err == nil {
+				log.Println("decisionForNginx:", string(bytes))
+			}
+		} else if decisionForNginxResult.DecisionListResult != NoMention {
+			// if not in debug mode, print limited log without newline
+			bytes, err := json.Marshal(decisionForNginxResult)
+			if err == nil {
 				log.Println("decisionForNginx:", string(bytes))
 			}
 		}
