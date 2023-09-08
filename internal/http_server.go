@@ -224,7 +224,8 @@ func accessDenied(c *gin.Context, decisionListResultString string) {
 func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
-	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", c.Request.Header.Get("X-Requested-Host"), false, false)
+	// Update: Provide "" to domain so that the cookie is not set for subdomains
+	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", "", false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 }
 
@@ -631,11 +632,15 @@ func decisionForNginx(
 			failedChallengeStates,
 			banner,
 		)
-		if config.Debug || decisionForNginxResult.DecisionListResult != NoMention {
+		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
-			if err != nil {
-				log.Println("error marshalling decisionForNginxResult")
-			} else {
+			if err == nil {
+				log.Println("decisionForNginx:", string(bytes))
+			}
+		} else if decisionForNginxResult.DecisionListResult != NoMention {
+			// if not in debug mode, print limited log without newline
+			bytes, err := json.Marshal(decisionForNginxResult)
+			if err == nil {
 				log.Println("decisionForNginx:", string(bytes))
 			}
 		}

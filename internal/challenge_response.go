@@ -93,7 +93,7 @@ func ParseCookie(cookieString string, clientIp string) ([]byte, []byte, []byte, 
 	expirationBytes := cookieBytes[20+32 : 20+32+8]
 
 	// log.Printf("SHA-INV[%s]: hmacFromClient: %d", clientIp, hmacFromClient)
-	log.Printf("ParseCookie[%s]: solutionBytes1: %d", clientIp, solutionBytes)
+	// log.Printf("ParseCookie[%s]: solutionBytes1: %d", clientIp, solutionBytes)
 	// log.Printf("SHA-INV[%s]: expirationBytes: %d", clientIp, expirationBytes)
 	return hmacFromClient, solutionBytes, expirationBytes, nil
 }
