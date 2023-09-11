@@ -53,7 +53,7 @@
         // XXX i had an expired cookie with the right number of zero bits and this went in a fast infinite loop
         async function new_solver(expected_number_of_zeroes) {
             console.log("new_solver()");
-            var blah = document.cookie.split('; ').find(row => row.startsWith('deflect_challenge2'))
+            var blah = document.cookie.split('; ').find(row => row.startsWith('deflect_challenge3'))
             if (! blah) {
                 // XXX can happen if page is left open and cookie expires
                 console.log("BAD BUG");
@@ -88,7 +88,7 @@
                     console.log(i);
                     console.log(hash_view);
                     // XXX i definitely have to hit the "delete all cookies" thing in web inspector sometimes...
-                    document.cookie = "deflect_challenge2=" + base64_cookie + "; " + "max-age=28800;SameSite=Lax;path=/;";
+                    document.cookie = "deflect_challenge3=" + base64_cookie + "; " + "max-age=28800;SameSite=Lax;path=/;";
                     location.reload();
                     return;    // XXX?
                 }
