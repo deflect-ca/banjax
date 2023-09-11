@@ -230,14 +230,14 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 }
 
 func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, "deflect_password2", config.PasswordCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_password3", config.PasswordCookieTtlSeconds, config.HmacSecret)
 	// custom status code, not defined in RFC
 	c.Data(401, "text/html", config.PasswordPageBytes)
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, "deflect_challenge2", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret)
 	// custom status code, not defined in RFC
 	c.Data(429, "text/html", config.ChallengerBytes)
 	c.Abort()
@@ -397,7 +397,7 @@ func sendOrValidateShaChallenge(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	challengeCookie, err := c.Cookie("deflect_challenge2")
+	challengeCookie, err := c.Cookie("deflect_challenge3")
 	requestedMethod := c.Request.Method
 	if err == nil {
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
@@ -497,7 +497,7 @@ func sendOrValidatePassword(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	passwordCookie, err := c.Cookie("deflect_password2")
+	passwordCookie, err := c.Cookie("deflect_password3")
 	requestedMethod := c.Request.Method
 	// log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
