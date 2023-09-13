@@ -152,7 +152,7 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 	siteToExceptionToBool := make(StringToStringToBool)
 	siteToPasswordHash := make(StringToBytes)
 	siteToRoamingPasswordHash := make(StringToBytes)
-	SiteToExpandCookieDomain := make(StringToBool)
+	siteToExpandCookieDomain := make(StringToBool)
 
 	for site, paths := range config.SitesToProtectedPaths {
 		for _, path := range paths {
@@ -196,8 +196,8 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 		passwordHashBytes, ok := siteToPasswordHash[rootSiteToRoam]
 		if ok {
 			siteToRoamingPasswordHash[site] = passwordHashBytes
-			SiteToExpandCookieDomain[rootSiteToRoam] = true // set this to let root domain cookie expand to subdomains
-			log.Printf("site %s has roaming password hash from root site %s\n", site, rootSiteToRoam)
+			siteToExpandCookieDomain[rootSiteToRoam] = true // set this to let root domain cookie expand to subdomains
+			// log.Printf("site %s has roaming password hash from root site %s\n", site, rootSiteToRoam)
 		}
 	}
 
@@ -206,7 +206,7 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 		siteToExceptionToBool,
 		siteToPasswordHash,
 		siteToRoamingPasswordHash,
-		SiteToExpandCookieDomain,
+		siteToExpandCookieDomain,
 	}
 }
 
