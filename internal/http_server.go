@@ -221,26 +221,71 @@ func accessDenied(c *gin.Context, decisionListResultString string) {
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string) {
+func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string, setDomainScope bool) {
 	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
 	// log.Println("Serving new cookie: ", newCookie)
-	// Update: Provide "" to domain so that the cookie is not set for subdomains
-	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", "", false, false)
+	domainScope := "" // Provide "" to domain so that the cookie is not set for subdomains, EX: example.com
+	if setDomainScope {
+		// Provide the domain so that the cookie is set for subdomains, EX: .example.com
+		domainScope = c.Request.Header.Get("X-Requested-Host")
+	}
+	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", domainScope, false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 }
 
-func passwordChallenge(c *gin.Context, config *Config) {
-	challenge(c, "deflect_password3", config.PasswordCookieTtlSeconds, config.HmacSecret)
+func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
+	challenge(c, "deflect_password3", config.PasswordCookieTtlSeconds, config.HmacSecret, roaming)
 	// custom status code, not defined in RFC
-	c.Data(401, "text/html", config.PasswordPageBytes)
+	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming))
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret)
+	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	// custom status code, not defined in RFC
 	c.Data(429, "text/html", config.ChallengerBytes)
 	c.Abort()
+}
+
+func modifyHTMLContent(pageBytes []byte, targetStr string, toReplace string) (modifiedPageBytes []byte) {
+	return bytes.Replace(pageBytes, []byte(targetStr), []byte(toReplace), 1)
+}
+
+func applyCookieMaxAge(pageBytes []byte, cookieName string, ttlSeconds int) (modifiedPageBytes []byte) {
+	/*
+		Replace hardcoded JS code to control cookie conditions
+		Target: document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
+	*/
+	return modifyHTMLContent(
+		pageBytes,
+		fmt.Sprintf("\"%s=\" + base64_cookie", cookieName),
+		fmt.Sprintf("\"%s=\" + base64_cookie + \";max-age=%d\"", cookieName, ttlSeconds),
+	)
+}
+
+func applyCookieDomain(cookieName string, pageBytes []byte) (modifiedPageBytes []byte) {
+	/*
+		Replace hardcoded JS code to control cookie conditions
+		Target: document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
+	*/
+	return modifyHTMLContent(
+		pageBytes,
+		fmt.Sprintf("\"%s=\" + base64_cookie", cookieName),
+		fmt.Sprintf("\"%s=\" + base64_cookie + \";domain=\" + window.location.hostname", cookieName),
+	)
+}
+
+func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool) (modifiedPageBytes []byte) {
+	// apply default or site specific expire time
+	modifiedPageBytes = applyCookieMaxAge(pageBytes, "deflect_password3", config.PasswordCookieTtlSeconds)
+
+	if !roaming {
+		return
+	}
+
+	// apply domain scope if allow banjax roaming
+	modifiedPageBytes = applyCookieDomain("deflect_password3", modifiedPageBytes)
+	return
 }
 
 type FailedChallengeRateLimitResult uint
@@ -448,6 +493,7 @@ const (
 	_ PasswordChallengeResult = iota
 	ErrorNoPassword
 	PasswordChallengePassed
+	PasswordChallengeRoamingPassed
 	PasswordChallengeFailedNoCookie
 	PasswordChallengeFailedBadCookie
 )
@@ -457,6 +503,7 @@ var PasswordChallengeResultToString = map[PasswordChallengeResult]string{
 	PasswordChallengePassed:          "PasswordChallengePassed",
 	PasswordChallengeFailedNoCookie:  "PasswordChallengeFailedNoCookie",
 	PasswordChallengeFailedBadCookie: "PasswordChallengeFailedBadCookie",
+	PasswordChallengeRoamingPassed:   "PasswordChallengeRoamingPassed",
 }
 
 func (pcr PasswordChallengeResult) String() string {
@@ -510,9 +557,21 @@ func sendOrValidatePassword(
 		// XXX maybe don't call this err?
 		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword)
 		if err != nil {
-			// log.Println("Password challenge failed")
-			// log.Println(err)
-			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
+			// Password fail, but provide second chance if password_hash_roaming is set
+			expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
+			if hasPasswordRoaming {
+				log.Printf("Password challenge failed, but password_hash_roaming is set for %s, checking that", requestedHost)
+				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword2)
+				if err == nil {
+					// roaming password passed, we dont not record fail specificly for roaming fail
+					accessGranted(c, PasswordChallengeResultToString[PasswordChallengeRoamingPassed])
+					ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
+					sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeRoamingPassed
+					return sendOrValidatePasswordResult
+				}
+			} else {
+				sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
+			}
 		} else {
 			accessGranted(c, PasswordChallengeResultToString[PasswordChallengePassed])
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
@@ -545,7 +604,9 @@ func sendOrValidatePassword(
 		accessDenied(c, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
 	}
-	passwordChallenge(c, config)
+	_, allowRoaming := passwordProtectedPaths.SiteToExpandCookieDomain[requestedHost]
+	// log.Println("passwordChallenge: allowRoaming: ", allowRoaming)
+	passwordChallenge(c, config, allowRoaming)
 	return sendOrValidatePasswordResult
 }
 
