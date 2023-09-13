@@ -119,7 +119,7 @@ func httpCheck(client *http.Client, resource_ptr *TestResource, t *testing.T) {
 	}
 }
 
-type CookieMap map[string]string
+type CookieMap map[string]*http.Cookie
 
 func httpTesterWithCookie(t *testing.T, resources []TestResource) {
 	client := &http.Client{}
@@ -128,6 +128,11 @@ func httpTesterWithCookie(t *testing.T, resources []TestResource) {
 		t.Run(test_name, func(t *testing.T) {
 			cookies := httpCheckWithCookie(client, &resource, t)
 			assert.Contains(t, cookies, resource.contains[0])
+			if len(resource.contains) > 1 {
+				log.Print(cookies[resource.contains[0]])
+				expectedMaxAge, _ := strconv.Atoi(resource.contains[1])
+				assert.Equal(t, cookies[resource.contains[0]].MaxAge, expectedMaxAge)
+			}
 		})
 	}
 }
@@ -140,9 +145,8 @@ func httpCheckWithCookie(client *http.Client, resource_ptr *TestResource, t *tes
 
 	cookieMap = make(CookieMap)
 	if len(resp.Cookies()) > 0 {
-		log.Print(resp.Cookies())
 		for _, cookie := range resp.Cookies() {
-			cookieMap[cookie.Name] = cookie.Value
+			cookieMap[cookie.Name] = cookie
 		}
 	}
 
