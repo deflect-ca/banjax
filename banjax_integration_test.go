@@ -15,6 +15,16 @@ func TestMain(m *testing.M) {
 	os.Exit(exit_code)
 }
 
+func TestPathWithChallengeCookies(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1)
+
+	prefix := "/auth_request?path="
+	httpTesterWithCookie(t, []TestResource{
+		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3"}},
+		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("192.168.1.64"), []string{"deflect_challenge3"}},
+	})
+}
+
 func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 	defer reloadConfig(fixtureConfigTest, 1)
 
