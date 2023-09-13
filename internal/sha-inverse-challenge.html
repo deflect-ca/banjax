@@ -87,10 +87,11 @@
                     console.log(count);
                     console.log(i);
                     console.log(hash_view);
-                    // XXX i definitely have to hit the "delete all cookies" thing in web inspector sometimes...
-                    document.cookie = "deflect_challenge3=" + base64_cookie + "; " + "max-age=28800;SameSite=Lax;path=/;";
+                    // XXX: http_server.go applyCookieMaxAge() func will apply Max-Age dynamically to this line
+                    //      Please be aware when attempting to modify this block of code
+                    document.cookie = "deflect_challenge3=" + base64_cookie + ";SameSite=Lax;path=/;";
                     location.reload();
-                    return;    // XXX?
+                    return;
                 }
             }
         }

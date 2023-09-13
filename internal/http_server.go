@@ -243,7 +243,7 @@ func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 func shaInvChallenge(c *gin.Context, config *Config) {
 	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	// custom status code, not defined in RFC
-	c.Data(429, "text/html", config.ChallengerBytes)
+	c.Data(429, "text/html", applyCookieMaxAge(config.ChallengerBytes, "deflect_challenge3", config.ShaInvCookieTtlSeconds))
 	c.Abort()
 }
 
@@ -263,7 +263,7 @@ func applyCookieMaxAge(pageBytes []byte, cookieName string, ttlSeconds int) (mod
 	)
 }
 
-func applyCookieDomain(cookieName string, pageBytes []byte) (modifiedPageBytes []byte) {
+func applyCookieDomain(pageBytes []byte, cookieName string) (modifiedPageBytes []byte) {
 	/*
 		Replace hardcoded JS code to control cookie conditions
 		Target: document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
@@ -284,7 +284,7 @@ func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool) (mo
 	}
 
 	// apply domain scope if allow banjax roaming
-	modifiedPageBytes = applyCookieDomain("deflect_password3", modifiedPageBytes)
+	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, "deflect_password3")
 	return
 }
 
