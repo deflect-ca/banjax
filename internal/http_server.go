@@ -560,10 +560,10 @@ func sendOrValidatePassword(
 			// Password fail, but provide second chance if password_hash_roaming is set
 			expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
 			if hasPasswordRoaming {
-				log.Printf("Password challenge failed, but password_hash_roaming is set for %s, checking that", requestedHost)
+				// log.Printf("Password challenge failed, but password_hash_roaming is set for %s, checking that", requestedHost)
 				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword2)
 				if err == nil {
-					// roaming password passed, we dont not record fail specificly for roaming fail
+					// roaming password passed, we do not record fail specifically for roaming fail
 					accessGranted(c, PasswordChallengeResultToString[PasswordChallengeRoamingPassed])
 					ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 					sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeRoamingPassed
