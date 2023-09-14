@@ -45,6 +45,8 @@ password_protected_path_exceptions:
 password_hashes:
   "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+password_persite_cookie_ttl_seconds:
+  "localhost:8081": 3600
 per_site_decision_lists:
   example.com:
     allow:

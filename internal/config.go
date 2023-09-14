@@ -44,6 +44,7 @@ type Config struct {
 	SitesToProtectedPaths                  map[string][]string `yaml:"password_protected_paths"`
 	SitesToProtectedPathExceptions         map[string][]string `yaml:"password_protected_path_exceptions"`
 	SitesToPasswordHashesRoaming           map[string]string   `yaml:"password_hash_roaming"`
+	SitesToPasswordCookieTtlSeconds        map[string]int      `yaml:"password_persite_cookie_ttl_seconds"`
 	ExpiringDecisionTtlSeconds             int                 `yaml:"expiring_decision_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`

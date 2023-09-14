@@ -234,9 +234,10 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 }
 
 func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
-	challenge(c, "deflect_password3", config.PasswordCookieTtlSeconds, config.HmacSecret, roaming)
+	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
+	challenge(c, "deflect_password3", cookieTtl, config.HmacSecret, roaming)
 	// custom status code, not defined in RFC
-	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming))
+	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming, cookieTtl))
 	c.Abort()
 }
 
@@ -245,6 +246,14 @@ func shaInvChallenge(c *gin.Context, config *Config) {
 	// custom status code, not defined in RFC
 	c.Data(429, "text/html", applyCookieMaxAge(config.ChallengerBytes, "deflect_challenge3", config.ShaInvCookieTtlSeconds))
 	c.Abort()
+}
+
+func getPerSiteCookieTtlOrDefault(config *Config, domain string, defaultTtl int) (cookieTtl int) {
+	cookieTtl, ok := config.SitesToPasswordCookieTtlSeconds[domain]
+	if ok {
+		return
+	}
+	return defaultTtl
 }
 
 func modifyHTMLContent(pageBytes []byte, targetStr string, toReplace string) (modifiedPageBytes []byte) {
@@ -275,9 +284,9 @@ func applyCookieDomain(pageBytes []byte, cookieName string) (modifiedPageBytes [
 	)
 }
 
-func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool) (modifiedPageBytes []byte) {
+func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool, cookieTtl int) (modifiedPageBytes []byte) {
 	// apply default or site specific expire time
-	modifiedPageBytes = applyCookieMaxAge(pageBytes, "deflect_password3", config.PasswordCookieTtlSeconds)
+	modifiedPageBytes = applyCookieMaxAge(pageBytes, "deflect_password3", cookieTtl)
 
 	if !roaming {
 		return

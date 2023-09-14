@@ -21,7 +21,14 @@ func TestPathWithChallengeCookies(t *testing.T) {
 	prefix := "/auth_request?path="
 	httpTesterWithCookie(t, []TestResource{
 		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3"}},
+		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3", "3600"}}, // testing max-age
 		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("192.168.1.64"), []string{"deflect_challenge3"}},
+	})
+
+	// reload without per site max age, test if default value 14400 present
+	reloadConfig(fixtureConfigTestReloadCIDR, 1)
+	httpTesterWithCookie(t, []TestResource{
+		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3", "14400"}}, // testing max-age
 	})
 }
 
