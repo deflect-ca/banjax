@@ -32,7 +32,7 @@ password_hashes:
 password_hash_roaming:
   sub.example.com: example.com
 password_persite_cookie_ttl_seconds:
-  example.com: 8787
+  example.com: 3600
 per_site_decision_lists:
   example.com:
     allow:
