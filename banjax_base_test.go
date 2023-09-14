@@ -119,6 +119,36 @@ func httpCheck(client *http.Client, resource_ptr *TestResource, t *testing.T) {
 	}
 }
 
+type CookieMap map[string]string
+
+func httpTesterWithCookie(t *testing.T, resources []TestResource) {
+	client := &http.Client{}
+	for _, resource := range resources {
+		test_name := "Test_" + resource.method + "_" + resource.name
+		t.Run(test_name, func(t *testing.T) {
+			cookies := httpCheckWithCookie(client, &resource, t)
+			assert.Contains(t, cookies, resource.contains[0])
+		})
+	}
+}
+
+func httpCheckWithCookie(client *http.Client, resource_ptr *TestResource, t *testing.T) (cookieMap CookieMap) {
+	resource := *resource_ptr
+	resp := httpRequest(client, resource)
+
+	assert.Equal(t, resource.response_code, resp.StatusCode, "Response code is not correct")
+
+	cookieMap = make(CookieMap)
+	if len(resp.Cookies()) > 0 {
+		log.Print(resp.Cookies())
+		for _, cookie := range resp.Cookies() {
+			cookieMap[cookie.Name] = cookie.Value
+		}
+	}
+
+	return
+}
+
 func httpStress(resources []TestResource, repeat int) {
 	var resp *http.Response
 	client := http.Client{}

@@ -29,8 +29,11 @@ password_protected_path_exceptions:
     - wp-admin/admin-ajax.php
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
 password_hashes:
+  # hash: password
   "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+password_hash_roaming:
+  sub.example.com: example.com
 per_site_decision_lists:
   example.com:
     allow:
@@ -80,8 +83,8 @@ banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
-password_cookie_ttl_seconds: 345600  # also modify internal/password-protected-path.html:168
-sha_inv_cookie_ttl_seconds: 28800  # also modify internal/sha-inverse-challenge.html:94
+password_cookie_ttl_seconds: 345600  # Dynamic apply to internal/password-protected-path.html:170
+sha_inv_cookie_ttl_seconds: 28800  # Dynamic apply to internal/sha-inverse-challenge.html:92
 hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log

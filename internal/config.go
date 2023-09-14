@@ -43,6 +43,7 @@ type Config struct {
 	SitesToPasswordHashes                  map[string]string   `yaml:"password_hashes"`
 	SitesToProtectedPaths                  map[string][]string `yaml:"password_protected_paths"`
 	SitesToProtectedPathExceptions         map[string][]string `yaml:"password_protected_path_exceptions"`
+	SitesToPasswordHashesRoaming           map[string]string   `yaml:"password_hash_roaming"`
 	ExpiringDecisionTtlSeconds             int                 `yaml:"expiring_decision_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
@@ -139,15 +140,19 @@ type StringToStringToBool map[string]StringToBool
 type StringToBytes map[string][]byte
 
 type PasswordProtectedPaths struct {
-	SiteToPathToBool      StringToStringToBool
-	SiteToExceptionToBool StringToStringToBool
-	SiteToPasswordHash    StringToBytes
+	SiteToPathToBool          StringToStringToBool
+	SiteToExceptionToBool     StringToStringToBool
+	SiteToPasswordHash        StringToBytes
+	SiteToRoamingPasswordHash StringToBytes
+	SiteToExpandCookieDomain  StringToBool
 }
 
 func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 	siteToPathToBool := make(StringToStringToBool)
 	siteToExceptionToBool := make(StringToStringToBool)
 	siteToPasswordHash := make(StringToBytes)
+	siteToRoamingPasswordHash := make(StringToBytes)
+	siteToExpandCookieDomain := make(StringToBool)
 
 	for site, paths := range config.SitesToProtectedPaths {
 		for _, path := range paths {
@@ -186,7 +191,23 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 		}
 	}
 
-	return PasswordProtectedPaths{siteToPathToBool, siteToExceptionToBool, siteToPasswordHash}
+	for site, rootSiteToRoam := range config.SitesToPasswordHashesRoaming {
+		// try to get the password hash from the root site
+		passwordHashBytes, ok := siteToPasswordHash[rootSiteToRoam]
+		if ok {
+			siteToRoamingPasswordHash[site] = passwordHashBytes
+			siteToExpandCookieDomain[rootSiteToRoam] = true // set this to let root domain cookie expand to subdomains
+			// log.Printf("site %s has roaming password hash from root site %s\n", site, rootSiteToRoam)
+		}
+	}
+
+	return PasswordProtectedPaths{
+		siteToPathToBool,
+		siteToExceptionToBool,
+		siteToPasswordHash,
+		siteToRoamingPasswordHash,
+		siteToExpandCookieDomain,
+	}
 }
 
 func ConfigToDecisionLists(config *Config) DecisionLists {
