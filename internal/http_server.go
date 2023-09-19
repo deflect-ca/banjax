@@ -208,9 +208,10 @@ func addOurXHeadersForTesting(c *gin.Context) {
 	c.Next()
 }
 
-func accessGranted(c *gin.Context, decisionListResultString string) {
+func accessGranted(c *gin.Context, config *Config, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
+	sessionCookieEndPoint(c, config)
 	c.String(200, "access granted\n")
 }
 
@@ -460,7 +461,7 @@ func sendOrValidateShaChallenge(
 			// log.Println(err)
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedBadCookie
 		} else {
-			accessGranted(c, ShaChallengeResultToString[ShaChallengePassed])
+			accessGranted(c, config, ShaChallengeResultToString[ShaChallengePassed])
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Sha-inverse challenge passed")
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassed
@@ -573,7 +574,7 @@ func sendOrValidatePassword(
 				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword2)
 				if err == nil {
 					// roaming password passed, we do not record fail specifically for roaming fail
-					accessGranted(c, PasswordChallengeResultToString[PasswordChallengeRoamingPassed])
+					accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengeRoamingPassed])
 					ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 					sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeRoamingPassed
 					return sendOrValidatePasswordResult
@@ -582,7 +583,7 @@ func sendOrValidatePassword(
 				sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
 			}
 		} else {
-			accessGranted(c, PasswordChallengeResultToString[PasswordChallengePassed])
+			accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengePassed])
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Password challenge passed")
 			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengePassed
@@ -816,7 +817,7 @@ func decisionForNginx2(
 	if foundInPerSiteList {
 		switch decision {
 		case Allow:
-			accessGranted(c, DecisionListResultToString[PerSiteAccessGranted])
+			accessGranted(c, config, DecisionListResultToString[PerSiteAccessGranted])
 			// log.Println("access granted from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
 			return
@@ -866,7 +867,7 @@ func decisionForNginx2(
 	if ok || foundInIpFilter {
 		switch decision {
 		case Allow:
-			accessGranted(c, DecisionListResultToString[GlobalAccessGranted])
+			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted])
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
 			return
@@ -906,7 +907,7 @@ func decisionForNginx2(
 	} else {
 		switch decision {
 		case Allow:
-			accessGranted(c, DecisionListResultToString[ExpiringAccessGranted])
+			accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted])
 			// log.Println("access granted from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
@@ -969,7 +970,7 @@ func decisionForNginx2(
 	if decisionForNginxResult.DecisionListResult == NotSet {
 		decisionForNginxResult.DecisionListResult = NoMention
 	}
-	accessGranted(c, DecisionListResultToString[decisionForNginxResult.DecisionListResult])
+	accessGranted(c, config, DecisionListResultToString[decisionForNginxResult.DecisionListResult])
 	return
 }
 

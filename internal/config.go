@@ -63,6 +63,8 @@ type Config struct {
 	DisableLogging                         map[string]bool   `yaml:"disable_logging"`
 	BanningLogFileTemp                     string            `yaml:"banning_log_file_temp"`
 	DisableKafka                           bool              `yaml:"disable_kafka"`
+	SessionCookieHmacSecret                string            `yaml:"session_cookie_hmac_secret"`
+	SessionCookieTtlSeconds                int               `yaml:"session_cookie_ttl_seconds"`
 }
 
 type RegexWithRate struct {
