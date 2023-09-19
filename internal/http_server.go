@@ -215,10 +215,11 @@ func accessGranted(c *gin.Context, config *Config, decisionListResultString stri
 	c.String(200, "access granted\n")
 }
 
-func accessDenied(c *gin.Context, decisionListResultString string) {
+func accessDenied(c *gin.Context, config *Config, decisionListResultString string) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
+	sessionCookieEndPoint(c, config)
 	c.String(403, "access denied\n")
 }
 
@@ -237,14 +238,14 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
 	challenge(c, "deflect_password3", cookieTtl, config.HmacSecret, roaming)
-	// custom status code, not defined in RFC
+	sessionCookieEndPoint(c, config)
 	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming, cookieTtl))
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
 	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
-	// custom status code, not defined in RFC
+	sessionCookieEndPoint(c, config)
 	c.Data(429, "text/html", applyCookieMaxAge(config.ChallengerBytes, "deflect_challenge3", config.ShaInvCookieTtlSeconds))
 	c.Abort()
 }
@@ -489,7 +490,7 @@ func sendOrValidateShaChallenge(
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.TooManyFailedChallenges {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-			accessDenied(c, "TooManyFailedChallenges")
+			accessDenied(c, config, "TooManyFailedChallenges")
 			return sendOrValidateShaChallengeResult
 		}
 	}
@@ -611,7 +612,7 @@ func sendOrValidatePassword(
 	// log.Println(tooManyFailedChallengesResult)
 	if tooManyFailedChallengesResult.TooManyFailedChallenges {
 		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-		accessDenied(c, "TooManyFailedPassword")
+		accessDenied(c, config, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
 	}
 	_, allowRoaming := passwordProtectedPaths.SiteToExpandCookieDomain[requestedHost]
@@ -838,7 +839,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, DecisionListResultToString[PerSiteBlock])
+			accessDenied(c, config, DecisionListResultToString[PerSiteBlock])
 			// log.Println("block from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteBlock
 			return
@@ -888,7 +889,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, DecisionListResultToString[GlobalBlock])
+			accessDenied(c, config, DecisionListResultToString[GlobalBlock])
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
 			return
@@ -928,7 +929,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, DecisionListResultToString[ExpiringBlock])
+			accessDenied(c, config, DecisionListResultToString[ExpiringBlock])
 			// log.Println("access denied from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringBlock
 			return
