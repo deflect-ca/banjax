@@ -97,3 +97,5 @@ disable_logging:
   "localhost:8081": true
   localhost: true
 banning_log_file_temp: /etc/banjax/ban_ip_list_temp.log
+use_user_agent_in_sha_inv:
+  localhost: true
