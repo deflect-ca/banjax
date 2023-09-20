@@ -6,13 +6,12 @@
     This source code is licensed under the BSD-style license found in the
     LICENSE file in the root directory of this source tree.
 -->
-<html lang="en-US">
+<html>
 <head>
     <meta http-equiv="content-type" content="text/html; charset=UTF-8">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <title>Just a moment...</title>
+    <title>Verifying if your connection is secure...</title>
     <script type="text/javascript">
         'use strict';
         function count_zero_bits_from_left(bytes) {
@@ -99,7 +98,7 @@
         }
 
         function getLocalizedMessage() {
-        // Define messages for different locales
+            // Define messages for different locales
             var messages = {
                 en: "Verifying if your connection is secure",
                 ru: "Проверка безопасности вашего соединения",
@@ -129,6 +128,8 @@
             var userLanguages = navigator.languages || [
                 navigator.language || navigator.userLanguage,
             ];
+            console.log('userLanguages', userLanguages);
+
             var highestPriority = -1;
             var selectedMessage = messages.en; // default message
 
@@ -148,7 +149,7 @@
                     highestPriority = priority;
                     selectedMessage = messages[primaryLang];
                     if (typeof selectedMessage == "object") {
-                        electedMessage = selectedMessage[locale];
+                        selectedMessage = selectedMessage[locale];
                     }
                 }
             }
@@ -164,15 +165,14 @@
         }
 
         function setTitle() {
-            document.getElementsByClassName("footer-title")[0].textContent = 
+            document.getElementsByClassName("footer-title")[0].textContent =
                 getLocalizedMessage();
         }
 
         function setFavicon() {
-            document.getElementsByClassName("website-favicon")[0].src = 
-                window.location.origin + '/favicon.ico' 
+            document.getElementsByClassName("website-favicon")[0].src =
+                window.location.origin + '/favicon.ico';
         }
-        
     </script>
 
     <style>
@@ -190,7 +190,7 @@
         }
         h1,
         h2 {
-            font-weight: 400;   
+            font-weight: 400;
         }
         .header {
             height: 33%;
@@ -361,7 +361,7 @@
           </a>
           <figcaption class="footer-logo-caption">
             <div>
-              <span class="website-title-footer"></span> protected by
+              <span class="website-title-footer"></span> is protected by
               <a href="https://deflect.ca/" target="_blank">deflect.ca</a>
             </div>
             <div>DDoS protection for civil society</div>
