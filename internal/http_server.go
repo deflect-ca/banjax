@@ -223,8 +223,14 @@ func accessDenied(c *gin.Context, config *Config, decisionListResultString strin
 	c.String(403, "access denied\n")
 }
 
-func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret string, setDomainScope bool) {
-	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, c.Request.Header.Get("X-Client-IP"))
+func challenge(
+	c *gin.Context,
+	config *Config,
+	cookieName string,
+	cookieTtlSeconds int,
+	secret string,
+	setDomainScope bool) {
+	newCookie := NewChallengeCookie(secret, cookieTtlSeconds, getShaInvBinding(c, config))
 	// log.Println("Serving new cookie: ", newCookie)
 	domainScope := "" // Provide "" to domain so that the cookie is not set for subdomains, EX: example.com
 	if setDomainScope {
@@ -235,16 +241,25 @@ func challenge(c *gin.Context, cookieName string, cookieTtlSeconds int, secret s
 	c.Header("Cache-Control", "no-cache,no-store")
 }
 
+func getShaInvBinding(c *gin.Context, config *Config) string {
+	// Get binding either from IP or User-Agent base on config
+	_, ok := config.SitesToUseUserAgentInShaInv[c.Request.Header.Get("X-Requested-Host")]
+	if ok {
+		return c.Request.Header.Get("X-Client-User-Agent")
+	}
+	return c.Request.Header.Get("X-Client-IP")
+}
+
 func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
-	challenge(c, "deflect_password3", cookieTtl, config.HmacSecret, roaming)
+	challenge(c, config, "deflect_password3", cookieTtl, config.HmacSecret, roaming)
 	sessionCookieEndPoint(c, config)
 	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming, cookieTtl))
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
+	challenge(c, config, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	sessionCookieEndPoint(c, config)
 	c.Data(429, "text/html", applyCookieMaxAge(config.ChallengerBytes, "deflect_challenge3", config.ShaInvCookieTtlSeconds))
 	c.Abort()
@@ -456,7 +471,7 @@ func sendOrValidateShaChallenge(
 	challengeCookie, err := c.Cookie("deflect_challenge3")
 	requestedMethod := c.Request.Method
 	if err == nil {
-		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), clientIp, 10) // XXX config
+		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getShaInvBinding(c, config), 10) // XXX config
 		if err != nil {
 			// log.Println("Sha-inverse challenge failed")
 			// log.Println(err)
@@ -566,13 +581,13 @@ func sendOrValidatePassword(
 			return sendOrValidatePasswordResult
 		}
 		// XXX maybe don't call this err?
-		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword)
+		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), getShaInvBinding(c, config), expectedHashedPassword)
 		if err != nil {
 			// Password fail, but provide second chance if password_hash_roaming is set
 			expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
 			if hasPasswordRoaming {
 				// log.Printf("Password challenge failed, but password_hash_roaming is set for %s, checking that", requestedHost)
-				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword2)
+				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), getShaInvBinding(c, config), expectedHashedPassword2)
 				if err == nil {
 					// roaming password passed, we do not record fail specifically for roaming fail
 					accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengeRoamingPassed])
