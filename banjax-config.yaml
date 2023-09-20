@@ -109,3 +109,5 @@ session_cookie_hmac_secret: some_secret
 session_cookie_ttl_seconds: 3600
 sites_to_disable_baskerville:
   localhost: true
+use_user_agent_in_sha_inv:
+  localhost: true
