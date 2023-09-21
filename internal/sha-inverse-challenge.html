@@ -53,7 +53,7 @@
 
         // XXX i had an expired cookie with the right number of zero bits and this went in a fast infinite loop
         async function new_solver(expected_number_of_zeroes) {
-            console.log("new_solver()");
+            // console.log("new_solver()");
             var blah = document.cookie.split('; ').find(row => row.startsWith('deflect_challenge3'))
             if (! blah) {
                 // XXX can happen if page is left open and cookie expires
@@ -63,11 +63,11 @@
             var challenge_cookie_uri_encoded = blah.split('=')[1];
             // gin mistakenly always uri encodes cookies. open issue.
             var challenge_cookie = decodeURIComponent(challenge_cookie_uri_encoded);
-            var total_start_time = performance.now();
+            // var total_start_time = performance.now();
             var cookie_bytes = Uint8Array.from(atob(challenge_cookie), c => c.charCodeAt(0));
-            console.log(cookie_bytes);
+            // console.log(cookie_bytes);
             var hmac_and_int_view = new DataView(cookie_bytes.buffer, 0 /*start*/, 20+32 /*length*/);
-            var hash_start_time = performance.now();
+            // var hash_start_time = performance.now();
             for (var i = 0; i < 10000; i++) { // XXX config
                 hmac_and_int_view.setBigUint64(20+32-8 /*byte offset*/, BigInt(i) /*value*/, false /*not littleEndian*/);
                 // var hash_array_buffer_orig = await crypto.subtle.digest('SHA-256', hmac_and_int_view);
@@ -75,23 +75,23 @@
                 // var hash_view_orig = new Uint8Array(hash_array_buffer_orig);
                 var hash_view = new Uint8Array(hash_array_buffer);
                 // console.log("hash_view: ", hash_view);
-                //console.log("hash_view_orig: ", hash_view_orig);
+                // console.log("hash_view_orig: ", hash_view_orig);
                 var count = count_zero_bits_from_left(hash_view)
                 if (count < expected_number_of_zeroes) {
                     continue;
                 } else {
-                    var end_time = performance.now();
+                    // var end_time = performance.now();
                     var base64_cookie = typed_array_to_base64(cookie_bytes);
-                    console.log(base64_cookie);
-                    console.log("total time took: ", (end_time - total_start_time), " ms");
-                    console.log("hashing time took: ", (end_time - hash_start_time), " ms");
+                    //console.log(base64_cookie);
+                    //console.log("total time took: ", (end_time - total_start_time), " ms");
+                    //console.log("hashing time took: ", (end_time - hash_start_time), " ms");
                     console.log(count);
                     console.log(i);
-                    console.log(hash_view);
+                    // console.log(hash_view);
                     // XXX: http_server.go applyCookieMaxAge() func will apply Max-Age dynamically to this line
                     //      Please be aware when attempting to modify this block of code
                     document.cookie = "deflect_challenge3=" + base64_cookie + ";SameSite=Lax;path=/;";
-                    //location.reload();
+                    location.reload();
                     return;
                 }
             }
