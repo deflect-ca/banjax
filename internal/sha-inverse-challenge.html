@@ -91,11 +91,18 @@
                     // XXX: http_server.go applyCookieMaxAge() func will apply Max-Age dynamically to this line
                     //      Please be aware when attempting to modify this block of code
                     document.cookie = "deflect_challenge3=" + base64_cookie + ";SameSite=Lax;path=/;";
-                    location.reload();
+                    //location.reload();
                     return;
                 }
             }
         }
+
+        Object.prototype.first_key = function() {
+            for (var key in this) {
+                if (!Object.hasOwnProperty.call(this, key)) continue;
+                return key;
+            }
+        };
 
         function getLocalizedMessage() {
             // Define messages for different locales
@@ -140,10 +147,13 @@
                 var locale = lang.split("-")[1];
                 var priority = priorities[primaryLang];
 
-                if (typeof priority == "object" && locale != undefined) {
-                    priority = priorities[primaryLang][locale];
-                } else if (locale == undefined) {
-                    priority = -2; // unknown locale, fallback to default
+                // handle lang with locale like zh-TW / zh-CN
+                if (typeof priority == "object") {
+                    // handle "zh" without unkown locale
+                    if (locale == undefined) {
+                        locale = priorities[primaryLang].first_key()
+                    }
+                    priority = priorities[primaryLang][locale]
                 }
 
                 // Check if the language exists in our messages and priorities
