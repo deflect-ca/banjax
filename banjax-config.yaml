@@ -29,6 +29,8 @@ password_protected_paths:
 password_protected_path_exceptions:
   "localhost:8081":
     - wp-admin/admin-ajax.php
+  "localhost":
+    - wp-admin/admin-ajax.php
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
 password_hashes:
   # hash: password

@@ -804,6 +804,8 @@ func decisionForNginx2(
 			}
 		} else {
 			decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
+			// FIXED: prevent password challenge exception path getting challenge
+			return
 		}
 	}
 
