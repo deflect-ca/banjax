@@ -24,14 +24,17 @@ password_protected_paths:
     - wp-admin
   "localhost":
     - wp-admin
+  "sub.localhost":
+    - wp-admin
 password_protected_path_exceptions:
   "localhost:8081":
     - wp-admin/admin-ajax.php
 # python3 -c "import hashlib; print(hashlib.sha256('password'.encode()).hexdigest())"
 password_hashes:
   # hash: password
-  "localhost:8081": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
-  "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+  "localhost:8081": 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
+  "localhost": 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
+  "sub.localhost": 5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8
 password_hash_roaming:
   sub.example.com: example.com
 password_persite_cookie_ttl_seconds:
@@ -80,6 +83,8 @@ regexes_with_rates:
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
+  localhost: no_block
+  www.localhost: no_block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 expiring_decision_ttl_seconds: 10
@@ -91,6 +96,7 @@ hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
 debug: true
+disable_kafka: true
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html
 disable_logging:
