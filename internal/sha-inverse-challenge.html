@@ -91,7 +91,7 @@
                     // XXX: http_server.go applyCookieMaxAge() func will apply Max-Age dynamically to this line
                     //      Please be aware when attempting to modify this block of code
                     document.cookie = "deflect_challenge3=" + base64_cookie + ";SameSite=Lax;path=/;";
-                    //location.reload();
+                    location.reload();
                     return;
                 }
             }
