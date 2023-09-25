@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
@@ -42,7 +41,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	config.Hostname = hostname
 	log.Printf("INIT: hostname: %s", hostname)
 
-	configBytes, err := ioutil.ReadFile(*configFilenamePtr) // XXX allow different location
+	configBytes, err := os.ReadFile(*configFilenamePtr) // XXX allow different location
 	if err != nil {
 		panic(err)
 	}
@@ -61,7 +60,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 
 	if config.ShaInvChallengeHTML != "" {
 		log.Printf("INIT: Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
-		challengerBytes, err := ioutil.ReadFile(config.ShaInvChallengeHTML)
+		challengerBytes, err := os.ReadFile(config.ShaInvChallengeHTML)
 		if err != nil {
 			panic("!!! couldn't read sha-inverse-challenge.html")
 		}
@@ -77,7 +76,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 
 	if config.PasswordProtectedPathHTML != "" {
 		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
-		passwordPageBytes, err := ioutil.ReadFile(config.PasswordProtectedPathHTML)
+		passwordPageBytes, err := os.ReadFile(config.PasswordProtectedPathHTML)
 		if err != nil {
 			panic("!!! couldn't read password-protected-path.html")
 		}
