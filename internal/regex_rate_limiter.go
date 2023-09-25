@@ -48,7 +48,7 @@ func RunLogTailer(
 					decisionListsMutex,
 					decisionLists,
 				)
-				if config.Debug {
+				if config.Debug && consumeLineResult.RuleResults != nil {
 					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
 					if err != nil {
 						log.Println("error marshalling consumeLineResult")

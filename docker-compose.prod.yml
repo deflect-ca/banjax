@@ -1,4 +1,6 @@
 version: '3.4'
+volumes:
+  var-log-banjax:
 
 services:
   banjax:
@@ -11,9 +13,7 @@ services:
     cap_add:
       - NET_ADMIN  # we use iptables for banning
     volumes:
-      - ./logs/banjax:/var/log/banjax/
-      - .:/opt/banjax/
-    restart: on-failure:5
+      - var-log-banjax:/var/log/banjax/
 
   nginx:
     build:
@@ -23,9 +23,7 @@ services:
       - "80:80"
       - "8001:8001"
     volumes:
-      - ./logs/banjax:/var/log/banjax/
-      - ./supporting-containers/nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./logs/nginx:/var/log/nginx/
+      - var-log-banjax:/var/log/banjax/
 
   test-origin:
     build:
