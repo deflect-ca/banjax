@@ -70,7 +70,7 @@ func ValidateExpirationAndHmac(secretKey string,
 
 func ParseCookie(cookieString string, clientIp string) ([]byte, []byte, []byte, error) {
 	cookieBytes := make([]byte, 20+32+8)
-	log.Printf("ParseCookie[%s]: cookieString: %s", clientIp, cookieString)
+	// log.Printf("ParseCookie[%s]: cookieString: %s", clientIp, cookieString)
 
 	cookieBytes, err := base64.StdEncoding.DecodeString(cookieString)
 	if err != nil {
