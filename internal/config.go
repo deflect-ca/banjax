@@ -92,8 +92,9 @@ const (
 )
 
 type ExpiringDecision struct {
-	Decision Decision
-	Expires  time.Time
+	Decision        Decision
+	Expires         time.Time
+	fromBaskerville bool
 }
 
 // XXX is this really how you make an enum in go?
@@ -383,7 +384,7 @@ func (failedChallengeStates FailedChallengeStates) String() string {
 	return buf.String()
 }
 
-func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (Decision, bool) {
+func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (ExpiringDecision, bool) {
 	expiringDecision, ok := (*decisionLists).ExpiringDecisionLists[clientIp]
 	if !ok {
 		// log.Println("no mention in expiring lists")
@@ -394,7 +395,7 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 			ok = false
 		}
 	}
-	return expiringDecision.Decision, ok
+	return expiringDecision, ok
 }
 
 // XXX mmm could hold the lock for a while?
@@ -420,6 +421,7 @@ func updateExpiringDecisionLists(
 	decisionLists *DecisionLists,
 	now time.Time,
 	newDecision Decision,
+	fromBaskerville bool,
 ) {
 	decisionListsMutex.Lock()
 	defer decisionListsMutex.Unlock()
@@ -431,11 +433,14 @@ func updateExpiringDecisionLists(
 			return
 		}
 	}
-	// log.Println("!!! existing and new: ", existingExpiringDecision.Decision, newDecision)
+	if config.Debug {
+		log.Println("Update expiringDecision with existing and new: ", existingExpiringDecision.Decision, newDecision)
+		log.Println("From baskerville", fromBaskerville)
+	}
 
 	purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
-	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires}
+	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires, fromBaskerville}
 }
 
 type MetricsLogLine struct {
