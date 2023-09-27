@@ -20,9 +20,25 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+/*
+sample baskerville message:
+
+	{
+		"Value": "0.0.0.0",
+		"Name": "challenge_ip",
+		"duration": 15.0,
+		"session_id": "ID",
+		"source": "behave",
+		"start": "2023-09-27 08:04:43",
+		"host": "example.com",
+		"end": "2023-09-27 08:04:58",
+		"urls": "[[\"2023-09-27 08:04:43\", \"/some/url\"], [\"2023-09-27 08:04:58\", \"/another/url\"]]"
+	}
+*/
 type commandMessage struct {
 	Name  string
 	Value string
+	host  string
 }
 
 func getDialer(config *Config) *kafka.Dialer {
@@ -122,8 +138,11 @@ func handleCommand(
 ) {
 	switch command.Name {
 	case "challenge_ip":
+		// exempt a site from challenge according to config
+		_, disabled := config.SitesToDisableBaskerville[command.host]
+
 		// XXX do a real valid IP check?
-		if len(command.Value) > 4 {
+		if len(command.Value) > 4 && !disabled {
 			updateExpiringDecisionLists(
 				config,
 				command.Value,
@@ -133,11 +152,13 @@ func handleCommand(
 				Challenge,
 			)
 			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
+		} else if disabled {
+			log.Printf("KAFKA: not challenge %s, site %s disable baskerville\n", command.Value, command.host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
 	default:
-		log.Printf("KAFKA:unrecognized command name: %s\n", command.Name)
+		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
 	}
 }
 
