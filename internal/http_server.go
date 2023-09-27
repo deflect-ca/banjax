@@ -805,6 +805,7 @@ func decisionForNginx2(
 		} else {
 			decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
 			// FIXED: prevent password challenge exception path getting challenge
+			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPathException])
 			return
 		}
 	}
@@ -966,6 +967,8 @@ func decisionForNginx2(
 			return
 		} else {
 			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
+			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException])
+			return
 		}
 	}
 
