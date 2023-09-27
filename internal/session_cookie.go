@@ -15,6 +15,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -121,7 +122,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 		} else {
 			// cookie is invalid, create a new one
 			newDsc := newSessionCookie(config.SessionCookieHmacSecret, config.SessionCookieTtlSeconds, clientIp)
-			fmt.Printf("DSC: [%s] cookie %s is not valid, issue new: %s\n", clientIp, dsc, newDsc)
+			log.Printf("DSC: [%s] cookie %s is not valid, issue new: %s\n", clientIp, dsc, newDsc)
 			attachSessionCookie(c, config, newDsc, true)
 		}
 		return nil
