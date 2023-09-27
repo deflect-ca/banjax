@@ -65,6 +65,7 @@ type Config struct {
 	DisableKafka                           bool              `yaml:"disable_kafka"`
 	SessionCookieHmacSecret                string            `yaml:"session_cookie_hmac_secret"`
 	SessionCookieTtlSeconds                int               `yaml:"session_cookie_ttl_seconds"`
+	SitesToDisableBaskerville              map[string]bool   `yaml:"sites_to_disable_baskerville"`
 }
 
 type RegexWithRate struct {
