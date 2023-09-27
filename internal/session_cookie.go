@@ -115,13 +115,13 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 		// cookie exists, validate it
 		validateErr := validateSessionCookie(dsc, config.SessionCookieHmacSecret, time.Now(), clientIp)
 		if validateErr == nil {
-			// cookie is valid, do nothing
-			fmt.Printf("[%s] cookie %s is valid, report dsc_new=false\n", clientIp, dsc)
+			// cookie is valid, do not attach cookie but only report dsc_new=false
+			// fmt.Printf("DSC: [%s] cookie %s is valid, report dsc_new=false\n", clientIp, dsc)
 			attachSessionCookie(c, config, dsc, false)
 		} else {
 			// cookie is invalid, create a new one
 			newDsc := newSessionCookie(config.SessionCookieHmacSecret, config.SessionCookieTtlSeconds, clientIp)
-			fmt.Printf("[%s] cookie %s is not valid, issue new: %s\n", clientIp, dsc, newDsc)
+			fmt.Printf("DSC: [%s] cookie %s is not valid, issue new: %s\n", clientIp, dsc, newDsc)
 			attachSessionCookie(c, config, newDsc, true)
 		}
 		return nil
@@ -129,7 +129,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 
 	// no cookie, create a new one
 	newDsc := newSessionCookie(config.SessionCookieHmacSecret, config.SessionCookieTtlSeconds, clientIp)
-	fmt.Printf("[%s] issue new cookie: %s\n", clientIp, newDsc)
+	// fmt.Printf("DSC: [%s] issue new cookie: %s\n", clientIp, newDsc)
 	attachSessionCookie(c, config, newDsc, true)
 	return nil
 }
