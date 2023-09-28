@@ -38,7 +38,7 @@ sample baskerville message:
 type commandMessage struct {
 	Name  string
 	Value string
-	host  string
+	Host  string `json:"host"`
 }
 
 func getDialer(config *Config) *kafka.Dialer {
@@ -140,7 +140,7 @@ func handleCommand(
 	case "challenge_ip":
 		// exempt a site from challenge according to config
 		log.Println("KAFKA: challenge_ip command received, object: ", command)
-		_, disabled := config.SitesToDisableBaskerville[command.host]
+		_, disabled := config.SitesToDisableBaskerville[command.Host]
 
 		// XXX do a real valid IP check?
 		if len(command.Value) > 4 && !disabled {
@@ -155,7 +155,7 @@ func handleCommand(
 			)
 			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
 		} else if disabled {
-			log.Printf("KAFKA: not challenge %s, site %s disable baskerville\n", command.Value, command.host)
+			log.Printf("KAFKA: not challenge %s, site %s disable baskerville\n", command.Value, command.Host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
