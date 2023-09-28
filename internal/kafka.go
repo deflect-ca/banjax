@@ -139,6 +139,7 @@ func handleCommand(
 	switch command.Name {
 	case "challenge_ip":
 		// exempt a site from challenge according to config
+		log.Println("KAFKA: challenge_ip command received, object: ", command)
 		_, disabled := config.SitesToDisableBaskerville[command.host]
 
 		// XXX do a real valid IP check?
