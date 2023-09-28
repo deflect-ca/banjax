@@ -154,7 +154,7 @@ func handleCommand(
 			)
 			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
 		} else if disabled {
-			log.Printf("KAFKA: not challenge %s, site %s disable baskerville\n", command.Value, command.Host)
+			log.Printf("KAFKA: not challenge %s, site %s disables baskerville\n", command.Value, command.Host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
