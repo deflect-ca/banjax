@@ -11,8 +11,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"io/ioutil"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -50,7 +50,7 @@ func getDialer(config *Config) *kafka.Dialer {
 			log.Fatalf("KAFKA: failed to load cert + key pair: %s", err)
 		}
 
-		caCert, err := ioutil.ReadFile(config.KafkaSslCa)
+		caCert, err := os.ReadFile(config.KafkaSslCa)
 		if err != nil {
 			log.Fatalf("KAFKA: failed to read CA root: %s", err)
 		}
@@ -139,7 +139,6 @@ func handleCommand(
 	switch command.Name {
 	case "challenge_ip":
 		// exempt a site from challenge according to config
-		log.Println("KAFKA: challenge_ip command received, object: ", command)
 		_, disabled := config.SitesToDisableBaskerville[command.Host]
 
 		// XXX do a real valid IP check?
