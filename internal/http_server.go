@@ -625,6 +625,7 @@ type DecisionListResult uint
 
 const (
 	_ DecisionListResult = iota
+	PasswordProtectedPriorityPass
 	PasswordProtectedPath
 	PasswordProtectedPathException
 	PerSiteAccessGranted
@@ -643,6 +644,7 @@ const (
 )
 
 var DecisionListResultToString = map[DecisionListResult]string{
+	PasswordProtectedPriorityPass:  "PasswordProtectedPriorityPass",
 	PasswordProtectedPath:          "PasswordProtectedPath",
 	PasswordProtectedPathException: "PasswordProtectedPathException",
 	PerSiteAccessGranted:           "PerSiteAccessGranted",
@@ -779,6 +781,30 @@ func decisionForNginx2(
 	decisionForNginxResult.RequestedHost = requestedHost
 	decisionForNginxResult.RequestedPath = requestedPath
 	decisionForNginxResult.DecisionListResult = NotSet
+
+	// check if user has a valid password cookie, if so, allow them through
+	passwordCookie, passwordCookieErr := c.Cookie("deflect_password3")
+	if passwordCookieErr == nil {
+		var grantPriorityPass bool = false
+		expectedHashedPassword, hasPasswordHash := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
+		expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
+		if hasPasswordHash {
+			err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword)
+			if err == nil {
+				grantPriorityPass = true
+			}
+		} else if hasPasswordRoaming {
+			err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword2)
+			if err == nil {
+				grantPriorityPass = true
+			}
+		}
+		if grantPriorityPass {
+			decisionForNginxResult.DecisionListResult = PasswordProtectedPriorityPass
+			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPriorityPass])
+			return
+		}
+	}
 
 	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
 	if ok {
