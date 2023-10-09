@@ -930,33 +930,39 @@ func decisionForNginx2(
 	// changing the decision.
 	// XXX i forget if that comment is stale^
 	decisionListsMutex.Lock()
-	decision, ok = checkExpiringDecisionLists(clientIp, decisionLists)
+	expiringDecision, ok := checkExpiringDecisionLists(clientIp, decisionLists)
 	decisionListsMutex.Unlock()
 	if !ok {
 		// log.Println("no mention in expiring lists")
 	} else {
-		switch decision {
+		switch expiringDecision.Decision {
 		case Allow:
 			accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted])
 			// log.Println("access granted from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
 		case Challenge:
-			// log.Println("challenge from expiring lists")
-			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
-				config,
-				c,
-				banner,
-				rateLimitMutex,
-				failedChallengeStates,
-				Block, // FailAction
-				decisionListsMutex,
-				decisionLists,
-			)
-			decisionForNginxResult.DecisionListResult = ExpiringChallenge
-			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
-			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-			return
+			// Check if expiringDecision.fromBaskerville, if true, check if domain disabled baskerville
+			_, disabled := config.SitesToDisableBaskerville[requestedHost]
+			if expiringDecision.fromBaskerville && disabled {
+				log.Printf("domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
+			} else {
+				// log.Println("challenge from expiring lists")
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					rateLimitMutex,
+					failedChallengeStates,
+					Block, // FailAction
+					decisionListsMutex,
+					decisionLists,
+				)
+				decisionForNginxResult.DecisionListResult = ExpiringChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, config, DecisionListResultToString[ExpiringBlock])
 			// log.Println("access denied from expiring lists")

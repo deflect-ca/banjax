@@ -11,8 +11,8 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"io/ioutil"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -20,9 +20,25 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+/*
+sample baskerville message:
+
+	{
+		"Value": "0.0.0.0",
+		"Name": "challenge_ip",
+		"duration": 15.0,
+		"session_id": "ID",
+		"source": "behave",
+		"start": "2023-09-27 08:04:43",
+		"host": "example.com",
+		"end": "2023-09-27 08:04:58",
+		"urls": "[[\"2023-09-27 08:04:43\", \"/some/url\"], [\"2023-09-27 08:04:58\", \"/another/url\"]]"
+	}
+*/
 type commandMessage struct {
 	Name  string
 	Value string
+	Host  string `json:"host"`
 }
 
 func getDialer(config *Config) *kafka.Dialer {
@@ -34,7 +50,7 @@ func getDialer(config *Config) *kafka.Dialer {
 			log.Fatalf("KAFKA: failed to load cert + key pair: %s", err)
 		}
 
-		caCert, err := ioutil.ReadFile(config.KafkaSslCa)
+		caCert, err := os.ReadFile(config.KafkaSslCa)
 		if err != nil {
 			log.Fatalf("KAFKA: failed to read CA root: %s", err)
 		}
@@ -122,8 +138,11 @@ func handleCommand(
 ) {
 	switch command.Name {
 	case "challenge_ip":
+		// exempt a site from challenge according to config
+		_, disabled := config.SitesToDisableBaskerville[command.Host]
+
 		// XXX do a real valid IP check?
-		if len(command.Value) > 4 {
+		if len(command.Value) > 4 && !disabled {
 			updateExpiringDecisionLists(
 				config,
 				command.Value,
@@ -131,13 +150,16 @@ func handleCommand(
 				decisionLists,
 				time.Now(),
 				Challenge,
+				true, // from baskerville, provide to http_server to distinguish from regex
 			)
 			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
+		} else if disabled {
+			log.Printf("KAFKA: not challenge %s, site %s disables baskerville\n", command.Value, command.Host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
 	default:
-		log.Printf("KAFKA:unrecognized command name: %s\n", command.Name)
+		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
 	}
 }
 

@@ -279,6 +279,7 @@ func (b Banner) BanOrChallengeIp(
 		&(*b.DecisionLists),
 		time.Now(),
 		decision,
+		false, // not from baskerville
 	)
 
 	if decision == IptablesBlock {
