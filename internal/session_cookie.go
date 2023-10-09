@@ -24,6 +24,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	CookieName           = "deflect_session"
+	ExpireTimeByteLength = 8
+	IdByteLength         = 4
+	HmacByteLength       = 4
+	SessionIDLength      = 8 + 4 + 4
+)
+
 func newID() uint32 {
 	return rand.Uint32()
 }
@@ -32,33 +40,33 @@ func sessionCookieHmac(secretKey string, expireTime time.Time, clientIp string, 
 	derivedKey := sha256.New()
 	derivedKey.Write([]byte(secretKey))
 
-	expireTimeBytes := make([]byte, 8)
+	expireTimeBytes := make([]byte, ExpireTimeByteLength)
 	binary.BigEndian.PutUint64(expireTimeBytes, uint64(expireTime.Unix()))
 
 	mac := hmac.New(sha1.New, derivedKey.Sum(nil))
 	mac.Write(expireTimeBytes)
 	mac.Write([]byte(clientIp))
 
-	idBytes := make([]byte, 4)
+	idBytes := make([]byte, IdByteLength)
 	binary.BigEndian.PutUint32(idBytes, id)
 	mac.Write(idBytes)
-	return mac.Sum(nil)
+	return mac.Sum(nil)[0:HmacByteLength]
 }
 
 func newSessionCookie(secretKey string, cookieTtlSeconds int, clientIp string) string {
 	expireTime := time.Now().Add(time.Duration(cookieTtlSeconds) * time.Second)
-	cookieBytes := make([]byte, 20+4+8)
+	cookieBytes := make([]byte, SessionIDLength)
 	id := newID()
 	hmacBytes := sessionCookieHmac(secretKey, expireTime, clientIp, id)
-	copy(cookieBytes[0:20], hmacBytes[0:20])
-	binary.BigEndian.PutUint32(cookieBytes[20:24], id)
-	binary.BigEndian.PutUint64(cookieBytes[24:32], uint64(expireTime.Unix()))
+	copy(cookieBytes[0:HmacByteLength], hmacBytes[0:HmacByteLength])
+	binary.BigEndian.PutUint32(cookieBytes[HmacByteLength:(HmacByteLength+IdByteLength)], id)
+	binary.BigEndian.PutUint64(cookieBytes[(HmacByteLength+IdByteLength):SessionIDLength], uint64(expireTime.Unix()))
 
 	return base64.StdEncoding.EncodeToString(cookieBytes)
 }
 
 func validateSessionCookie(cookieString string, secretKey string, nowTime time.Time, clientIp string) error {
-	cookieBytes := make([]byte, 32)
+	cookieBytes := make([]byte, SessionIDLength)
 	cookieBytes, err := base64.StdEncoding.DecodeString(cookieString)
 	if err != nil {
 		// gin erroneously does a QueryUnescape() on the cookie, which turns '+' into ' '.
@@ -70,13 +78,13 @@ func validateSessionCookie(cookieString string, secretKey string, nowTime time.T
 		}
 	}
 
-	if len(cookieBytes) != 32 {
+	if len(cookieBytes) != SessionIDLength {
 		return errors.New("Bad session cookie length")
 	}
 
-	hmacFromClient := cookieBytes[0:20]
-	idBytes := cookieBytes[20:24]
-	expirationBytes := cookieBytes[24:32]
+	hmacFromClient := cookieBytes[0:HmacByteLength]
+	idBytes := cookieBytes[HmacByteLength:(HmacByteLength + IdByteLength)]
+	expirationBytes := cookieBytes[(HmacByteLength + IdByteLength):SessionIDLength]
 
 	expirationInt := binary.BigEndian.Uint64(expirationBytes)
 	expirationTime := time.Unix(int64(expirationInt), 0)
@@ -88,7 +96,7 @@ func validateSessionCookie(cookieString string, secretKey string, nowTime time.T
 
 	expectedHmac := sessionCookieHmac(secretKey, expirationTime, clientIp, id)
 	if !bytes.Equal(expectedHmac, hmacFromClient) {
-		return errors.New("Hmac validation failed")
+		return errors.New(fmt.Sprintf("Hmac validation failed: \n %v\n %v", (expectedHmac), (hmacFromClient)))
 	}
 
 	return nil
@@ -110,7 +118,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 				set in the logs: dsc=cookie, dsc_new=False
 	*/
 	clientIp := c.Request.Header.Get("X-Client-IP")
-	dsc, err := c.Cookie("deflect_session")
+	dsc, err := c.Cookie(CookieName)
 
 	if err == nil {
 		// cookie exists, validate it
@@ -137,7 +145,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 
 func attachSessionCookie(c *gin.Context, config *Config, dsc string, dsc_new bool) {
 	if dsc_new {
-		c.SetCookie("deflect_session", dsc, config.SessionCookieTtlSeconds, "/", "", false, true)
+		c.SetCookie(CookieName, dsc, config.SessionCookieTtlSeconds, "/", "", false, true)
 	}
 	// for nginx log
 	c.Header("X-Deflect-Session", dsc)
