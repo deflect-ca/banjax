@@ -945,7 +945,7 @@ func decisionForNginx2(
 	// changing the decision.
 	// XXX i forget if that comment is stale^
 	decisionListsMutex.Lock()
-	expiringDecision, ok := checkExpiringDecisionLists(clientIp, decisionLists)
+	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, decisionLists)
 	decisionListsMutex.Unlock()
 	if !ok {
 		// log.Println("no mention in expiring lists")
@@ -960,7 +960,7 @@ func decisionForNginx2(
 			// Check if expiringDecision.fromBaskerville, if true, check if domain disabled baskerville
 			_, disabled := config.SitesToDisableBaskerville[requestedHost]
 			if expiringDecision.fromBaskerville && disabled {
-				log.Printf("domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
 			} else {
 				// log.Println("challenge from expiring lists")
 				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
@@ -1031,4 +1031,31 @@ func CleanRequestedPath(requestedPath string) string {
 	path := "/" + strings.Trim(requestedPath, "/")
 	path = strings.Split(path, "?")[0]
 	return path
+}
+
+func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *DecisionLists) (ExpiringDecision, bool) {
+	// check session ID then check expiring lists IP
+	sessionId, err := c.Cookie(SessionCookieName)
+	if err == nil {
+		expiringDecision, ok := (*decisionLists).ExpiringDecisionListsSessionId[sessionId]
+		if ok {
+			if time.Now().Sub(expiringDecision.Expires) > 0 {
+				delete((*decisionLists).ExpiringDecisionListsSessionId, sessionId)
+				// log.Println("deleted expired decision from expiring lists")
+				ok = false
+			}
+			log.Printf("DSC: challenge expiring decision for %s from session %s", expiringDecision.IpAddress, sessionId)
+			return expiringDecision, ok
+		}
+	}
+
+	expiringDecision, ok := (*decisionLists).ExpiringDecisionLists[clientIp]
+	if ok {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete((*decisionLists).ExpiringDecisionLists, clientIp)
+			// log.Println("deleted expired decision from expiring lists")
+			ok = false
+		}
+	}
+	return expiringDecision, ok
 }

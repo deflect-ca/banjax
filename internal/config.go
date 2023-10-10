@@ -95,6 +95,7 @@ const (
 type ExpiringDecision struct {
 	Decision        Decision
 	Expires         time.Time
+	IpAddress       string
 	fromBaskerville bool
 }
 
@@ -133,6 +134,8 @@ type DecisionLists struct {
 	PerSiteDecisionLists StringToStringToDecision // site -> ip -> Decision
 	// dynamic lists populated from the regex rate limits + kafka
 	ExpiringDecisionLists StringToExpiringDecision // ip -> ExpiringDecision
+	// dynamic lists populated from the kafka, like ExpiringDecisionLists but session ID as index
+	ExpiringDecisionListsSessionId StringToExpiringDecision
 	// static site-wide lists (legacy banjax_sha_inv and user_banjax_sha_inv)
 	// XXX someday need sha-inv *and* captcha
 	// XXX could be merged with PerSiteDecisionLists if we matched on ip ranges
@@ -220,6 +223,7 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	perSiteDecisionLists := make(StringToStringToDecision)
 	globalDecisionLists := make(StringToDecision)
 	expiringDecisionLists := make(StringToExpiringDecision)
+	expiringDecisionListsSessionId := make(StringToExpiringDecision)
 	sitewideShaInvList := make(StringToFailAction)
 	globalDecisionListsIPFilter := make(DecisionToIPFilter)
 	perSiteDecisionListsIPFilter := make(StringToDecisionToIPFilter)
@@ -292,7 +296,7 @@ func ConfigToDecisionLists(config *Config) DecisionLists {
 	// log.Printf("global decisions: %v\n", globalDecisionLists)
 	return DecisionLists{
 		globalDecisionLists, perSiteDecisionLists,
-		expiringDecisionLists, sitewideShaInvList,
+		expiringDecisionLists, expiringDecisionListsSessionId, sitewideShaInvList,
 		globalDecisionListsIPFilter, perSiteDecisionListsIPFilter}
 }
 
@@ -385,20 +389,6 @@ func (failedChallengeStates FailedChallengeStates) String() string {
 	return buf.String()
 }
 
-func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (ExpiringDecision, bool) {
-	expiringDecision, ok := (*decisionLists).ExpiringDecisionLists[clientIp]
-	if !ok {
-		// log.Println("no mention in expiring lists")
-	} else {
-		if time.Now().Sub(expiringDecision.Expires) > 0 {
-			delete((*decisionLists).ExpiringDecisionLists, clientIp)
-			// log.Println("deleted expired decision from expiring lists")
-			ok = false
-		}
-	}
-	return expiringDecision, ok
-}
-
 // XXX mmm could hold the lock for a while?
 func RemoveExpiredDecisions(
 	decisionListsMutex *sync.Mutex,
@@ -430,7 +420,7 @@ func updateExpiringDecisionLists(
 	existingExpiringDecision, ok := (*decisionLists).ExpiringDecisionLists[ip]
 	if ok {
 		if newDecision <= existingExpiringDecision.Decision {
-			log.Println("not updating expiringDecision with less serious one", existingExpiringDecision.Decision, newDecision)
+			// log.Println("not updating expiringDecision with less serious one", existingExpiringDecision.Decision, newDecision)
 			return
 		}
 	}
@@ -442,7 +432,34 @@ func updateExpiringDecisionLists(
 	// XXX We are not using nginx to banjax cache feature yet
 	// purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
-	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires, fromBaskerville}
+	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{
+		newDecision, expires, ip, fromBaskerville}
+}
+
+func updateExpiringDecisionListsSessionId(
+	config *Config,
+	ip string,
+	sessionId string,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	now time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+) {
+	decisionListsMutex.Lock()
+	defer decisionListsMutex.Unlock()
+
+	existingExpiringDecision, ok := (*decisionLists).ExpiringDecisionListsSessionId[sessionId]
+	if ok {
+		if newDecision <= existingExpiringDecision.Decision {
+			return
+		}
+	}
+
+	// log.Printf("Update session id challenge with IP %s, session id %s, existing and new: %v, %v\n", ip, sessionId, existingExpiringDecision.Decision, newDecision)
+	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
+	(*decisionLists).ExpiringDecisionListsSessionId[sessionId] = ExpiringDecision{
+		newDecision, expires, ip, fromBaskerville}
 }
 
 type MetricsLogLine struct {
