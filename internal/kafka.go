@@ -159,11 +159,31 @@ func handleCommand(
 				true, // from baskerville, provide to http_server to distinguish from regex
 				command.Host,
 			)
-			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
+			log.Printf("KAFKA: challenge_ip: %s\n", command.Value)
 		} else if disabled {
-			log.Printf("KAFKA: not challenge %s, site %s disables baskerville\n", command.Value, command.Host)
+			log.Printf("KAFKA: DIS-BASK: not challenge %s, site %s disabled baskerville\n", command.Value, command.Host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
+		}
+	case "challenge_session":
+		// exempt a site from challenge according to config
+		_, disabled := config.SitesToDisableBaskerville[command.Host]
+
+		if !disabled {
+			updateExpiringDecisionListsSessionId(
+				config,
+				command.Value,
+				command.SessionId,
+				decisionListsMutex,
+				decisionLists,
+				time.Now(),
+				Challenge,
+				true, // from baskerville, provide to http_server to distinguish from regex
+				command.Host,
+			)
+			log.Printf("KAFKA: challenge_session: %s\n", command.SessionId)
+		} else {
+			log.Printf("KAFKA: DIS-BASK: not challenge %s, site %s disabled baskerville\n", command.Value, command.Host)
 		}
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
