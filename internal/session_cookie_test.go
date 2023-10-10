@@ -19,7 +19,7 @@ func TestSessionCookie(t *testing.T) {
 	cookie := ""
 	ip := "123.123.123.123"
 	for i := 0; i < total; i++ {
-		cookie = newSessionCookie("a secret key", 2, ip)
+		cookie = newSessionCookie("a secret key", 3, ip)
 	}
 	elapsed := time.Since(start)
 	fmt.Println(cookie)
@@ -30,6 +30,7 @@ func TestSessionCookie(t *testing.T) {
 	err := validateSessionCookie(cookie, "a secret key", now, ip)
 	if err != nil {
 		t.Error("Failed. A valid cookie validation failed.")
+		t.Error(err)
 	} else {
 		fmt.Println("Passed.")
 	}
