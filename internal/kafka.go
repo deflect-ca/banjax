@@ -36,9 +36,11 @@ sample baskerville message:
 	}
 */
 type commandMessage struct {
-	Name  string
-	Value string
-	Host  string `json:"host"`
+	Name      string
+	Value     string
+	Host      string `json:"host"`
+	SessionId string `json:"session_id"`
+	Source    string `json:"source"`
 }
 
 func getDialer(config *Config) *kafka.Dialer {
@@ -87,12 +89,12 @@ func RunKafkaReader(
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		r := kafka.NewReader(kafka.ReaderConfig{
-			Brokers: config.KafkaBrokers,
-			GroupID: uuid.New().String(),
-			Topic:   config.KafkaCommandTopic,
-			Dialer:  getDialer(config),
+			Brokers:     config.KafkaBrokers,
+			GroupID:     uuid.New().String(),
+			StartOffset: kafka.LastOffset,
+			Topic:       config.KafkaCommandTopic,
+			Dialer:      getDialer(config),
 		})
-		r.SetOffset(kafka.LastOffset)
 		defer r.Close()
 
 		log.Printf("KAFKA: NewReader started")
@@ -109,14 +111,17 @@ func RunKafkaReader(
 				continue // XXX what to do here?
 			}
 
-			log.Printf("KAFKA: message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
+			// log.Printf("KAFKA: message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
 
 			command := commandMessage{}
 			err = json.Unmarshal(m.Value, &command)
 			if err != nil {
-				log.Println("KAFKA: json.Unmarshal() failed")
+				log.Printf("KAFKA: Unmarshal failed %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
 				continue
 			}
+
+			log.Printf("KAFKA: message %s (%d/%d) = N: %s, V: %s, S: %s: Src: %s\n",
+				string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
 
 			handleCommand(
 				config,
