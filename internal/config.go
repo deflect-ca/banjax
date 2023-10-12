@@ -438,7 +438,8 @@ func updateExpiringDecisionLists(
 		log.Println("From baskerville", fromBaskerville)
 	}
 
-	purgeNginxAuthCacheForIp(ip)
+	// XXX We are not using nginx to banjax cache feature yet
+	// purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires, fromBaskerville}
 }
