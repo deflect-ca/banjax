@@ -95,7 +95,6 @@ func RunKafkaReader(
 			Topic:       config.KafkaCommandTopic,
 			Dialer:      getDialer(config),
 		})
-		r.SetOffset(kafka.LastOffset)
 		defer r.Close()
 
 		log.Printf("KAFKA: NewReader started")
