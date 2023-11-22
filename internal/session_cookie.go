@@ -131,7 +131,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 	if err == nil {
 		// cookie exists, validate it
 		validateErr := validateSessionCookie(urlDecodedDsc, config.SessionCookieHmacSecret, time.Now(), clientIp)
-		if validateErr == nil {
+		if validateErr == nil || config.SessionCookieNotVerify {
 			// cookie is valid, do not attach cookie but only report dsc_new=false
 			// log.Printf("DSC: [%s] cookie %s is valid, report dsc_new=false\n", clientIp, urlDecodedDsc)
 			attachSessionCookie(c, config, urlDecodedDsc, false)
