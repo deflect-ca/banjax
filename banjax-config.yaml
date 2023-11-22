@@ -14,7 +14,9 @@ expiring_decision_ttl_seconds: 300
 iptables_ban_seconds: 300
 iptables_unbanner_seconds: 5
 kafka_brokers:
-  - "localhost:9092"
+  - kafkadev0.prod.deflect.network:9094
+  - kafkadev1.prod.deflect.network:9094
+  - kafkadev2.prod.deflect.network:9094
 kafka_security_protocol: 'ssl'
 kafka_ssl_ca: "/etc/banjax/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/certificate.pem"
@@ -105,7 +107,7 @@ hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
 debug: true
-disable_kafka: true
+disable_kafka: false
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html
 disable_logging:
