@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"log"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -165,15 +166,18 @@ func handleCommand(
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
+		break
 	case "challenge_session":
 		// exempt a site from challenge according to config
 		_, disabled := config.SitesToDisableBaskerville[command.Host]
 
 		if !disabled {
+			// gin does urldecode or cookie, so we decode any possible urlencoded session id from kafka
+			sessionIdDecoded, _ := url.QueryUnescape(command.SessionId)
 			updateExpiringDecisionListsSessionId(
 				config,
 				command.Value,
-				command.SessionId,
+				sessionIdDecoded,
 				decisionListsMutex,
 				decisionLists,
 				time.Now(),
@@ -181,10 +185,11 @@ func handleCommand(
 				true, // from baskerville, provide to http_server to distinguish from regex
 				command.Host,
 			)
-			log.Printf("KAFKA: challenge_session: %s\n", command.SessionId)
+			log.Printf("KAFKA: challenge_session: %s\n", sessionIdDecoded)
 		} else {
 			log.Printf("KAFKA: DIS-BASK: not challenge %s, site %s disabled baskerville\n", command.Value, command.Host)
 		}
+		break
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
 	}

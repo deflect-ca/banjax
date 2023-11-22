@@ -1169,12 +1169,12 @@ func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *
 	if err == nil {
 		expiringDecision, ok := (*decisionLists).ExpiringDecisionListsSessionId[sessionId]
 		if ok {
+			log.Printf("DSC: found expiringDecision from session %s (%s)", sessionId, expiringDecision.Decision)
 			if time.Now().Sub(expiringDecision.Expires) > 0 {
 				delete((*decisionLists).ExpiringDecisionListsSessionId, sessionId)
 				// log.Println("deleted expired decision from expiring lists")
 				ok = false
 			}
-			log.Printf("DSC: challenge expiring decision for %s from session %s", expiringDecision.IpAddress, sessionId)
 			return expiringDecision, ok
 		}
 	}

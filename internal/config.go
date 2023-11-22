@@ -67,6 +67,7 @@ type Config struct {
 	DisableKafka                           bool              `yaml:"disable_kafka"`
 	SessionCookieHmacSecret                string            `yaml:"session_cookie_hmac_secret"`
 	SessionCookieTtlSeconds                int               `yaml:"session_cookie_ttl_seconds"`
+	SessionCookieNotVerify                 bool              `yaml:"session_cookie_not_verify"`
 	SitesToDisableBaskerville              map[string]bool   `yaml:"sites_to_disable_baskerville"`
 }
 
@@ -529,7 +530,10 @@ func updateExpiringDecisionListsSessionId(
 		}
 	}
 
-	// log.Printf("Update session id challenge with IP %s, session id %s, existing and new: %v, %v\n", ip, sessionId, existingExpiringDecision.Decision, newDecision)
+	if config.Debug {
+		log.Printf("Update session id challenge with IP %s, session id %s, existing and new: %v, %v\n",
+			ip, sessionId, existingExpiringDecision.Decision, newDecision)
+	}
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	(*decisionLists).ExpiringDecisionListsSessionId[sessionId] = ExpiringDecision{
 		newDecision, expires, ip, fromBaskerville, domain}
