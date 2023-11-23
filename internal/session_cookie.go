@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ import (
 )
 
 const (
-	CookieName           = "deflect_session"
+	SessionCookieName    = "deflect_session"
 	ExpireTimeByteLength = 8
 	IdByteLength         = 4
 	HmacByteLength       = 4
@@ -118,19 +119,26 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 				set in the logs: dsc=cookie, dsc_new=False
 	*/
 	clientIp := c.Request.Header.Get("X-Client-IP")
-	dsc, err := c.Cookie(CookieName)
+	dsc, err := c.Cookie(SessionCookieName)
+	urlDecodedDsc, decodeErr := url.QueryUnescape(dsc)
+
+	// if fail to decode, use the original dsc
+	if decodeErr != nil {
+		log.Printf("DSC: fail to urldecode cookie %s, use the original one\n", dsc)
+		urlDecodedDsc = dsc
+	}
 
 	if err == nil {
 		// cookie exists, validate it
-		validateErr := validateSessionCookie(dsc, config.SessionCookieHmacSecret, time.Now(), clientIp)
+		validateErr := validateSessionCookie(urlDecodedDsc, config.SessionCookieHmacSecret, time.Now(), clientIp)
 		if validateErr == nil {
 			// cookie is valid, do not attach cookie but only report dsc_new=false
-			// fmt.Printf("DSC: [%s] cookie %s is valid, report dsc_new=false\n", clientIp, dsc)
-			attachSessionCookie(c, config, dsc, false)
+			// log.Printf("DSC: [%s] cookie %s is valid, report dsc_new=false\n", clientIp, urlDecodedDsc)
+			attachSessionCookie(c, config, urlDecodedDsc, false)
 		} else {
 			// cookie is invalid, create a new one
 			newDsc := newSessionCookie(config.SessionCookieHmacSecret, config.SessionCookieTtlSeconds, clientIp)
-			log.Printf("DSC: [%s] cookie %s is not valid, issue new: %s\n", clientIp, dsc, newDsc)
+			log.Printf("DSC: [%s] cookie %s is not valid, issue new: %s\n", clientIp, urlDecodedDsc, newDsc)
 			attachSessionCookie(c, config, newDsc, true)
 		}
 		return nil
@@ -145,7 +153,8 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 
 func attachSessionCookie(c *gin.Context, config *Config, dsc string, dsc_new bool) {
 	if dsc_new {
-		c.SetCookie(CookieName, dsc, config.SessionCookieTtlSeconds, "/", "", false, true)
+		urlEncodedDsc := url.QueryEscape(dsc)
+		c.SetCookie(SessionCookieName, urlEncodedDsc, config.SessionCookieTtlSeconds, "/", "", false, true)
 	}
 	// for nginx log
 	c.Header("X-Deflect-Session", dsc)
