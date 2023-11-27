@@ -168,8 +168,9 @@ func handleCommand(
 		}
 		break
 	case "challenge_session":
+	case "block_session":
 		if command.SessionId == "" {
-			log.Printf("KAFKA: challenge_session: session_id is EMPTY, break\n")
+			log.Printf("KAFKA: session_id is EMPTY, break\n")
 			break
 		}
 		// exempt a site from challenge according to config
@@ -179,8 +180,16 @@ func handleCommand(
 			// gin does urldecode or cookie, so we decode any possible urlencoded session id from kafka
 			sessionIdDecoded, decodeErr := url.QueryUnescape(command.SessionId)
 			if decodeErr != nil {
-				log.Printf("KAFKA: challenge_session: fail to urldecode session_id %s, break\n", command.SessionId)
+				log.Printf("KAFKA: fail to urldecode session_id %s, break\n", command.SessionId)
 				break
+			}
+			var decision Decision
+			if command.Name == "block_session" {
+				log.Printf("KAFKA: block_session: %s\n", sessionIdDecoded)
+				decision = NginxBlock
+			} else {
+				log.Printf("KAFKA: challenge_session: %s\n", sessionIdDecoded)
+				decision = Challenge
 			}
 			updateExpiringDecisionListsSessionId(
 				config,
@@ -189,13 +198,12 @@ func handleCommand(
 				decisionListsMutex,
 				decisionLists,
 				time.Now(),
-				Challenge,
+				decision,
 				true, // from baskerville, provide to http_server to distinguish from regex
 				command.Host,
 			)
-			log.Printf("KAFKA: challenge_session: %s\n", sessionIdDecoded)
 		} else {
-			log.Printf("KAFKA: DIS-BASK: not challenge %s, site %s disabled baskerville\n", command.Value, command.Host)
+			log.Printf("KAFKA: DIS-BASK: no action on %s, site %s disabled baskerville\n", command.Value, command.Host)
 		}
 		break
 	default:
