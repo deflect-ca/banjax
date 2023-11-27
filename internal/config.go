@@ -457,7 +457,7 @@ func updateExpiringDecisionListsSessionId(
 	}
 
 	if config.Debug {
-		log.Printf("Update session id challenge with IP %s, session id %s, existing and new: %v, %v\n",
+		log.Printf("Update session id decision with IP %s, session id %s, existing and new: %v, %v\n",
 			ip, sessionId, existingExpiringDecision.Decision, newDecision)
 	}
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)

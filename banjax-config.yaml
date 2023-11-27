@@ -100,7 +100,7 @@ hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
 debug: true
-disable_kafka: false
+disable_kafka: true
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html
 disable_logging:
