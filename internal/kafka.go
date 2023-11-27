@@ -166,12 +166,20 @@ func handleCommand(
 		}
 		break
 	case "challenge_session":
+		if command.SessionId == "" {
+			log.Printf("KAFKA: challenge_session: session_id is EMPTY, break\n")
+			break
+		}
 		// exempt a site from challenge according to config
 		_, disabled := config.SitesToDisableBaskerville[command.Host]
 
 		if !disabled {
 			// gin does urldecode or cookie, so we decode any possible urlencoded session id from kafka
-			sessionIdDecoded, _ := url.QueryUnescape(command.SessionId)
+			sessionIdDecoded, decodeErr := url.QueryUnescape(command.SessionId)
+			if decodeErr != nil {
+				log.Printf("KAFKA: challenge_session: fail to urldecode session_id %s, break\n", command.SessionId)
+				break
+			}
 			updateExpiringDecisionListsSessionId(
 				config,
 				command.Value,
