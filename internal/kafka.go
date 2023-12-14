@@ -89,11 +89,12 @@ func RunKafkaReader(
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		r := kafka.NewReader(kafka.ReaderConfig{
-			Brokers:     config.KafkaBrokers,
-			GroupID:     uuid.New().String(),
-			StartOffset: kafka.LastOffset,
-			Topic:       config.KafkaCommandTopic,
-			Dialer:      getDialer(config),
+			Brokers:        config.KafkaBrokers,
+			GroupID:        uuid.New().String(),
+			StartOffset:    kafka.LastOffset,
+			Topic:          config.KafkaCommandTopic,
+			Dialer:         getDialer(config),
+			CommitInterval: time.Second * 10,
 		})
 		defer r.Close()
 
