@@ -21,6 +21,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	PasswordCookieName  = "deflect_password3"
+	ChallengeCookieName = "deflect_challenge3"
+)
+
 func RunHttpServer(
 	config *Config,
 	decisionListsMutex *sync.Mutex,
@@ -252,14 +257,14 @@ func getUserAgentOrIp(c *gin.Context, config *Config) string {
 
 func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
-	challenge(c, config, "deflect_password3", cookieTtl, config.HmacSecret, roaming)
+	challenge(c, config, PasswordCookieName, cookieTtl, config.HmacSecret, roaming)
 	sessionCookieEndPoint(c, config)
 	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming, cookieTtl))
 	c.Abort()
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	challenge(c, config, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
+	challenge(c, config, ChallengeCookieName, config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	sessionCookieEndPoint(c, config)
 	c.Data(429, "text/html", applyArgsToShaInvPage(config))
 	c.Abort()
@@ -303,21 +308,21 @@ func applyCookieDomain(pageBytes []byte, cookieName string) (modifiedPageBytes [
 
 func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool, cookieTtl int) (modifiedPageBytes []byte) {
 	// apply default or site specific expire time
-	modifiedPageBytes = applyCookieMaxAge(pageBytes, "deflect_password3", cookieTtl)
+	modifiedPageBytes = applyCookieMaxAge(pageBytes, PasswordCookieName, cookieTtl)
 
 	if !roaming {
 		return
 	}
 
 	// apply domain scope if allow banjax roaming
-	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, "deflect_password3")
+	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, PasswordCookieName)
 	return
 }
 
 func applyArgsToShaInvPage(config *Config) (modifiedPageBytes []byte) {
 	modifiedPageBytes = applyCookieMaxAge(
 		config.ChallengerBytes,
-		"deflect_challenge3",
+		ChallengeCookieName,
 		config.ShaInvCookieTtlSeconds,
 	)
 	modifiedPageBytes = modifyHTMLContent(
@@ -482,7 +487,7 @@ func sendOrValidateShaChallenge(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	challengeCookie, err := c.Cookie("deflect_challenge3")
+	challengeCookie, err := c.Cookie(ChallengeCookieName)
 	requestedMethod := c.Request.Method
 	if err == nil {
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getUserAgentOrIp(c, config), config.ShaInvExpectedZeroBits)
@@ -584,7 +589,7 @@ func sendOrValidatePassword(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	passwordCookie, err := c.Cookie("deflect_password3")
+	passwordCookie, err := c.Cookie(PasswordCookieName)
 	requestedMethod := c.Request.Method
 	// log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
@@ -812,7 +817,7 @@ func decisionForNginx2(
 	decisionForNginxResult.DecisionListResult = NotSet
 
 	// check if user has a valid password cookie, if so, allow them through
-	passwordCookie, passwordCookieErr := c.Cookie("deflect_password3")
+	passwordCookie, passwordCookieErr := c.Cookie(PasswordCookieName)
 	if passwordCookieErr == nil {
 		var grantPriorityPass bool = false
 		expectedHashedPassword, hasPasswordHash := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
