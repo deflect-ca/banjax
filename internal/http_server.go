@@ -261,7 +261,7 @@ func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 func shaInvChallenge(c *gin.Context, config *Config) {
 	challenge(c, config, "deflect_challenge3", config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	sessionCookieEndPoint(c, config)
-	c.Data(429, "text/html", applyCookieMaxAge(config.ChallengerBytes, "deflect_challenge3", config.ShaInvCookieTtlSeconds))
+	c.Data(429, "text/html", applyArgsToShaInvPage(config))
 	c.Abort()
 }
 
@@ -311,6 +311,20 @@ func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool, coo
 
 	// apply domain scope if allow banjax roaming
 	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, "deflect_password3")
+	return
+}
+
+func applyArgsToShaInvPage(config *Config) (modifiedPageBytes []byte) {
+	modifiedPageBytes = applyCookieMaxAge(
+		config.ChallengerBytes,
+		"deflect_challenge3",
+		config.ShaInvCookieTtlSeconds,
+	)
+	modifiedPageBytes = modifyHTMLContent(
+		modifiedPageBytes,
+		"new_solver(10)",
+		fmt.Sprintf("new_solver(%d)", config.ShaInvExpectedZeroBits),
+	)
 	return
 }
 
@@ -471,7 +485,7 @@ func sendOrValidateShaChallenge(
 	challengeCookie, err := c.Cookie("deflect_challenge3")
 	requestedMethod := c.Request.Method
 	if err == nil {
-		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getUserAgentOrIp(c, config), 10) // XXX config
+		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getUserAgentOrIp(c, config), config.ShaInvExpectedZeroBits)
 		if err != nil {
 			// log.Println("Sha-inverse challenge failed")
 			// log.Println(err)
