@@ -153,8 +153,7 @@ func sessionCookieEndPoint(c *gin.Context, config *Config) error {
 
 func attachSessionCookie(c *gin.Context, config *Config, dsc string, dsc_new bool) {
 	if dsc_new {
-		urlEncodedDsc := url.QueryEscape(dsc)
-		c.SetCookie(SessionCookieName, urlEncodedDsc, config.SessionCookieTtlSeconds, "/", "", false, true)
+		c.SetCookie(SessionCookieName, dsc, config.SessionCookieTtlSeconds, "/", "", false, true)
 	}
 	// for nginx log
 	c.Header("X-Deflect-Session", dsc)
