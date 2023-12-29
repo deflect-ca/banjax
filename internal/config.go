@@ -51,6 +51,7 @@ type Config struct {
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
 	PasswordCookieTtlSeconds               int                 `yaml:"password_cookie_ttl_seconds"`
 	ShaInvCookieTtlSeconds                 int                 `yaml:"sha_inv_cookie_ttl_seconds"`
+	ShaInvExpectedZeroBits                 uint32              `yaml:"sha_inv_expected_zero_bits"`
 	RestartTime                            int
 	ReloadTime                             int
 	Hostname                               string

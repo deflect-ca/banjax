@@ -111,3 +111,5 @@ sites_to_disable_baskerville:
   localhost: true
 use_user_agent_in_cookie:
   localhost: true
+# difficulty of sha-inv page, setting above 10 might cause solving to fail
+sha_inv_expected_zero_bits: 10
