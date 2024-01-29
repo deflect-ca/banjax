@@ -311,21 +311,21 @@ func (b Banner) IPSetDel(ip string) error {
 }
 
 func banIp(config *Config, ip string, banner BannerInterface) {
-	log.Println("IPTABLES: banIp with ipset", ip, "timeout", config.IptablesBanSeconds)
+	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
-		log.Println("IPTABLES: Not going to block localhost")
+		log.Println("banIp: Not going to block localhost")
 		return
 	}
 	if config.StandaloneTesting {
-		log.Println("IPTABLES: Not calling iptables in testing")
+		log.Println("banIp: Not calling iptables in testing")
 		return
 	}
 	if banner.IPSetTest(config, ip) {
-		log.Println("IPTABLES: no double ban", ip)
+		log.Println("banIp: no double ban", ip)
 		return
 	}
 	banErr := banner.IPSetAdd(config, ip)
 	if banErr != nil {
-		log.Printf("banjaxIPSet.Add() failed: %v", banErr)
+		log.Printf("banIp ipset add failed: %v", banErr)
 	}
 }

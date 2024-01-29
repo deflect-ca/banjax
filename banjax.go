@@ -121,8 +121,6 @@ const (
 )
 
 func init_ipset(config *internal.Config) ipset.IPSet {
-	log.Println("init_ipset: init_ipset()")
-
 	if config.StandaloneTesting {
 		log.Println("init_ipset: Not init ipset in testing")
 		return nil
@@ -141,19 +139,18 @@ func init_ipset(config *internal.Config) ipset.IPSet {
 		log.Println("init_ipset: ipset.New() failed")
 		panic(err)
 	}
-	// print name set.Name()
-	log.Println("init_ipset: done, name:", newIPset.Name())
+	log.Println("init_ipset: new ipset:", newIPset.Name())
 
 	// enable ipset with iptables
-	// iptables -I INPUT -m set --match-set banjax src -j DROP
+	// iptables -I INPUT -m set --match-set banjax_ipset src -j DROP
 	ipt, err := iptables.New()
 	if err != nil {
-		log.Println("IPTABLES: iptables.New() failed")
+		log.Println("init_ipset: iptables.New() failed")
 		panic(err)
 	}
 	err = ipt.Insert("filter", "INPUT", 1, "-m", "set", "--match-set", IPSetName, "src", "-j", "DROP")
 	if err != nil {
-		log.Println("IPTABLES: iptables.Insert() failed, did not enable ipset")
+		log.Println("init_ipset: iptables.Insert() failed, did not enable ipset")
 		panic(err)
 	}
 
