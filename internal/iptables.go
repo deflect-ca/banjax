@@ -21,11 +21,45 @@ import (
 	"time"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/gonetx/ipset"
 )
 
-func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
-	return []string{"-s", ip, "-j", "DROP", "-m", "comment",
-		"--comment", fmt.Sprintf("added:%d", timestamp)}
+const (
+	IPSetName = "banjax_ipset"
+)
+
+func init_ipset(config *Config) {
+	log.Println("http_server: init_ipset()")
+	if err := ipset.Check(); err != nil {
+		log.Println("init_ipset() ipset.Check() failed")
+		panic(err)
+	}
+
+	var err error
+	config.IPSetInstance, err = ipset.New(
+		IPSetName,
+		ipset.HashIp,
+		ipset.Exist(true),
+		ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+	if err != nil {
+		log.Println("init_ipset() ipset.New() failed")
+		panic(err)
+	}
+	// print name set.Name()
+	log.Println("init_ipset() done, name:", config.IPSetInstance.Name())
+
+	// enable ipset with iptables
+	// iptables -I INPUT -m set --match-set banjax src -j DROP
+	ipt, err := iptables.New()
+	if err != nil {
+		log.Println("IPTABLES: iptables.New() failed")
+		panic(err)
+	}
+	err = ipt.Insert("filter", "INPUT", 1, "-m", "set", "--match-set", IPSetName, "src", "-j", "DROP")
+	if err != nil {
+		log.Println("IPTABLES: iptables.Insert() failed, did not enable ipset")
+		panic(err)
+	}
 }
 
 // to Delete a rule returned from List, we have to fix it up a little
@@ -288,6 +322,7 @@ func (b Banner) BanOrChallengeIp(
 }
 
 func banIp(config *Config, ip string) {
+	log.Println("IPTABLES: banIp with ipset", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
 		log.Println("IPTABLES: Not going to block localhost")
 		return
@@ -296,19 +331,19 @@ func banIp(config *Config, ip string) {
 		log.Println("IPTABLES: Not calling iptables in testing")
 		return
 	}
-
-	ipt, err := iptables.New()
-
-	ruleSpec := ipAndTimestampToRuleSpec(ip, time.Now().Unix())
-	if config.Debug {
-		log.Printf("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
-	}
-	err = ipt.Append("filter", "INPUT", ruleSpec...)
-	if err != nil {
-		log.Println("IPTABLES: Append failed")
+	if bannedByIPset(config, ip) {
+		log.Println("IPTABLES: no double ban", ip)
 		return
 	}
-	// log.Println("Append succeeded")
+	banErr := config.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+	if banErr != nil {
+		log.Printf("banjaxIPSet.Add() failed: %v", banErr)
+	}
+}
+
+func bannedByIPset(config *Config, ip string) (banned bool) {
+	banned, _ = config.IPSetInstance.Test(ip)
+	return
 }
 
 // XXX

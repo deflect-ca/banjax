@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gonetx/ipset"
 	"github.com/jeremy5189/ipfilter-no-iploc/v2"
 )
 
@@ -68,6 +69,7 @@ type Config struct {
 	SessionCookieHmacSecret                string            `yaml:"session_cookie_hmac_secret"`
 	SessionCookieTtlSeconds                int               `yaml:"session_cookie_ttl_seconds"`
 	SitesToDisableBaskerville              map[string]bool   `yaml:"sites_to_disable_baskerville"`
+	IPSetInstance                          ipset.IPSet
 }
 
 type RegexWithRate struct {

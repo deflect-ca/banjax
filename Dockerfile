@@ -9,7 +9,7 @@ FROM golang:1.17.0-buster
 RUN set -x \
  && DEBIAN_FRONTEND=noninteractive apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-		iptables
+		iptables ipset
 
 RUN mkdir -p /opt/banjax
 COPY ./ /opt/banjax/

@@ -8,7 +8,10 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 8.8.8.8
-iptables_ban_seconds: 10
+# These two should be the same,
+# if not, it will still work but API to query banned IP will be inconsistent
+expiring_decision_ttl_seconds: 300
+iptables_ban_seconds: 300
 iptables_unbanner_seconds: 5
 kafka_brokers:
   - "localhost:9092"
@@ -82,6 +85,11 @@ regexes_with_rates:
     interval: 1
     regex: .*challengeme.*
     rule: "instant challenge"
+  - decision: iptables_block
+    hits_per_interval: 0
+    interval: 1
+    regex: ".*banme.*"
+    rule: "instant ban"
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
@@ -89,7 +97,6 @@ sitewide_sha_inv_list:
   www.localhost: no_block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
-expiring_decision_ttl_seconds: 10
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
 password_cookie_ttl_seconds: 345600  # Dynamic apply to internal/password-protected-path.html:170
