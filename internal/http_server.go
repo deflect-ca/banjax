@@ -39,8 +39,6 @@ func RunHttpServer(
 ) {
 	defer wg.Done()
 
-	init_ipset(config)
-
 	ginLogFileName := ""
 	if config.StandaloneTesting {
 		ginLogFileName = "gin.log"

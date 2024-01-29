@@ -24,48 +24,6 @@ import (
 	"github.com/gonetx/ipset"
 )
 
-const (
-	IPSetName = "banjax_ipset"
-)
-
-func init_ipset(config *Config) {
-	log.Println("http_server: init_ipset()")
-	if config.StandaloneTesting {
-		log.Println("init_ipset: Not init ipset in testing")
-		return
-	}
-	if err := ipset.Check(); err != nil {
-		log.Println("init_ipset() ipset.Check() failed")
-		panic(err)
-	}
-
-	var err error
-	config.IPSetInstance, err = ipset.New(
-		IPSetName,
-		ipset.HashIp,
-		ipset.Exist(true),
-		ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
-	if err != nil {
-		log.Println("init_ipset() ipset.New() failed")
-		panic(err)
-	}
-	// print name set.Name()
-	log.Println("init_ipset() done, name:", config.IPSetInstance.Name())
-
-	// enable ipset with iptables
-	// iptables -I INPUT -m set --match-set banjax src -j DROP
-	ipt, err := iptables.New()
-	if err != nil {
-		log.Println("IPTABLES: iptables.New() failed")
-		panic(err)
-	}
-	err = ipt.Insert("filter", "INPUT", 1, "-m", "set", "--match-set", IPSetName, "src", "-j", "DROP")
-	if err != nil {
-		log.Println("IPTABLES: iptables.Insert() failed, did not enable ipset")
-		panic(err)
-	}
-}
-
 func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
 	return []string{"-s", ip, "-j", "DROP", "-m", "comment",
 		"--comment", fmt.Sprintf("added:%d", timestamp)}
