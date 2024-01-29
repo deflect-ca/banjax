@@ -27,6 +27,8 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: ${{ matrix.go-version }}
+    - name: Install ipset
+      run: sudo apt-get install -y ipset
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Run the integration tests
@@ -42,6 +44,8 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: ${{ matrix.go-version }}
+    - name: Install ipset
+      run: sudo apt-get install -y ipset
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Run the performance tests
