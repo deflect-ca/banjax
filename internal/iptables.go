@@ -30,6 +30,10 @@ const (
 
 func init_ipset(config *Config) {
 	log.Println("http_server: init_ipset()")
+	if config.StandaloneTesting {
+		log.Println("init_ipset: Not init ipset in testing")
+		return
+	}
 	if err := ipset.Check(); err != nil {
 		log.Println("init_ipset() ipset.Check() failed")
 		panic(err)

@@ -38,7 +38,7 @@ type Config struct {
 	PerSiteDecisionLists                   map[string]map[string][]string `yaml:"per_site_decision_lists"`
 	GlobalDecisionLists                    map[string][]string            `yaml:"global_decision_lists"`
 	ConfigVersion                          string                         `yaml:"config_version"`
-	StandaloneTesting                      bool
+	StandaloneTesting                      bool                           `yaml:"standalone_testing"`
 	ChallengerBytes                        []byte
 	PasswordPageBytes                      []byte
 	SitesToPasswordHashes                  map[string]string   `yaml:"password_hashes"`
