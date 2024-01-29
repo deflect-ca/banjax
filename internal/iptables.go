@@ -62,6 +62,11 @@ func init_ipset(config *Config) {
 	}
 }
 
+func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
+	return []string{"-s", ip, "-j", "DROP", "-m", "comment",
+		"--comment", fmt.Sprintf("added:%d", timestamp)}
+}
+
 // to Delete a rule returned from List, we have to fix it up a little
 // basically change this string: `-A INPUT -s 1.2.3.5/32 -m comment --comment "added:1599210074" -j DROP`
 // into this slice: ["-s" "1.2.3.5/32" "-m" "comment" "--comment" "added:1599210074" "-j" "DROP"]
