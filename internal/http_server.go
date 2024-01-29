@@ -39,6 +39,8 @@ func RunHttpServer(
 ) {
 	defer wg.Done()
 
+	init_ipset(config)
+
 	ginLogFileName := ""
 	if config.StandaloneTesting {
 		ginLogFileName = "gin.log"
@@ -197,6 +199,82 @@ func RunHttpServer(
 			),
 		)
 		rateLimitMutex.Unlock()
+	})
+
+	// API to check if given IP was banned by iptables
+	r.GET("/is_banned", func(c *gin.Context) {
+		ip := c.Query("ip")
+		if ip == "" {
+			// return in json
+			c.JSON(400, gin.H{
+				"error": "ip query param is required",
+			})
+			return
+		}
+		banned := bannedByIPset(config, ip)
+		expiringDecision, ok := checkExpiringDecisionLists(ip, decisionLists)
+		if !ok {
+			// not found in expiring list, but maybe still banned at ipset level
+			c.JSON(200, gin.H{
+				"ip":               ip,
+				"banned":           banned,
+				"expiringDecision": nil,
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"ip":               ip,
+			"banned":           banned,
+			"expiringDecision": expiringDecision,
+		})
+	})
+
+	// API to list all banned IPs
+	r.GET("/banned", func(c *gin.Context) {
+		ips, err := config.IPSetInstance.List()
+		if err != nil {
+			c.JSON(500, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+		// Format will be:
+		//   [172.19.0.1 timeout 298]
+		c.JSON(200, gin.H{
+			"entries": ips.Entries,
+		})
+	})
+
+	// API to unban an IP
+	r.POST("/unban", func(c *gin.Context) {
+		// get ip from post data
+		ip := strings.TrimSpace(c.PostForm("ip"))
+		if ip == "" {
+			// return in json
+			c.JSON(400, gin.H{
+				"error": "ip in post form is required",
+			})
+			return
+		}
+		if !bannedByIPset(config, ip) {
+			c.JSON(400, gin.H{
+				"ip":    ip,
+				"error": "ip is not banned",
+			})
+			return
+		}
+		err := config.IPSetInstance.Del(ip)
+		if err != nil {
+			c.JSON(500, gin.H{
+				"ip":    ip,
+				"error": err.Error(),
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"ip":    ip,
+			"unban": true,
+		})
 	})
 
 	r.Run("127.0.0.1:8081") // XXX config
