@@ -233,12 +233,6 @@ func main() {
 		&wg,
 	)
 
-	wg.Add(1)
-	go internal.RunIpBanExpirer(
-		&config,
-		&wg,
-	)
-
 	if !config.DisableKafka {
 		log.Println("INIT: starting RunKafkaReader/RunKafkaWriter")
 
