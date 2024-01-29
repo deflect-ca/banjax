@@ -20,6 +20,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gonetx/ipset"
 )
 
 type MockBanner struct {
@@ -54,6 +56,22 @@ func (mb *MockBanner) LogRegexBan(
 	decision Decision,
 ) {
 	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
+}
+
+func (mb *MockBanner) IPSetAdd(config *Config, ip string) error {
+	return nil
+}
+
+func (mb *MockBanner) IPSetTest(config *Config, ip string) bool {
+	return false
+}
+
+func (mb *MockBanner) IPSetList() (*ipset.Info, error) {
+	return nil, nil
+}
+
+func (mb *MockBanner) IPSetDel(ip string) error {
+	return nil
 }
 
 var configToStructsMutex sync.Mutex

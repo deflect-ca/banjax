@@ -120,29 +120,29 @@ const (
 	IPSetName = "banjax_ipset"
 )
 
-func init_ipset(config *internal.Config) {
-	log.Println("http_server: init_ipset()")
+func init_ipset(config *internal.Config) ipset.IPSet {
+	log.Println("init_ipset: init_ipset()")
+
 	if config.StandaloneTesting {
 		log.Println("init_ipset: Not init ipset in testing")
-		return
+		return nil
 	}
 	if err := ipset.Check(); err != nil {
-		log.Println("init_ipset() ipset.Check() failed")
+		log.Println("init_ipset: ipset.Check() failed")
 		panic(err)
 	}
 
-	var err error
-	config.IPSetInstance, err = ipset.New(
+	newIPset, err := ipset.New(
 		IPSetName,
 		ipset.HashIp,
 		ipset.Exist(true),
 		ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
 	if err != nil {
-		log.Println("init_ipset() ipset.New() failed")
+		log.Println("init_ipset: ipset.New() failed")
 		panic(err)
 	}
 	// print name set.Name()
-	log.Println("init_ipset() done, name:", config.IPSetInstance.Name())
+	log.Println("init_ipset: done, name:", newIPset.Name())
 
 	// enable ipset with iptables
 	// iptables -I INPUT -m set --match-set banjax src -j DROP
@@ -156,6 +156,8 @@ func init_ipset(config *internal.Config) {
 		log.Println("IPTABLES: iptables.Insert() failed, did not enable ipset")
 		panic(err)
 	}
+
+	return newIPset
 }
 
 func main() {
@@ -241,8 +243,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	init_ipset(&config)
-
 	defer banningLogFile.Close()
 	defer banningLogFileTemp.Close()
 
@@ -251,6 +251,7 @@ func main() {
 		&decisionLists,
 		log.New(banningLogFile, "", 0),
 		log.New(banningLogFileTemp, "", 0),
+		init_ipset(&config),
 	}
 
 	var wg sync.WaitGroup

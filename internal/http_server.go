@@ -209,7 +209,7 @@ func RunHttpServer(
 			})
 			return
 		}
-		banned := bannedByIPset(config, ip)
+		banned, _ := banner.IPSetList()
 		expiringDecision, ok := checkExpiringDecisionLists(ip, decisionLists)
 		if !ok {
 			// not found in expiring list, but maybe still banned at ipset level
@@ -229,7 +229,7 @@ func RunHttpServer(
 
 	// API to list all banned IPs
 	r.GET("/banned", func(c *gin.Context) {
-		ips, err := config.IPSetInstance.List()
+		ips, err := banner.IPSetList()
 		if err != nil {
 			c.JSON(500, gin.H{
 				"error": err.Error(),
@@ -254,14 +254,14 @@ func RunHttpServer(
 			})
 			return
 		}
-		if !bannedByIPset(config, ip) {
+		if !banner.IPSetTest(config, ip) {
 			c.JSON(400, gin.H{
 				"ip":    ip,
 				"error": "ip is not banned",
 			})
 			return
 		}
-		err := config.IPSetInstance.Del(ip)
+		err := banner.IPSetDel(ip)
 		if err != nil {
 			c.JSON(500, gin.H{
 				"ip":    ip,

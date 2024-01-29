@@ -119,6 +119,10 @@ type BannerInterface interface {
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
+	IPSetAdd(config *Config, ip string) error
+	IPSetTest(config *Config, ip string) bool
+	IPSetList() (*ipset.Info, error)
+	IPSetDel(ip string) error
 }
 
 type Banner struct {
@@ -126,6 +130,7 @@ type Banner struct {
 	DecisionLists      *DecisionLists
 	Logger             *log.Logger
 	LoggerTemp         *log.Logger
+	IPSetInstance      ipset.IPSet
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -284,11 +289,28 @@ func (b Banner) BanOrChallengeIp(
 	)
 
 	if decision == IptablesBlock {
-		banIp(config, ip)
+		banIp(config, ip, b)
 	}
 }
 
-func banIp(config *Config, ip string) {
+func (b Banner) IPSetAdd(config *Config, ip string) error {
+	return b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+}
+
+func (b Banner) IPSetTest(config *Config, ip string) bool {
+	banned, _ := b.IPSetInstance.Test(ip)
+	return banned
+}
+
+func (b Banner) IPSetList() (*ipset.Info, error) {
+	return b.IPSetInstance.List()
+}
+
+func (b Banner) IPSetDel(ip string) error {
+	return b.IPSetInstance.Del(ip)
+}
+
+func banIp(config *Config, ip string, banner BannerInterface) {
 	log.Println("IPTABLES: banIp with ipset", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
 		log.Println("IPTABLES: Not going to block localhost")
@@ -298,22 +320,12 @@ func banIp(config *Config, ip string) {
 		log.Println("IPTABLES: Not calling iptables in testing")
 		return
 	}
-	if bannedByIPset(config, ip) {
+	if banner.IPSetTest(config, ip) {
 		log.Println("IPTABLES: no double ban", ip)
 		return
 	}
-	banErr := config.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+	banErr := banner.IPSetAdd(config, ip)
 	if banErr != nil {
 		log.Printf("banjaxIPSet.Add() failed: %v", banErr)
 	}
-}
-
-func bannedByIPset(config *Config, ip string) (banned bool) {
-	banned, _ = config.IPSetInstance.Test(ip)
-	return
-}
-
-// XXX
-func BanIp(config *Config, ip string) {
-	banIp(config, ip)
 }
