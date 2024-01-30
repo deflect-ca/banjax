@@ -30,7 +30,7 @@ type MockBanner struct {
 
 // XXX confused why this (with a pointer receiver) and the one in iptables.go
 // (value receiver) both satisfy the Banner interface...
-func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decision) {
+func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decision, domain string) {
 	mb.bannedIp = ip
 }
 

@@ -115,7 +115,7 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 }
 
 type BannerInterface interface {
-	BanOrChallengeIp(config *Config, ip string, decision Decision)
+	BanOrChallengeIp(config *Config, ip string, decision Decision, domain string)
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
@@ -275,6 +275,7 @@ func (b Banner) BanOrChallengeIp(
 	config *Config,
 	ip string,
 	decision Decision,
+	domain string,
 ) {
 	log.Println("IPTABLES: BanOrChallengeIp", ip, decision)
 
@@ -286,6 +287,7 @@ func (b Banner) BanOrChallengeIp(
 		time.Now(),
 		decision,
 		false, // not from baskerville
+		domain,
 	)
 
 	if decision == IptablesBlock {

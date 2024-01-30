@@ -227,8 +227,8 @@ func RunHttpServer(
 		})
 	})
 
-	// API to list all banned IPs
-	r.GET("/banned", func(c *gin.Context) {
+	// API to list all banned IPs (internal use, not exposed to nginx)
+	r.GET("/ipset/list", func(c *gin.Context) {
 		ips, err := banner.IPSetList()
 		if err != nil {
 			c.JSON(500, gin.H{
@@ -240,6 +240,23 @@ func RunHttpServer(
 		//   [172.19.0.1 timeout 298]
 		c.JSON(200, gin.H{
 			"entries": ips.Entries,
+		})
+	})
+
+	// API to list expiring list and filter by domain
+	r.GET("/banned", func(c *gin.Context) {
+		domain := c.Query("domain")
+		if domain == "" {
+			// return in json
+			c.JSON(400, gin.H{
+				"error": "domain query param is required",
+			})
+			return
+		}
+		// search in decisionlist
+		c.JSON(200, gin.H{
+			"domain":  domain,
+			"entries": checkExpiringDecisionListsByDomain(domain, decisionLists),
 		})
 	})
 
@@ -491,7 +508,7 @@ func tooManyFailedChallenges(
 			decisionType = NginxBlock
 		}
 		// log.Println("IP has failed too many challenges; blocking them")
-		banner.BanOrChallengeIp(config, ip, decisionType)
+		banner.BanOrChallengeIp(config, ip, decisionType, host)
 		banner.LogFailedChallengeBan(
 			config,
 			ip,

@@ -97,6 +97,7 @@ type ExpiringDecision struct {
 	Decision        Decision
 	Expires         time.Time
 	fromBaskerville bool
+	domain          string
 }
 
 // XXX is this really how you make an enum in go?
@@ -354,7 +355,12 @@ func (expiringDecisionLists StringToExpiringDecision) String() string {
 		buf.WriteString(fmt.Sprintf("%v", ip))
 		buf.WriteString(":\n")
 		buf.WriteString("\t")
-		buf.WriteString(fmt.Sprintf("%v until %v", expiringDecision.Decision.String(), expiringDecision.Expires.Format("15:04:05")))
+		buf.WriteString(fmt.Sprintf("%v %v until %v (baskerville: %v)",
+			expiringDecision.domain,
+			expiringDecision.Decision.String(),
+			expiringDecision.Expires.Format("15:04:05"),
+			expiringDecision.fromBaskerville,
+		))
 		buf.WriteString("\n")
 	}
 	return buf.String()
@@ -400,6 +406,42 @@ func checkExpiringDecisionLists(clientIp string, decisionLists *DecisionLists) (
 	return expiringDecision, ok
 }
 
+type BannedEntry struct {
+	IP              string `json:"ip"`
+	domain          string
+	Decision        string    `json:"decision"`
+	Expires         time.Time `json:"expires"`
+	FromBaskerville bool      `json:"from_baskerville"`
+}
+
+func (bannedEntry BannedEntry) String() string {
+	return fmt.Sprintf("%v: %v until %v (baskerville: %v)",
+		bannedEntry.IP,
+		bannedEntry.Decision,
+		bannedEntry.Expires.Format("15:04:05"),
+		bannedEntry.FromBaskerville,
+	)
+}
+
+func checkExpiringDecisionListsByDomain(domain string, decisionLists *DecisionLists) []BannedEntry {
+	// interate (*decisionLists).ExpiringDecisionLists
+	// if domain matches, append to []ExpiringDecision
+	// return []BannedEntry
+	var bannedEntries []BannedEntry
+	for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
+		if expiringDecision.domain == domain && expiringDecision.Decision >= NginxBlock {
+			bannedEntries = append(bannedEntries, BannedEntry{
+				IP:              ip,
+				domain:          expiringDecision.domain,
+				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
+				Expires:         expiringDecision.Expires,
+				FromBaskerville: expiringDecision.fromBaskerville,
+			})
+		}
+	}
+	return bannedEntries
+}
+
 // XXX mmm could hold the lock for a while?
 func RemoveExpiredDecisions(
 	decisionListsMutex *sync.Mutex,
@@ -424,6 +466,7 @@ func updateExpiringDecisionLists(
 	now time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
+	domain string,
 ) {
 	decisionListsMutex.Lock()
 	defer decisionListsMutex.Unlock()
@@ -443,7 +486,7 @@ func updateExpiringDecisionLists(
 	// XXX We are not using nginx to banjax cache feature yet
 	// purgeNginxAuthCacheForIp(ip)
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
-	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires, fromBaskerville}
+	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{newDecision, expires, fromBaskerville, domain}
 }
 
 type MetricsLogLine struct {

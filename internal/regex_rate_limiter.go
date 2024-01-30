@@ -240,7 +240,7 @@ func consumeLine(
 			// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 			ruleResult.RateLimitExceeded = true
 			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
-			banner.BanOrChallengeIp(config, ipString, decision)
+			banner.BanOrChallengeIp(config, ipString, decision, urlString)
 			// log.Println(line.Text)
 			banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
 			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
