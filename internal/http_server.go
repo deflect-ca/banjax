@@ -271,24 +271,42 @@ func RunHttpServer(
 			})
 			return
 		}
-		if !banner.IPSetTest(config, ip) {
-			c.JSON(400, gin.H{
-				"ip":    ip,
-				"error": "ip is not banned",
-			})
-			return
+		// query decision list, check ban type
+		decision, ok := checkExpiringDecisionLists(ip, decisionLists)
+		if !ok || decision.Decision == IptablesBlock {
+			// not found in expiring list, but maybe still banned at ipset level
+			if !banner.IPSetTest(config, ip) {
+				c.JSON(400, gin.H{
+					"ip":                     ip,
+					"found_in_decision_list": ok,
+					"decision":               decision.Decision.String(),
+					"unban":                  false,
+					"error":                  "ip is not banned",
+				})
+				return
+			}
+			// attempt to remove from ipset
+			err := banner.IPSetDel(ip)
+			if err != nil {
+				c.JSON(500, gin.H{
+					"ip":                     ip,
+					"found_in_decision_list": ok,
+					"decision":               decision.Decision.String(),
+					"unban":                  false,
+					"error":                  err.Error(),
+				})
+				return
+			}
 		}
-		err := banner.IPSetDel(ip)
-		if err != nil {
-			c.JSON(500, gin.H{
-				"ip":    ip,
-				"error": err.Error(),
-			})
-			return
+		// if found, remove from expiring list, whether its nginx or iptables ban
+		if ok {
+			removeExpiredDecisionsByIp(decisionListsMutex, decisionLists, ip)
 		}
 		c.JSON(200, gin.H{
-			"ip":    ip,
-			"unban": true,
+			"ip":                     ip,
+			"found_in_decision_list": ok,
+			"decision":               decision.Decision.String(),
+			"unban":                  true,
 		})
 	})
 

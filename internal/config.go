@@ -458,6 +458,18 @@ func RemoveExpiredDecisions(
 	}
 }
 
+func removeExpiredDecisionsByIp(
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	ip string,
+) {
+	decisionListsMutex.Lock()
+	defer decisionListsMutex.Unlock()
+
+	delete((*decisionLists).ExpiringDecisionLists, ip)
+	// log.Printf("deleted IP %v from expiring lists", ip)
+}
+
 func updateExpiringDecisionLists(
 	config *Config,
 	ip string,
@@ -474,13 +486,15 @@ func updateExpiringDecisionLists(
 	existingExpiringDecision, ok := (*decisionLists).ExpiringDecisionLists[ip]
 	if ok {
 		if newDecision <= existingExpiringDecision.Decision {
-			log.Println("not updating expiringDecision with less serious one", existingExpiringDecision.Decision, newDecision)
+			if config.Debug {
+				log.Println("updateExpiringDecisionLists: not with less serious", existingExpiringDecision.Decision, newDecision, ip, domain)
+			}
 			return
 		}
 	}
 	if config.Debug {
-		log.Println("Update expiringDecision with existing and new: ", existingExpiringDecision.Decision, newDecision)
-		log.Println("From baskerville", fromBaskerville)
+		log.Println("updateExpiringDecisionLists: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ip, domain)
+		// log.Println("From baskerville", fromBaskerville)
 	}
 
 	// XXX We are not using nginx to banjax cache feature yet
