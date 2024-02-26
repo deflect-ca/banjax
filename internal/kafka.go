@@ -157,6 +157,7 @@ func handleCommand(
 				time.Now(),
 				Challenge,
 				true, // from baskerville, provide to http_server to distinguish from regex
+				command.Host,
 			)
 			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
 		} else if disabled {

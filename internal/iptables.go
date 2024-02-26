@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/gonetx/ipset"
 )
 
 func ipAndTimestampToRuleSpec(ip string, timestamp int64) []string {
@@ -114,10 +115,14 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 }
 
 type BannerInterface interface {
-	BanOrChallengeIp(config *Config, ip string, decision Decision)
+	BanOrChallengeIp(config *Config, ip string, decision Decision, domain string)
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
+	IPSetAdd(config *Config, ip string) error
+	IPSetTest(config *Config, ip string) bool
+	IPSetList() (*ipset.Info, error)
+	IPSetDel(ip string) error
 }
 
 type Banner struct {
@@ -125,6 +130,7 @@ type Banner struct {
 	DecisionLists      *DecisionLists
 	Logger             *log.Logger
 	LoggerTemp         *log.Logger
+	IPSetInstance      ipset.IPSet
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -269,6 +275,7 @@ func (b Banner) BanOrChallengeIp(
 	config *Config,
 	ip string,
 	decision Decision,
+	domain string,
 ) {
 	log.Println("IPTABLES: BanOrChallengeIp", ip, decision)
 
@@ -280,38 +287,47 @@ func (b Banner) BanOrChallengeIp(
 		time.Now(),
 		decision,
 		false, // not from baskerville
+		domain,
 	)
 
 	if decision == IptablesBlock {
-		banIp(config, ip)
+		banIp(config, ip, b)
 	}
 }
 
-func banIp(config *Config, ip string) {
+func (b Banner) IPSetAdd(config *Config, ip string) error {
+	return b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+}
+
+func (b Banner) IPSetTest(config *Config, ip string) bool {
+	banned, _ := b.IPSetInstance.Test(ip)
+	return banned
+}
+
+func (b Banner) IPSetList() (*ipset.Info, error) {
+	return b.IPSetInstance.List()
+}
+
+func (b Banner) IPSetDel(ip string) error {
+	return b.IPSetInstance.Del(ip)
+}
+
+func banIp(config *Config, ip string, banner BannerInterface) {
+	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
-		log.Println("IPTABLES: Not going to block localhost")
+		log.Println("banIp: Not going to block localhost")
 		return
 	}
 	if config.StandaloneTesting {
-		log.Println("IPTABLES: Not calling iptables in testing")
+		log.Println("banIp: Not calling iptables in testing")
 		return
 	}
-
-	ipt, err := iptables.New()
-
-	ruleSpec := ipAndTimestampToRuleSpec(ip, time.Now().Unix())
-	if config.Debug {
-		log.Printf("!!!!! ADDING RULESPEC: %s\n", ruleSpec)
-	}
-	err = ipt.Append("filter", "INPUT", ruleSpec...)
-	if err != nil {
-		log.Println("IPTABLES: Append failed")
+	if banner.IPSetTest(config, ip) {
+		log.Println("banIp: no double ban", ip)
 		return
 	}
-	// log.Println("Append succeeded")
-}
-
-// XXX
-func BanIp(config *Config, ip string) {
-	banIp(config, ip)
+	banErr := banner.IPSetAdd(config, ip)
+	if banErr != nil {
+		log.Printf("banIp ipset add failed: %v", banErr)
+	}
 }

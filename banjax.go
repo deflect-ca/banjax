@@ -19,7 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/coreos/go-iptables/iptables"
 	"github.com/deflect-ca/banjax/internal"
+	"github.com/gonetx/ipset"
 	"gopkg.in/yaml.v2"
 )
 
@@ -114,6 +116,47 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 	}
 }
 
+const (
+	IPSetName = "banjax_ipset"
+)
+
+func init_ipset(config *internal.Config) ipset.IPSet {
+	if config.StandaloneTesting {
+		log.Println("init_ipset: Not init ipset in testing")
+		return nil
+	}
+	if err := ipset.Check(); err != nil {
+		log.Println("init_ipset: ipset.Check() failed")
+		panic(err)
+	}
+
+	newIPset, err := ipset.New(
+		IPSetName,
+		ipset.HashIp,
+		ipset.Exist(true),
+		ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
+	if err != nil {
+		log.Println("init_ipset: ipset.New() failed")
+		panic(err)
+	}
+	log.Println("init_ipset: new ipset:", newIPset.Name())
+
+	// enable ipset with iptables
+	// iptables -I INPUT -m set --match-set banjax_ipset src -j DROP
+	ipt, err := iptables.New()
+	if err != nil {
+		log.Println("init_ipset: iptables.New() failed")
+		panic(err)
+	}
+	err = ipt.Insert("filter", "INPUT", 1, "-m", "set", "--match-set", IPSetName, "src", "-j", "DROP")
+	if err != nil {
+		log.Println("init_ipset: iptables.Insert() failed, did not enable ipset")
+		panic(err)
+	}
+
+	return newIPset
+}
+
 func main() {
 	// XXX protects ipToRegexStates and failedChallengeStates
 	// (why both? because there are too many parameters already?)
@@ -205,6 +248,7 @@ func main() {
 		&decisionLists,
 		log.New(banningLogFile, "", 0),
 		log.New(banningLogFileTemp, "", 0),
+		init_ipset(&config),
 	}
 
 	var wg sync.WaitGroup
@@ -230,12 +274,6 @@ func main() {
 		&ipToRegexStates,
 		&decisionListsMutex,
 		&decisionLists,
-		&wg,
-	)
-
-	wg.Add(1)
-	go internal.RunIpBanExpirer(
-		&config,
 		&wg,
 	)
 
