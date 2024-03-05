@@ -167,8 +167,7 @@ func handleCommand(
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
 		break
-	case "challenge_session":
-	case "block_session":
+	case "challenge_session", "block_session":
 		if command.SessionId == "" {
 			log.Printf("KAFKA: session_id is EMPTY, break\n")
 			break
@@ -185,10 +184,10 @@ func handleCommand(
 			}
 			var decision Decision
 			if command.Name == "block_session" {
-				log.Printf("KAFKA: block_session: %s\n", sessionIdDecoded)
+				log.Printf("KAFKA: %s block_session: %s\n", command.Host, sessionIdDecoded)
 				decision = NginxBlock
 			} else {
-				log.Printf("KAFKA: challenge_session: %s\n", sessionIdDecoded)
+				log.Printf("KAFKA: %s challenge_session: %s\n", command.Host, sessionIdDecoded)
 				decision = Challenge
 			}
 			updateExpiringDecisionListsSessionId(
