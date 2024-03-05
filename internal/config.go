@@ -398,7 +398,7 @@ func (failedChallengeStates FailedChallengeStates) String() string {
 }
 
 type BannedEntry struct {
-	IP              string `json:"ip"`
+	IpOrSessionId   string `json:"ip"`
 	domain          string
 	Decision        string    `json:"decision"`
 	Expires         time.Time `json:"expires"`
@@ -407,7 +407,7 @@ type BannedEntry struct {
 
 func (bannedEntry BannedEntry) String() string {
 	return fmt.Sprintf("%v: %v until %v (baskerville: %v)",
-		bannedEntry.IP,
+		bannedEntry.IpOrSessionId,
 		bannedEntry.Decision,
 		bannedEntry.Expires.Format("15:04:05"),
 		bannedEntry.FromBaskerville,
@@ -420,9 +420,20 @@ func checkExpiringDecisionListsByDomain(domain string, decisionLists *DecisionLi
 	// return []BannedEntry
 	var bannedEntries []BannedEntry
 	for ip, expiringDecision := range (*decisionLists).ExpiringDecisionLists {
-		if expiringDecision.domain == domain && expiringDecision.Decision >= NginxBlock {
+		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
 			bannedEntries = append(bannedEntries, BannedEntry{
-				IP:              ip,
+				IpOrSessionId:   ip,
+				domain:          expiringDecision.domain,
+				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
+				Expires:         expiringDecision.Expires,
+				FromBaskerville: expiringDecision.fromBaskerville,
+			})
+		}
+	}
+	for sessionId, expiringDecision := range (*decisionLists).ExpiringDecisionListsSessionId {
+		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
+			bannedEntries = append(bannedEntries, BannedEntry{
+				IpOrSessionId:   sessionId,
 				domain:          expiringDecision.domain,
 				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
 				Expires:         expiringDecision.Expires,
@@ -517,7 +528,7 @@ func updateExpiringDecisionListsSessionId(
 	}
 
 	if config.Debug {
-		log.Printf("Update session id decision with IP %s, session id %s, existing and new: %v, %v\n",
+		log.Printf("updateExpiringDecisionListsSessionId: Update session id decision with IP %s, session id %s, existing and new: %v, %v\n",
 			ip, sessionId, existingExpiringDecision.Decision, newDecision)
 	}
 	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)

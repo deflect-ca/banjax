@@ -14,9 +14,7 @@ expiring_decision_ttl_seconds: 300
 iptables_ban_seconds: 300
 iptables_unbanner_seconds: 5
 kafka_brokers:
-  - kafkadev0.prod.deflect.network:9094
-  - kafkadev1.prod.deflect.network:9094
-  - kafkadev2.prod.deflect.network:9094
+  - localhost:9094
 kafka_security_protocol: 'ssl'
 kafka_ssl_ca: "/etc/banjax/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/certificate.pem"
