@@ -210,7 +210,7 @@ func RunHttpServer(
 			return
 		}
 		banned, _ := banner.IPSetList()
-		expiringDecision, ok := checkExpiringDecisionLists(ip, decisionLists)
+		expiringDecision, ok := checkExpiringDecisionLists(c, ip, decisionLists)
 		if !ok {
 			// not found in expiring list, but maybe still banned at ipset level
 			c.JSON(200, gin.H{
@@ -272,7 +272,7 @@ func RunHttpServer(
 			return
 		}
 		// query decision list, check ban type
-		decision, ok := checkExpiringDecisionLists(ip, decisionLists)
+		decision, ok := checkExpiringDecisionLists(c, ip, decisionLists)
 		if !ok || decision.Decision == IptablesBlock {
 			// not found in expiring list, but maybe still banned at ipset level
 			if !banner.IPSetTest(config, ip) {
