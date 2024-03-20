@@ -12,6 +12,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"log"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -159,12 +160,51 @@ func handleCommand(
 				true, // from baskerville, provide to http_server to distinguish from regex
 				command.Host,
 			)
-			log.Printf("KAFKA: added to global challenge lists: Challenge %s\n", command.Value)
+			log.Printf("KAFKA: challenge_ip: %s\n", command.Value)
 		} else if disabled {
-			log.Printf("KAFKA: not challenge %s, site %s disables baskerville\n", command.Value, command.Host)
+			log.Printf("KAFKA: DIS-BASK: not challenge %s, site %s disabled baskerville\n", command.Value, command.Host)
 		} else {
 			log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
 		}
+		break
+	case "challenge_session", "block_session":
+		if command.SessionId == "" {
+			log.Printf("KAFKA: session_id is EMPTY, break\n")
+			break
+		}
+		// exempt a site from challenge according to config
+		_, disabled := config.SitesToDisableBaskerville[command.Host]
+
+		if !disabled {
+			// gin does urldecode or cookie, so we decode any possible urlencoded session id from kafka
+			sessionIdDecoded, decodeErr := url.QueryUnescape(command.SessionId)
+			if decodeErr != nil {
+				log.Printf("KAFKA: fail to urldecode session_id %s, break\n", command.SessionId)
+				break
+			}
+			var decision Decision
+			if command.Name == "block_session" {
+				log.Printf("KAFKA: %s block_session: %s\n", command.Host, sessionIdDecoded)
+				decision = NginxBlock
+			} else {
+				log.Printf("KAFKA: %s challenge_session: %s\n", command.Host, sessionIdDecoded)
+				decision = Challenge
+			}
+			updateExpiringDecisionListsSessionId(
+				config,
+				command.Value,
+				sessionIdDecoded,
+				decisionListsMutex,
+				decisionLists,
+				time.Now(),
+				decision,
+				true, // from baskerville, provide to http_server to distinguish from regex
+				command.Host,
+			)
+		} else {
+			log.Printf("KAFKA: DIS-BASK: no action on %s, site %s disabled baskerville\n", command.Value, command.Host)
+		}
+		break
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
 	}

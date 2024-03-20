@@ -14,7 +14,7 @@ expiring_decision_ttl_seconds: 300
 iptables_ban_seconds: 300
 iptables_unbanner_seconds: 5
 kafka_brokers:
-  - "localhost:9092"
+  - localhost:9094
 kafka_security_protocol: 'ssl'
 kafka_ssl_ca: "/etc/banjax/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/certificate.pem"
@@ -93,7 +93,7 @@ regexes_with_rates:
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
-  localhost: no_block
+  sub.localhost: no_block
   www.localhost: no_block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
@@ -115,8 +115,9 @@ banning_log_file_temp: /etc/banjax/ban_ip_list_temp.log
 session_cookie_hmac_secret: some_secret
 session_cookie_ttl_seconds: 3600
 sites_to_disable_baskerville:
-  localhost: true
+  sub.localhost: false
 use_user_agent_in_cookie:
   localhost: true
 # difficulty of sha-inv page, setting above 10 might cause solving to fail
 sha_inv_expected_zero_bits: 10
+session_cookie_not_verify: true
