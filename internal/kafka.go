@@ -144,19 +144,32 @@ func handleCommand(
 	decisionLists *DecisionLists,
 ) {
 	switch command.Name {
-	case "challenge_ip":
+	case "challenge_ip", "block_ip":
 		// exempt a site from challenge according to config
 		_, disabled := config.SitesToDisableBaskerville[command.Host]
 
 		// XXX do a real valid IP check?
 		if len(command.Value) > 4 && !disabled {
+
+			var decision Decision
+			var blockDuration time.Duration
+			if command.Name == "block_ip" {
+				log.Printf("KAFKA: %s block_ip\n", command.Host)
+				decision = NginxBlock
+				blockDuration = time.Duration(10)
+			} else {
+				log.Printf("KAFKA: %s challenge_ip\n", command.Host)
+				decision = Challenge
+				blockDuration = time.Duration(config.ExpiringDecisionTtlSeconds)
+			}
+
 			updateExpiringDecisionLists(
 				config,
 				command.Value,
 				decisionListsMutex,
 				decisionLists,
-				time.Now(),
-				Challenge,
+				time.Now().Add(blockDuration*time.Second),
+				decision,
 				true, // from baskerville, provide to http_server to distinguish from regex
 				command.Host,
 			)
@@ -184,10 +197,10 @@ func handleCommand(
 			}
 			var decision Decision
 			if command.Name == "block_session" {
-				log.Printf("KAFKA: %s block_session: %s\n", command.Host, sessionIdDecoded)
+				// log.Printf("KAFKA: %s block_session: %s\n", command.Host, sessionIdDecoded)
 				decision = NginxBlock
 			} else {
-				log.Printf("KAFKA: %s challenge_session: %s\n", command.Host, sessionIdDecoded)
+				// log.Printf("KAFKA: %s challenge_session: %s\n", command.Host, sessionIdDecoded)
 				decision = Challenge
 			}
 			updateExpiringDecisionListsSessionId(

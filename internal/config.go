@@ -477,7 +477,7 @@ func updateExpiringDecisionLists(
 	ip string,
 	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
-	now time.Time,
+	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
@@ -501,7 +501,6 @@ func updateExpiringDecisionLists(
 
 	// XXX We are not using nginx to banjax cache feature yet
 	// purgeNginxAuthCacheForIp(ip)
-	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	(*decisionLists).ExpiringDecisionLists[ip] = ExpiringDecision{
 		newDecision, expires, ip, fromBaskerville, domain}
 }
