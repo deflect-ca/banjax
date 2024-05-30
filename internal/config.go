@@ -47,6 +47,8 @@ type Config struct {
 	SitesToPasswordCookieTtlSeconds        map[string]int      `yaml:"password_persite_cookie_ttl_seconds"`
 	SitesToUseUserAgentInCookie            map[string]bool     `yaml:"use_user_agent_in_cookie"`
 	ExpiringDecisionTtlSeconds             int                 `yaml:"expiring_decision_ttl_seconds"`
+	BlockIPTtlSeconds                      int                 `yaml:"block_ip_ttl_seconds"`
+	BlockSessionTtlSeconds                 int                 `yaml:"block_session_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
 	PasswordCookieTtlSeconds               int                 `yaml:"password_cookie_ttl_seconds"`
@@ -511,7 +513,7 @@ func updateExpiringDecisionListsSessionId(
 	sessionId string,
 	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
-	now time.Time,
+	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
@@ -530,7 +532,7 @@ func updateExpiringDecisionListsSessionId(
 		log.Printf("updateExpiringDecisionListsSessionId: Update session id decision with IP %s, session id %s, existing and new: %v, %v\n",
 			ip, sessionId, existingExpiringDecision.Decision, newDecision)
 	}
-	expires := now.Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
+
 	(*decisionLists).ExpiringDecisionListsSessionId[sessionId] = ExpiringDecision{
 		newDecision, expires, ip, fromBaskerville, domain}
 }

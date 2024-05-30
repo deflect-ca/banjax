@@ -143,6 +143,96 @@ func handleCommand(
 	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
 ) {
+	// exempt a site from baskerville according to config
+	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled {
+		log.Printf("KAFKA: %s disabled baskerville, skipping %s\n", command.Host, command.Name)
+		return
+	}
+
+	// handle commands
+	switch command.Name {
+	case "challenge_ip":
+		handleIPCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "block_ip":
+		handleIPCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
+		break
+	case "challenge_session":
+		handleSessionCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "block_session":
+		handleSessionCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, config.BlockSessionTtlSeconds)
+		break
+	default:
+		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
+	}
+}
+
+func handleIPCommand(
+	config *Config,
+	command commandMessage,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	if len(command.Value) <= 4 {
+		log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
+		return
+	}
+
+	log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
+		command.Host, command.Value, decision, expireDuration)
+
+	updateExpiringDecisionLists(
+		config,
+		command.Value,
+		decisionListsMutex,
+		decisionLists,
+		time.Now().Add(time.Duration(expireDuration)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
+		command.Host,
+	)
+}
+
+func handleSessionCommand(
+	config *Config,
+	command commandMessage,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	// gin does urldecode on cookie, so we decode any possible urlencoded session id from kafka
+	sessionIdDecoded, decodeErr := url.QueryUnescape(command.SessionId)
+	if decodeErr != nil {
+		log.Printf("KAFKA: fail to urldecode session_id %s, skip command\n", command.SessionId)
+		return
+	}
+
+	log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
+		command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
+
+	updateExpiringDecisionListsSessionId(
+		config,
+		command.Value,
+		sessionIdDecoded,
+		decisionListsMutex,
+		decisionLists,
+		time.Now().Add(time.Duration(expireDuration)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
+		command.Host,
+	)
+}
+
+func handleCommandLegacy(
+	config *Config,
+	command commandMessage,
+	decisionListsMutex *sync.Mutex,
+	decisionLists *DecisionLists,
+) {
 	switch command.Name {
 	case "challenge_ip", "block_ip":
 		// exempt a site from challenge according to config

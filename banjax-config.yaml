@@ -121,3 +121,5 @@ use_user_agent_in_cookie:
 # difficulty of sha-inv page, setting above 10 might cause solving to fail
 sha_inv_expected_zero_bits: 10
 session_cookie_not_verify: true
+block_ip_ttl_seconds: 10
+block_session_ttl_seconds: 10
