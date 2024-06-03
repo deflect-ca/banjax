@@ -137,6 +137,24 @@ func RunKafkaReader(
 	}
 }
 
+func getBlockIpTtl(config *Config, host string) (blockIpTtl int) {
+	blockIpTtl = config.BlockSessionTtlSeconds
+	if ttl, ok := config.SitesToBlockIPTtlSeconds[host]; ok {
+		log.Printf("KAFKA: found site-specific block_ip ttl %s %d\n", host, ttl)
+		blockIpTtl = ttl
+	}
+	return
+}
+
+func getBlockSessionTtl(config *Config, host string) (blockSessionTtl int) {
+	blockSessionTtl = config.BlockIPTtlSeconds
+	if ttl, ok := config.SitesToBlockSessionTtlSeconds[host]; ok {
+		log.Printf("KAFKA: found site-specific block_session ttl %s %d\n", host, ttl)
+		blockSessionTtl = ttl
+	}
+	return
+}
+
 func handleCommand(
 	config *Config,
 	command commandMessage,
@@ -155,13 +173,15 @@ func handleCommand(
 		handleIPCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_ip":
-		handleIPCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
+		ttl := getBlockIpTtl(config, command.Host)
+		handleIPCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
 		break
 	case "challenge_session":
 		handleSessionCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_session":
-		handleSessionCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, config.BlockSessionTtlSeconds)
+		ttl := getBlockSessionTtl(config, command.Host)
+		handleSessionCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
 		break
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
