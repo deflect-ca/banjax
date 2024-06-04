@@ -279,12 +279,13 @@ func (b Banner) BanOrChallengeIp(
 ) {
 	log.Println("IPTABLES: BanOrChallengeIp", ip, decision)
 
+	expires := time.Now().Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
 	updateExpiringDecisionLists(
 		config,
 		ip,
 		&(*b.DecisionListsMutex),
 		&(*b.DecisionLists),
-		time.Now(),
+		expires,
 		decision,
 		false, // not from baskerville
 		domain,
