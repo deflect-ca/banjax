@@ -30,9 +30,8 @@ EXPOSE 8081
 WORKDIR /opt/banjax
 
 # To enable live reload for dev, uncomment the following lines
-#COPY ./.air.toml /opt/banjax/
-#RUN go mod edit -replace github.com/imdario/mergo=dario.cat/mergo@v1.0.0
-#RUN go get -u github.com/cosmtrek/air@v1.40.4
-#RUN mkdir -p /opt/banjax/tmp
-#CMD ["air"]
+# COPY ./.air.toml /opt/banjax/
+# RUN go install github.com/air-verse/air@latest
+# RUN mkdir -p /opt/banjax/tmp
+# CMD ["air", "-c", ".air.toml"]
 CMD ["./banjax"]
