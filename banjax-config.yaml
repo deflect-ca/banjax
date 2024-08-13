@@ -75,11 +75,6 @@ regexes_with_rates:
     interval: 1
     regex: .*allowme.*
     rule: "unblock backdoor"
-  - decision: nginx_block
-    hits_per_interval: 0
-    interval: 1
-    regex: .*blockme.*
-    rule: "instant block"
   - decision: challenge
     hits_per_interval: 0
     interval: 1
@@ -90,6 +85,13 @@ regexes_with_rates:
     interval: 1
     regex: ".*banme.*"
     rule: "instant ban"
+per_site_regexes_with_rates:
+  localhost:
+    - decision: nginx_block
+      hits_per_interval: 0
+      interval: 1
+      regex: .*blockme.*
+      rule: "instant block"
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block

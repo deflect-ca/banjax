@@ -100,6 +100,17 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		config.RegexesWithRates[i].CompiledRegex = *re
 	}
 
+	for site, p_regex := range config.PerSiteRegexWithRates {
+		log.Printf("PerSiteRegexWithRates: %s\n", site)
+		for i, _ := range p_regex {
+			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
+			if err != nil {
+				panic("bad regex")
+			}
+			config.PerSiteRegexWithRates[site][i].CompiledRegex = *re
+		}
+	}
+
 	if config.Debug {
 		for site, failAction := range config.SitewideShaInvList {
 			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
