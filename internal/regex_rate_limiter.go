@@ -161,7 +161,6 @@ func consumeLine(
 	}
 	timestampNanos := timestampSeconds * 1e9
 	timestamp := time.Unix(0, int64(timestampNanos))
-	ipString := timeIpRest[1]
 
 	// we need to parse the url and hostname out of timeIpRest[2]
 	// methodUrlRest[0] = GET
@@ -174,9 +173,6 @@ func consumeLine(
 		consumeLineResult.Error = true
 		return
 	}
-	// methodString := methodUrlRest[0]
-	urlString := methodUrlRest[1]
-	// XXX We don't do url.Parse here because the urlString format is not 'http://hostname/path' but hostname only
 
 	// log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
 
@@ -189,66 +185,100 @@ func consumeLine(
 	rateLimitMutex.Lock()
 	// log.Println(line.Text[secondSpace+firstSpace+2:])
 	for _, regex_with_rate := range config.RegexesWithRates {
-		ruleResult := RuleResult{}
-		ruleResult.RuleName = regex_with_rate.Rule
-		matched := regex_with_rate.CompiledRegex.Match([]byte(timeIpRest[2]))
-		if !matched {
-			ruleResult.RegexMatch = false
-			// XXX maybe show the non-matches during debug logging?
-			// consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
-			continue
-		}
-		ruleResult.RegexMatch = true
-
-		// log.Println(regex_with_rate.HostsToSkip)
-		skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
-		if ok && skip {
-			ruleResult.SkipHost = true
-			consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
-			continue
-		}
-		ruleResult.SkipHost = false
-
-		states, ok := (*ipToRegexStates)[ipString]
-		if !ok {
-			// log.Println("we haven't seen this IP before")
-			ruleResult.SeenIp = false
-			newRegexStates := make(RegexStates)
-			(*ipToRegexStates)[ipString] = &newRegexStates
-			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
-		} else {
-			ruleResult.SeenIp = true
-			state, ok := (*states)[regex_with_rate.Rule]
-			if !ok {
-				// log.Println("we have seen this IP, but it hasn't triggered this regex before")
-				ruleResult.RuleMatchType = FirstTime
-				(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
-			} else {
-				if timestamp.Sub(state.IntervalStartTime) > time.Duration(time.Second*time.Duration(regex_with_rate.Interval)) {
-					// log.Println("this IP has triggered this regex, but longer ago than $interval")
-					ruleResult.RuleMatchType = OutsideInterval
-					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
-				} else {
-					// log.Println("this IP has triggered this regex within this $interval")
-					ruleResult.RuleMatchType = InsideInterval
-					(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits++
-				}
-			}
-		}
-
-		if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
-			// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
-			ruleResult.RateLimitExceeded = true
-			decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
-			banner.BanOrChallengeIp(config, ipString, decision, urlString)
-			// log.Println(line.Text)
-			banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
-			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
-		}
-
-		consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
+		applyRegexToLog(
+			banner,
+			config,
+			regex_with_rate,
+			ipToRegexStates,
+			timeIpRest,
+			methodUrlRest,
+			timestamp,
+			&consumeLineResult,
+			true,
+		)
 	}
 
 	rateLimitMutex.Unlock()
 	return
+}
+
+func applyRegexToLog(
+	banner BannerInterface,
+	config *Config,
+	regex_with_rate RegexWithRate,
+	ipToRegexStates *IpToRegexStates,
+	timeIpRest []string,
+	methodUrlRest []string,
+	timestamp time.Time,
+	consumeLineResult *ConsumeLineResult,
+	globalRegex bool,
+) {
+	// log apply regex_with_rate.Rule
+	if config.Debug {
+		log.Println("Apply regex (global ", globalRegex, "): ", regex_with_rate.Rule)
+	}
+
+	ruleResult := RuleResult{}
+	ruleResult.RuleName = regex_with_rate.Rule
+	matched := regex_with_rate.CompiledRegex.Match([]byte(timeIpRest[2]))
+	if !matched {
+		ruleResult.RegexMatch = false
+		// XXX maybe show the non-matches during debug logging?
+		// consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
+		return
+	}
+	ruleResult.RegexMatch = true
+
+	// methodString := methodUrlRest[0]
+	urlString := methodUrlRest[1]
+	// XXX We don't do url.Parse here because the urlString format is not 'http://hostname/path' but hostname only
+
+	// log.Println(regex_with_rate.HostsToSkip)
+	skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
+	if ok && skip {
+		ruleResult.SkipHost = true
+		consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
+		return
+	}
+	ruleResult.SkipHost = false
+
+	ipString := timeIpRest[1]
+	states, ok := (*ipToRegexStates)[ipString]
+	if !ok {
+		// log.Println("we haven't seen this IP before")
+		ruleResult.SeenIp = false
+		newRegexStates := make(RegexStates)
+		(*ipToRegexStates)[ipString] = &newRegexStates
+		(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+	} else {
+		ruleResult.SeenIp = true
+		state, ok := (*states)[regex_with_rate.Rule]
+		if !ok {
+			// log.Println("we have seen this IP, but it hasn't triggered this regex before")
+			ruleResult.RuleMatchType = FirstTime
+			(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+		} else {
+			if timestamp.Sub(state.IntervalStartTime) > time.Duration(time.Second*time.Duration(regex_with_rate.Interval)) {
+				// log.Println("this IP has triggered this regex, but longer ago than $interval")
+				ruleResult.RuleMatchType = OutsideInterval
+				(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule] = &NumHitsAndIntervalStart{1, timestamp}
+			} else {
+				// log.Println("this IP has triggered this regex within this $interval")
+				ruleResult.RuleMatchType = InsideInterval
+				(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits++
+			}
+		}
+	}
+
+	if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
+		// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
+		ruleResult.RateLimitExceeded = true
+		decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
+		banner.BanOrChallengeIp(config, ipString, decision, urlString)
+		// log.Println(line.Text)
+		banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
+		(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
+	}
+
+	consumeLineResult.RuleResults = append(consumeLineResult.RuleResults, ruleResult)
 }
