@@ -48,7 +48,7 @@ func RunLogTailer(
 					decisionListsMutex,
 					decisionLists,
 				)
-				if config.Debug && consumeLineResult.RuleResults != nil {
+				if config.Debug {
 					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
 					if err != nil {
 						log.Println("error marshalling consumeLineResult")
@@ -65,6 +65,7 @@ func RunLogTailer(
 type ConsumeLineResult struct {
 	Error       bool
 	OldLine     bool
+	Exempted    bool
 	RuleResults []RuleResult
 }
 type ruleMatchType uint
@@ -102,6 +103,16 @@ func (rmt ruleMatchType) MarshalJSON() ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
+func parseTimestamp(timeIpRest []string) (timestamp time.Time, err error) {
+	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	timestampNanos := timestampSeconds * 1e9
+	timestamp = time.Unix(0, int64(timestampNanos))
+	return timestamp, nil
+}
+
 // error: (3 words in log line, bad float, bad rest of log line, bad host, old line)
 // regex match: true, false
 // skip host: true, false
@@ -119,7 +130,10 @@ func consumeLine(
 	decisionListsMutex *sync.Mutex,
 	decisionLists *DecisionLists,
 ) (consumeLineResult ConsumeLineResult) {
-	// log.Println(line.Text)
+
+	if config.Debug {
+		log.Println("consumeLine:", line.Text)
+	}
 
 	// timeIpRest[2] is what we match the regex on
 	// line.text = 1653565100.000000 11.11.11.11 GET localhost:8081 GET /45in60 HTTP/1.1 Go-http-client/1.1
@@ -130,15 +144,25 @@ func consumeLine(
 	timeIpRest := strings.SplitN(line.Text, " ", 3)
 	// log.Printf("timeIpRest 0=%v 1=%v 2=%v\n", timeIpRest[0], timeIpRest[1], timeIpRest[2])
 	if len(timeIpRest) < 3 {
-		log.Println("expected at least 3 words in log line: time, ip, rest")
+		log.Println("expected at least 3 words in log line:", timeIpRest)
 		consumeLineResult.Error = true
 		return
 	}
 
+	ipString := timeIpRest[1]
+	timestamp, err := parseTimestamp(timeIpRest)
+	if err != nil {
+		log.Println("could not parse a timestamp float:", timestamp)
+		consumeLineResult.Error = true
+		return
+	}
+
+	// Check if IP is in the global allow list that should be skipped
 	decisionListsMutex.Lock()
-	decision, ok := (*decisionLists).GlobalDecisionLists[timeIpRest[1]]
+	decision, ok := (*decisionLists).GlobalDecisionLists[ipString]
 	decisionListsMutex.Unlock()
 	foundInIpFilter := false
+
 	// not found with direct match, try to match if contain within CIDR subnet
 	_, globalIpfilterOk := (*decisionLists).GlobalDecisionListsIPFilter[Allow]
 	if !ok && globalIpfilterOk {
@@ -150,17 +174,9 @@ func consumeLine(
 	if (ok && decision == Allow) || foundInIpFilter {
 		// log.Printf("matched in global decision list %v %s, exit regex banner", Allow, timeIpRest[1])
 		// we exit here to prevent logging the ban for this IP
+		consumeLineResult.Exempted = true
 		return
 	}
-
-	timestampSeconds, err := strconv.ParseFloat(timeIpRest[0], 64)
-	if err != nil {
-		log.Println("could not parse a float")
-		consumeLineResult.Error = true
-		return
-	}
-	timestampNanos := timestampSeconds * 1e9
-	timestamp := time.Unix(0, int64(timestampNanos))
 
 	// we need to parse the url and hostname out of timeIpRest[2]
 	// methodUrlRest[0] = GET
@@ -173,8 +189,9 @@ func consumeLine(
 		consumeLineResult.Error = true
 		return
 	}
-
-	// log.Printf("ip=%v method=%v url=%v host=%v\n", ipString, methodString, urlString, parsedUrl.Host)
+	// methodString := methodUrlRest[0]
+	urlString := methodUrlRest[1]
+	// XXX We don't do url.Parse here because the urlString format is not 'http://hostname/path' but hostname only
 
 	// XXX think about this
 	if time.Now().Sub(timestamp) > time.Duration(10*time.Second) {
@@ -191,14 +208,15 @@ func consumeLine(
 			regex_with_rate,
 			ipToRegexStates,
 			timeIpRest,
-			methodUrlRest,
 			timestamp,
+			ipString,
+			urlString,
 			&consumeLineResult,
 			true,
 		)
 	}
-
 	rateLimitMutex.Unlock()
+
 	return
 }
 
@@ -208,8 +226,9 @@ func applyRegexToLog(
 	regex_with_rate RegexWithRate,
 	ipToRegexStates *IpToRegexStates,
 	timeIpRest []string,
-	methodUrlRest []string,
 	timestamp time.Time,
+	ipString string,
+	urlString string,
 	consumeLineResult *ConsumeLineResult,
 	globalRegex bool,
 ) {
@@ -229,10 +248,6 @@ func applyRegexToLog(
 	}
 	ruleResult.RegexMatch = true
 
-	// methodString := methodUrlRest[0]
-	urlString := methodUrlRest[1]
-	// XXX We don't do url.Parse here because the urlString format is not 'http://hostname/path' but hostname only
-
 	// log.Println(regex_with_rate.HostsToSkip)
 	skip, ok := regex_with_rate.HostsToSkip[urlString] // drop parsedUrl.Host but use urlString
 	if ok && skip {
@@ -242,7 +257,6 @@ func applyRegexToLog(
 	}
 	ruleResult.SkipHost = false
 
-	ipString := timeIpRest[1]
 	states, ok := (*ipToRegexStates)[ipString]
 	if !ok {
 		// log.Println("we haven't seen this IP before")
