@@ -9,6 +9,7 @@ package internal
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"strconv"
 	"strings"
@@ -33,7 +34,13 @@ func RunLogTailer(
 	// if TailFile() fails or we hit EOF, we should retry
 	for {
 		defer wg.Done()
-		t, err := tail.TailFile(config.ServerLogFile, tail.Config{Follow: true})
+		t, err := tail.TailFile(config.ServerLogFile, tail.Config{
+			Follow: true,
+			Location: &tail.SeekInfo{
+				Offset: 0,
+				Whence: io.SeekEnd,
+			},
+		})
 		if err != nil {
 			log.Println("RunLogTailer: log tailer failed to start. waiting a bit and trying again.")
 		} else {
@@ -200,7 +207,24 @@ func consumeLine(
 	}
 
 	rateLimitMutex.Lock()
-	// log.Println(line.Text[secondSpace+firstSpace+2:])
+	// Apply per site regex first
+	if perSiteRegex, exists := config.PerSiteRegexWithRates[urlString]; exists {
+		for _, regex_with_rate := range perSiteRegex {
+			applyRegexToLog(
+				banner,
+				config,
+				regex_with_rate,
+				ipToRegexStates,
+				timeIpRest,
+				timestamp,
+				ipString,
+				urlString,
+				&consumeLineResult,
+				false,
+			)
+		}
+	}
+	// Apply global regexes later
 	for _, regex_with_rate := range config.RegexesWithRates {
 		applyRegexToLog(
 			banner,
@@ -234,7 +258,7 @@ func applyRegexToLog(
 ) {
 	// log apply regex_with_rate.Rule
 	if config.Debug {
-		log.Println("Apply regex (global ", globalRegex, "): ", regex_with_rate.Rule)
+		log.Printf("Apply regex (global %v): %s", globalRegex, regex_with_rate.Rule)
 	}
 
 	ruleResult := RuleResult{}
