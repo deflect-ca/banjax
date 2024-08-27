@@ -100,6 +100,13 @@ regexes_with_rates:
     regex: 'POST .*'
     interval: 5
     hits_per_interval: 1
+per_site_regexes_with_rates:
+  per-site.com:
+    - decision: nginx_block
+      hits_per_interval: 0
+      interval: 1
+      regex: .*blockme.*
+      rule: "instant block"
 `
 
 	config := Config{}
@@ -121,6 +128,16 @@ regexes_with_rates:
 			panic("bad regex")
 		}
 		config.RegexesWithRates[i].CompiledRegex = *re
+	}
+
+	for site, p_regex := range config.PerSiteRegexWithRates {
+		for i, _ := range p_regex {
+			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
+			if err != nil {
+				panic("bad regex")
+			}
+			config.PerSiteRegexWithRates[site][i].CompiledRegex = *re
+		}
 	}
 
 	nowNanos := float64(time.Now().UnixNano())
@@ -247,6 +264,31 @@ regexes_with_rates:
 	}
 	if mockBanner.bannedIp != "1.2.3.4" {
 		t.Errorf("should have banned this ip")
+	}
+
+	// test per-site regex
+	lineTime = fmt.Sprintf("%f", nowSeconds+20)
+	line = tail.Line{Text: lineTime + " 1.6.6.6 GET per-site.com GET /blockme/?a HTTP/1.1 " +
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
+	fmt.Println("-- 6 --")
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+
+	// there should be a match for the per-site regex
+	ipStates, ok = ipToRegexStates["1.6.6.6"]
+	if !ok {
+		t.Fatalf("fail20")
+	}
+
+	lineTime = fmt.Sprintf("%f", nowSeconds+22)
+	line = tail.Line{Text: lineTime + " 1.6.6.7 GET no-per-site.com GET /blockme/?a HTTP/1.1 " +
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
+	fmt.Println("-- 7 --")
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+
+	// there should NO match for the per-site regex
+	ipStates, ok = ipToRegexStates["1.6.6.7"]
+	if ok {
+		t.Fatalf("fail21")
 	}
 }
 
