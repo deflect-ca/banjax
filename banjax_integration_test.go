@@ -372,3 +372,25 @@ func TestRegexesWithRates(t *testing.T) {
 		{"GET", prefix + "/45in60-whitelist", 200, ClientIP("12.12.12.12"), nil},
 	})
 }
+
+func TestRegexesWithRatesAllowList(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1)
+
+	prefix := "/auth_request?path="
+
+	// test per-site allow list for regex banner
+	httpTester(t, []TestResource{
+		// should be exempted from regex banner
+		{"GET", prefix + "/block_local", 200, ClientIP("171.171.171.171"), nil},
+		{"GET", prefix + "/block_local", 200, ClientIP("171.171.171.171"), nil},
+		{"GET", prefix + "/block_local", 200, ClientIP("171.171.171.171"), nil},
+	})
+
+	// test global allow list for regex banner
+	httpTester(t, []TestResource{
+		// should be exempted from regex banner
+		{"GET", prefix + "/blockme/", 200, ClientIP("20.20.20.20"), nil},
+		{"GET", prefix + "/blockme/", 200, ClientIP("20.20.20.20"), nil},
+		{"GET", prefix + "/blockme/", 200, ClientIP("20.20.20.20"), nil},
+	})
+}
