@@ -217,7 +217,7 @@ password_hashes:               # for password_protected_paths
 password_protected_paths:      # for password_protected_paths
   example.com:
   - wp-admin
-per_site_rate_limited_regexes: # fail2ban-like challenging/blocking (per-site)
+per_site_regexes_with_rates: # fail2ban-like challenging/blocking (per-site)
   example.com:
   - decision: block
     hits_per_interval: 10

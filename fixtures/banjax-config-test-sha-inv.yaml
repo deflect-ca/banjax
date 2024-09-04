@@ -45,7 +45,7 @@ per_site_decision_lists:
     challenge: []  # test remove
     nginx_block:
       - 92.92.92.92
-per_site_rate_limited_regexes: {}
+per_site_regexes_with_rates: {}
 regexes_with_rates:
   - decision: allow
     hits_per_interval: 0

@@ -61,7 +61,7 @@ per_site_decision_lists:
     nginx_block:
       - 92.92.92.92
       - 192.168.3.0/24
-per_site_rate_limited_regexes: {}
+per_site_regexes_with_rates: {}
 regexes_with_rates:
   - decision: allow
     hits_per_interval: 0
