@@ -129,14 +129,14 @@ func checkIpInGlobalDecisionList(
 
 	decision, ok := (*decisionLists).GlobalDecisionLists[ipString]
 	if (ok && decision == Allow) {
-		log.Printf("checkIpInGlobalDecisionList: matched %s", ipString)
+		// log.Printf("checkIpInGlobalDecisionList: matched %s", ipString)
 		return true
 	}
 
 	// not found with direct match, try to match if contain within CIDR subnet
 	if _, ok := (*decisionLists).GlobalDecisionListsIPFilter[Allow]; ok {
 		if (*decisionLists).GlobalDecisionListsIPFilter[Allow].Allowed(ipString) {
-			log.Printf("checkIpInGlobalDecisionList: matched in ipfilter %s", ipString)
+			// log.Printf("checkIpInGlobalDecisionList: matched in ipfilter %s", ipString)
 			return true
 		}
 	}
@@ -154,13 +154,13 @@ func checkIpInPerSiteDecisionList(
 
 	decision, ok := (*decisionLists).PerSiteDecisionLists[urlString][ipString]
 	if (ok && decision == Allow) {
-		log.Printf("checkIpInPerSiteDecisionList: matched %s %s", urlString, ipString)
+		// log.Printf("checkIpInPerSiteDecisionList: matched %s %s", urlString, ipString)
 		return true
 	}
 
 	if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[urlString][Allow]; ok {
 		if (*decisionLists).PerSiteDecisionListsIPFilter[urlString][Allow].Allowed(ipString) {
-			log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipfilter %s %s", urlString, ipString)
+			// log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipfilter %s %s", urlString, ipString)
 			return true
 		}
 	}
