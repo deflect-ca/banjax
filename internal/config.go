@@ -22,6 +22,7 @@ import (
 
 type Config struct {
 	RegexesWithRates                       []RegexWithRate                `yaml:"regexes_with_rates"`
+	PerSiteRegexWithRates                  map[string][]RegexWithRate     `yaml:"per_site_regexes_with_rates"`
 	ServerLogFile                          string                         `yaml:"server_log_file"`
 	BanningLogFile                         string                         `yaml:"banning_log_file"`
 	IptablesBanSeconds                     int                            `yaml:"iptables_ban_seconds"`
