@@ -116,7 +116,7 @@ per_site_regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
@@ -311,7 +311,7 @@ regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
@@ -372,7 +372,7 @@ regexes_with_rates:
 	if err != nil {
 		panic("couldn't parse config file!")
 	}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)

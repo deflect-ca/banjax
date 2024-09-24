@@ -28,7 +28,7 @@ const (
 
 func RunHttpServer(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
@@ -487,7 +487,7 @@ func tooManyFailedChallenges(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	method string,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
 	rateLimitMutex.Lock()
@@ -591,7 +591,7 @@ func sendOrValidateShaChallenge(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	failAction FailAction,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -693,7 +693,7 @@ func sendOrValidatePassword(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -833,7 +833,7 @@ type DecisionForNginxResult struct {
 
 func decisionForNginx(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
@@ -868,16 +868,16 @@ func decisionForNginx(
 
 func checkPerSiteDecisionLists(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	requestedHost string,
 	clientIp string,
 ) (bool, Decision) {
 	// XXX ugh this locking is awful
 	// i got bit by just checking against the zero value here, which is a valid iota enum
-	decisionListsMutex.Lock()
+	decisionListsMutex.RLock()
 	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
-	decisionListsMutex.Unlock()
+	decisionListsMutex.RUnlock()
 
 	// found as plain IP form, no need to check IPFilter
 	if ok {
@@ -907,7 +907,7 @@ func checkPerSiteDecisionLists(
 func decisionForNginx2(
 	c *gin.Context,
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
@@ -1020,9 +1020,9 @@ func decisionForNginx2(
 		}
 	}
 
-	decisionListsMutex.Lock()
+	decisionListsMutex.RLock()
 	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
-	decisionListsMutex.Unlock()
+	decisionListsMutex.RUnlock()
 	foundInIpFilter := false
 	if !ok {
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
@@ -1074,9 +1074,9 @@ func decisionForNginx2(
 	// when we insert something into the list, really we might just be extending the expiry time and/or
 	// changing the decision.
 	// XXX i forget if that comment is stale^
-	decisionListsMutex.Lock()
+	decisionListsMutex.RLock()
 	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, decisionLists)
-	decisionListsMutex.Unlock()
+	decisionListsMutex.RUnlock()
 	if !ok {
 		// log.Println("no mention in expiring lists")
 	} else {
@@ -1118,9 +1118,9 @@ func decisionForNginx2(
 
 	// the legacy banjax_sha_inv and user_banjax_sha_inv
 	// difference is one blocks after many failures and the other doesn't
-	decisionListsMutex.Lock()
+	decisionListsMutex.RLock()
 	failAction, ok := (*decisionLists).SitewideShaInvList[requestedHost]
-	decisionListsMutex.Unlock()
+	decisionListsMutex.RUnlock()
 	if !ok {
 		// log.Println("no mention in sitewide list")
 	} else {

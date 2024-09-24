@@ -178,7 +178,7 @@ func main() {
 	var passwordProtectedPaths internal.PasswordProtectedPaths
 
 	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists internal.DecisionLists
 
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
