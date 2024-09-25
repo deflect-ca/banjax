@@ -552,7 +552,7 @@ func WriteMetricsToEncoder(
 	metricsLogEncoder *json.Encoder,
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	failedChallengeStates *FailedChallengeStates,
 ) {

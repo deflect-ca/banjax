@@ -31,7 +31,7 @@ func RunHttpServer(
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	failedChallengeStates *FailedChallengeStates,
 	banner BannerInterface,
@@ -189,14 +189,14 @@ func RunHttpServer(
 	})
 
 	r.GET("/rate_limit_states", func(c *gin.Context) {
-		rateLimitMutex.Lock()
+		rateLimitMutex.RLock()
 		c.String(200,
 			fmt.Sprintf("regexes:\n%v\nfailed challenges:\n%v",
 				ipToRegexStates.String(),
 				failedChallengeStates.String(),
 			),
 		)
-		rateLimitMutex.Unlock()
+		rateLimitMutex.RUnlock()
 	})
 
 	// API to check if given IP was banned by iptables
@@ -484,7 +484,7 @@ func tooManyFailedChallenges(
 	path string,
 	banner BannerInterface,
 	challengeType string,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	failedChallengeStates *FailedChallengeStates,
 	method string,
 	decisionListsMutex *sync.RWMutex,
@@ -588,7 +588,7 @@ func sendOrValidateShaChallenge(
 	config *Config,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	failedChallengeStates *FailedChallengeStates,
 	failAction FailAction,
 	decisionListsMutex *sync.RWMutex,
@@ -691,7 +691,7 @@ func sendOrValidatePassword(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	failedChallengeStates *FailedChallengeStates,
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
@@ -836,7 +836,7 @@ func decisionForNginx(
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	failedChallengeStates *FailedChallengeStates,
 	banner BannerInterface,
 ) gin.HandlerFunc {
@@ -910,7 +910,7 @@ func decisionForNginx2(
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	failedChallengeStates *FailedChallengeStates,
 	banner BannerInterface,
 ) (decisionForNginxResult DecisionForNginxResult) {

@@ -22,7 +22,7 @@ import (
 func RunLogTailer(
 	config *Config,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
@@ -177,7 +177,7 @@ func checkIpInPerSiteDecisionList(
 // parsing these unescaped space-separated strings is gross. maybe pass json instead.
 func consumeLine(
 	line *tail.Line,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	banner BannerInterface,
 	config *Config,
