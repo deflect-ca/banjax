@@ -33,3 +33,13 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+
+  # wrk:
+  #   image: ghcr.io/william-yeh/wrk
+  #   platform: linux/amd64
+  #   volumes:
+  #     - ./tmp:/data
+  #   command: -t12 -c1024 -d10s http://localhost
+  #   # Automatically removes the container when it exits
+  #   restart: "no"
+  #   network_mode: "service:nginx"
