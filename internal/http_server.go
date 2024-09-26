@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 )
 
@@ -54,6 +55,7 @@ func RunHttpServer(
 	}
 
 	r := gin.New()
+	pprof.Register(r)
 
 	type LogLine struct {
 		Time          string
