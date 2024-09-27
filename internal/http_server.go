@@ -56,6 +56,8 @@ func RunHttpServer(
 
 	r := gin.New()
 	pprof.Register(r)
+	runtime.SetBlockProfileRate(1)
+	runtime.SetMutexProfileFraction(1)
 
 	type LogLine struct {
 		Time          string
