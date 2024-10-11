@@ -169,6 +169,24 @@
             return selectedMessage;
         }
 
+        function getFaviconUrl() {
+            // Search for <link> elements in the document
+            var links = document.getElementsByTagName('link');
+            
+            // Loop through the links to find one with "icon" in the rel attribute
+            for (var i = 0; i < links.length; i++) {
+                var rel = links[i].getAttribute('rel');
+                if (rel && rel.toLowerCase().indexOf('icon') !== -1) {
+                    return links[i].href; // Return the favicon URL
+                }
+            }
+
+            // If no <link> found, return the default path /favicon.ico
+            var faviconUrl = window.location.origin + '/favicon.ico';
+            console.log('Favicon URL:', faviconUrl);
+            return faviconUrl;
+        }
+
         function setDomainName() {
             document.getElementsByClassName("website-title")[0].textContent =
                 window.location.hostname;
@@ -183,7 +201,7 @@
 
         function setFavicon() {
             document.getElementsByClassName("website-favicon")[0].src =
-                window.location.origin + '/favicon.ico';
+                getFaviconUrl();
         }
     </script>
     <style>
