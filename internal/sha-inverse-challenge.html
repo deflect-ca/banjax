@@ -170,26 +170,21 @@
         }
 
         function getFaviconUrl() {
-            // Search for <link> tags with rel containing "icon"
-            const iconLink = document.querySelector('link[rel*="icon"]');
+            // Search for <link> elements in the document
+            var links = document.getElementsByTagName('link');
             
-            if (iconLink && iconLink.href) {
-                return iconLink.href;
+            // Loop through the links to find one with "icon" in the rel attribute
+            for (var i = 0; i < links.length; i++) {
+                var rel = links[i].getAttribute('rel');
+                if (rel && rel.toLowerCase().indexOf('icon') !== -1) {
+                    return links[i].href; // Return the favicon URL
+                }
             }
 
-            // If no <link> found, assume favicon may be at the standard path /favicon.ico
-            const faviconUrl = window.location.origin + '/favicon.ico';
-            
-            // Check if favicon.ico exists
-            fetch(faviconUrl).then(response => {
-                if (response.ok) {
-                    console.log('Favicon URL:', faviconUrl);
-                } else {
-                    console.log('Favicon not found.');
-                }
-            }).catch(err => {
-                console.error('Error fetching favicon:', err);
-            });
+            // If no <link> found, return the default path /favicon.ico
+            var faviconUrl = window.location.origin + '/favicon.ico';
+            console.log('Favicon URL:', faviconUrl);
+            return faviconUrl;
         }
 
         function setDomainName() {
