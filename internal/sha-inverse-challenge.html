@@ -169,22 +169,25 @@
             return selectedMessage;
         }
 
-        function getFaviconUrl() {
-            // Search for <link> elements in the document
-            var links = document.getElementsByTagName('link');
-            
-            // Loop through the links to find one with "icon" in the rel attribute
-            for (var i = 0; i < links.length; i++) {
-                var rel = links[i].getAttribute('rel');
-                if (rel && rel.toLowerCase().indexOf('icon') !== -1) {
-                    return links[i].href; // Return the favicon URL
-                }
-            }
+        function getFavicon(imgElement) {
+            // Build the base URL in a backward-compatible way
+            var origin = window.location.protocol + "//" + window.location.host;
+            var faviconUrl = origin + '/favicon.ico';
+            var fallbackSvg = imgElement.src;
+            var testImage = new Image();
 
-            // If no <link> found, return the default path /favicon.ico
-            var faviconUrl = window.location.origin + '/favicon.ico';
-            console.log('Favicon URL:', faviconUrl);
-            return faviconUrl;
+            testImage.src = faviconUrl
+
+            // Set favicon if it loads successfully
+            testImage.addEventListener('load', function() {
+                imgElement.src = faviconUrl;
+            });
+
+            // Fallback to SVG if favicon fails to load
+            testImage.addEventListener('error', function() {
+                console.log('Favicon not found, falling back to SVG');
+                imgElement.src = fallbackSvg;
+            });
         }
 
         function setDomainName() {
@@ -200,8 +203,7 @@
         }
 
         function setFavicon() {
-            document.getElementsByClassName("website-favicon")[0].src =
-                getFaviconUrl();
+            getFavicon(document.getElementsByClassName("website-favicon")[0])
         }
     </script>
     <style>
@@ -305,7 +307,7 @@
             <h1 class="js-alert">Please turn on JavaScript and reload the page.</h1>
         </noscript>
         <div class="website">
-          <img class="website-favicon" src="https://deflect.ca/favicon.ico" onerror="this.style.display='none'"/>
+          <img class="website-favicon" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2232%22%20height%3D%2232%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%2210%22%20stroke%3D%22%23333%22%20stroke-width%3D%221.5%22%20fill%3D%22%23cce5ff%22%2F%3E%3Cpath%20d%3D%22M12%202c3%202%205%205.5%205%2010s-2%208-5%2010c-3-2-5-5.5-5-10s2-8%205-10Z%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20fill%3D%22none%22%2F%3E%3Cpath%20d%3D%22M2%2012h20M12%202v20%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" onerror="this.style.display='none'"/>
           <span class="website-title"></span>
         </div>
         <div class="loader">
