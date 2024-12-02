@@ -171,14 +171,14 @@ func init_ipset(config *internal.Config) ipset.IPSet {
 func main() {
 	// XXX protects ipToRegexStates and failedChallengeStates
 	// (why both? because there are too many parameters already?)
-	var rateLimitMutex sync.Mutex
+	var rateLimitMutex sync.RWMutex
 	ipToRegexStates := internal.IpToRegexStates{}
 	failedChallengeStates := internal.FailedChallengeStates{}
 
 	var passwordProtectedPaths internal.PasswordProtectedPaths
 
 	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists internal.DecisionLists
 
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")

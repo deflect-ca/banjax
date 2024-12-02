@@ -126,7 +126,7 @@ type BannerInterface interface {
 }
 
 type Banner struct {
-	DecisionListsMutex *sync.Mutex
+	DecisionListsMutex *sync.RWMutex
 	DecisionLists      *DecisionLists
 	Logger             *log.Logger
 	LoggerTemp         *log.Logger
