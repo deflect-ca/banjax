@@ -74,6 +74,7 @@ type Config struct {
 	SessionCookieTtlSeconds                int               `yaml:"session_cookie_ttl_seconds"`
 	SessionCookieNotVerify                 bool              `yaml:"session_cookie_not_verify"`
 	SitesToDisableBaskerville              map[string]bool   `yaml:"sites_to_disable_baskerville"`
+	SitesToShaInvPathExceptions            map[string][]string `yaml:"sha_inv_path_exceptions"`
 }
 
 type RegexWithRate struct {

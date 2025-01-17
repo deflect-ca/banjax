@@ -125,3 +125,8 @@ sha_inv_expected_zero_bits: 10
 session_cookie_not_verify: true
 block_ip_ttl_seconds: 10
 block_session_ttl_seconds: 10
+sha_inv_path_exceptions:
+  "localhost:8081":
+    - /no_challenge
+  "localhost":
+    - /no_challenge
