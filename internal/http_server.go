@@ -1207,9 +1207,8 @@ func checkPerSiteShaInvPathExceptions(
 	pathExceptions, hasExceptions := config.SitesToShaInvPathExceptions[requestedHost]
 	if hasExceptions {
 		for _, pException := range pathExceptions {
-			// print
-			log.Println("requestedPath: ", requestedPath, " pException: ", pException)
 			if strings.HasPrefix(requestedPath, pException) {
+				log.Println("checkPerSiteShaInvPathExceptions matched: ", requestedPath, pException)
 				return true
 			}
 		}
