@@ -1208,7 +1208,7 @@ func checkPerSiteShaInvPathExceptions(
 	if hasExceptions {
 		for _, pException := range pathExceptions {
 			if strings.HasPrefix(requestedPath, pException) {
-				log.Println("checkPerSiteShaInvPathExceptions matched: ", requestedPath, pException)
+				log.Println("checkPerSiteShaInvPathExceptions:", requestedPath, "pException:", pException)
 				return true
 			}
 		}
