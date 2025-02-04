@@ -1,3 +1,5 @@
+# Banjax
+
 ## Table of Contents
 1. [What is Banjax](#what-is-banjax)
     1. [Backstory](#backstory)
@@ -33,8 +35,8 @@ Leveraging existing higher-level HTTP middleware concepts makes the whole thing 
 - [Go](https://golang.org/)
 - [Docker](https://www.docker.com/) (each service/component is run in its own docker container)
 - [Nginx](https://www.nginx.com/)
-- [Kafka-server](https://hub.docker.com/r/wurstmeister/kafka/)
-- [Baskerville](https://github.com/deflect-ca/baskerville)(optional, can be used together with Banjax to detect anomalous traffic)
+- [Kafka](https://hub.docker.com/r/wurstmeister/kafka/)
+- [Baskerville](https://github.com/deflect-ca/baskerville) (optional, can be used together with Banjax to detect anomalous traffic)
 
 # How it Looks in a Deflect Environment
 
@@ -64,14 +66,24 @@ The Decision lists are populated by:
 
 Decisions added at run-time (from the log tailer, Kafka, or the failed challenge rate limit) expire after some configurable amount of time.
 
+<img width="1384" alt="Banjax-flowchart" src="https://github.com/user-attachments/assets/ca28fc7f-bd28-49a1-8bbb-473cfdf759dd" />
+
 # Password-protected paths
 
 From the perspective of the JS and cookie cryptographic implementation, these work very similarly to the SHA-inverting proof-of-work challenge. But the use-cases are different: the PoW challenge is intended to filter out DDoS traffic, and so it makes sense for the Nginx configuration to fail open in case Banjax-go is unreachable. Password-protected paths should fail closed.
 
+# Development
+
+```
+docker-compose up
+```
+
+Note: Uncomment line 33 to 36 and comment line 37 in `Dockerfile` to enable `air` hot-reload during development
+
 # Installation
 
 You should be able to get a quick demo of banjax-go + Nginx + a test origin server
-running with `docker-compose up`.
+running with `docker-compose up`. (See also `docker-compose.prod.yml`)
 
 You're probably running an existing Nginx (or similar) server. We describe two options
 for adding banjax-go to your setup. The first involves changing your existing Nginx
@@ -190,6 +202,8 @@ kafka_command_topic: 'banjax_command_topic'
 ```
 
 # Sample Configuration
+
+Note: See `banjax-config.yaml` in the repo for full example
 
 ```yaml
 config_version: 2020-12-15_12:35:38
