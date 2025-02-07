@@ -782,6 +782,7 @@ const (
 	ExpiringAccessGranted // XXX should this even exist?
 	ExpiringChallenge
 	ExpiringBlock
+	PerSiteShaInvPathException
 	SiteWideChallenge
 	SiteWideChallengeException
 	NoMention
@@ -801,6 +802,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	ExpiringAccessGranted:          "ExpiringAccessGranted",
 	ExpiringChallenge:              "ExpiringChallenge",
 	ExpiringBlock:                  "ExpiringBlock",
+	PerSiteShaInvPathException:     "PerSiteShaInvPathException",
 	SiteWideChallenge:              "SiteWideChallenge",
 	SiteWideChallengeException:     "SiteWideChallengeException",
 	NoMention:                      "NoMention",
@@ -1087,6 +1089,12 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
 		case Challenge:
+			// apply exception to both challenge from baskerville and regex banner
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException])
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
 			// Check if expiringDecision.fromBaskerville, if true, check if domain disabled baskerville
 			_, disabled := config.SitesToDisableBaskerville[requestedHost]
 			if expiringDecision.fromBaskerville && disabled {
@@ -1188,4 +1196,22 @@ func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *
 		}
 	}
 	return expiringDecision, ok
+}
+
+func checkPerSiteShaInvPathExceptions(
+	config *Config,
+	requestedHost string,
+	requestedPath string,
+) bool {
+	// check against config.SitesToShaInvPathExceptions
+	pathExceptions, hasExceptions := config.SitesToShaInvPathExceptions[requestedHost]
+	if hasExceptions {
+		for _, pException := range pathExceptions {
+			if strings.HasPrefix(requestedPath, pException) {
+				log.Println("checkPerSiteShaInvPathExceptions:", requestedPath, "pException:", pException)
+				return true
+			}
+		}
+	}
+	return false
 }
