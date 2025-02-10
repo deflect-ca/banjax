@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -43,7 +42,7 @@ func tearDown() {
 }
 
 func createTempDir() {
-	dir, err := ioutil.TempDir("", "banjax-tests")
+	dir, err := os.MkdirTemp("", "banjax-tests")
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -81,8 +81,7 @@ func getDialer(config *Config) *kafka.Dialer {
 
 func RunKafkaReader(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
@@ -128,7 +127,6 @@ func RunKafkaReader(
 			handleCommand(
 				config,
 				command,
-				decisionListsMutex,
 				decisionLists,
 			)
 		}
@@ -158,8 +156,7 @@ func getBlockSessionTtl(config *Config, host string) (blockSessionTtl int) {
 func handleCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 ) {
 	// exempt a site from baskerville according to config
 	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled {
@@ -170,18 +167,18 @@ func handleCommand(
 	// handle commands
 	switch command.Name {
 	case "challenge_ip":
-		handleIPCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		handleIPCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_ip":
 		ttl := getBlockIpTtl(config, command.Host)
-		handleIPCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
+		handleIPCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	case "challenge_session":
-		handleSessionCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		handleSessionCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_session":
 		ttl := getBlockSessionTtl(config, command.Host)
-		handleSessionCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
+		handleSessionCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
@@ -191,8 +188,7 @@ func handleCommand(
 func handleIPCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 	decision Decision,
 	expireDuration int,
 ) {
@@ -204,11 +200,9 @@ func handleIPCommand(
 	log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
 		command.Host, command.Value, decision, expireDuration)
 
-	updateExpiringDecisionLists(
+	decisionLists.Update(
 		config,
 		command.Value,
-		decisionListsMutex,
-		decisionLists,
 		time.Now().Add(time.Duration(expireDuration)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
@@ -219,8 +213,7 @@ func handleIPCommand(
 func handleSessionCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 	decision Decision,
 	expireDuration int,
 ) {
@@ -234,12 +227,10 @@ func handleSessionCommand(
 	log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
 		command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
 
-	updateExpiringDecisionListsSessionId(
+	decisionLists.UpdateBySessionId(
 		config,
 		command.Value,
 		sessionIdDecoded,
-		decisionListsMutex,
-		decisionLists,
 		time.Now().Add(time.Duration(expireDuration)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex

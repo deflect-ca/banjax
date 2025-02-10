@@ -79,13 +79,11 @@ var configToStructsMutex sync.Mutex
 func configToStructs(
 	config *Config,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	decisionLists *DecisionLists,
 ) {
 	configToStructsMutex.Lock()
 	defer configToStructsMutex.Unlock()
 
 	*passwordProtectedPaths = ConfigToPasswordProtectedPaths(config)
-	*decisionLists = ConfigToDecisionLists(config)
 }
 
 func TestConsumeLine(t *testing.T) {
@@ -116,13 +114,17 @@ per_site_regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
-	var decisionLists DecisionLists
+
+	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
+	if err != nil {
+		panic(fmt.Sprintf("couldn't create decision list: %v", err))
+	}
+
 	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+	configToStructs(&config, &passwordProtectedPaths)
 
 	// XXX duplicated from main()
-	for i, _ := range config.RegexesWithRates {
+	for i := range config.RegexesWithRates {
 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
 		if err != nil {
 			panic("bad regex")
@@ -131,7 +133,7 @@ per_site_regexes_with_rates:
 	}
 
 	for site, p_regex := range config.PerSiteRegexWithRates {
-		for i, _ := range p_regex {
+		for i := range p_regex {
 			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
 			if err != nil {
 				panic("bad regex")
@@ -146,7 +148,7 @@ per_site_regexes_with_rates:
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	ipStates, ok := ipToRegexStates["1.2.3.4"]
 	if !ok {
@@ -168,7 +170,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 2 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
@@ -190,7 +192,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 3 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
@@ -212,7 +214,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 4 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
@@ -241,7 +243,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 5 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	ipStates, ok = ipToRegexStates["1.2.3.4"]
 	if !ok {
@@ -271,7 +273,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.6.6.6 GET per-site.com GET /blockme/?a HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 6 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	// there should be a match for the per-site regex
 	ipStates, ok = ipToRegexStates["1.6.6.6"]
@@ -283,7 +285,7 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.6.6.7 GET no-per-site.com GET /blockme/?a HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 7 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	// there should NO match for the per-site regex
 	ipStates, ok = ipToRegexStates["1.6.6.7"]
@@ -311,13 +313,17 @@ regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
-	var decisionLists DecisionLists
+
+	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
+	if err != nil {
+		panic(fmt.Sprintf("couldn't create decision list: %v", err))
+	}
+
 	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+	configToStructs(&config, &passwordProtectedPaths)
 
 	// XXX duplicated from main()
-	for i, _ := range config.RegexesWithRates {
+	for i := range config.RegexesWithRates {
 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
 		if err != nil {
 			panic("bad regex")
@@ -331,7 +337,7 @@ regexes_with_rates:
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET skiphost.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 	_, ok := ipToRegexStates["1.2.3.4"]
 	if ok {
@@ -372,12 +378,16 @@ regexes_with_rates:
 	if err != nil {
 		panic("couldn't parse config file!")
 	}
-	var decisionListsMutex sync.Mutex
-	var decisionLists DecisionLists
-	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
-	for i, _ := range config.RegexesWithRates {
+	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
+	if err != nil {
+		panic(fmt.Sprintf("couldn't create decision lists: %v", err))
+	}
+
+	var passwordProtectedPaths PasswordProtectedPaths
+	configToStructs(&config, &passwordProtectedPaths)
+
+	for i := range config.RegexesWithRates {
 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
 		if err != nil {
 			panic("bad regex")
@@ -397,7 +407,7 @@ regexes_with_rates:
 		// log.Printf("Testing: " + logLine)
 		lineTail := tail.Line{Text: logLine}
 
-		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, &decisionListsMutex, &decisionLists)
+		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
 
 		ipStates, ok := ipToRegexStates[ip]
 		if !ok {

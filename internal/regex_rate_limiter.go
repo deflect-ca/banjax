@@ -24,8 +24,7 @@ func RunLogTailer(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	ipToRegexStates *IpToRegexStates,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *StaticDecisionLists,
 	wg *sync.WaitGroup,
 ) {
 	// log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
@@ -50,7 +49,6 @@ func RunLogTailer(
 					ipToRegexStates,
 					banner,
 					config,
-					decisionListsMutex,
 					decisionLists,
 				)
 				if config.Debug {
@@ -118,55 +116,6 @@ func parseTimestamp(timeIpRest []string) (timestamp time.Time, err error) {
 	return timestamp, nil
 }
 
-func checkIpInGlobalDecisionList(
-	ipString string,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
-)(bool) {
-	// Check if IP is in the global allow list that should be skipped
-	decisionListsMutex.Lock()
-	defer decisionListsMutex.Unlock()
-
-	decision, ok := (*decisionLists).GlobalDecisionLists[ipString]
-	if (ok && decision == Allow) {
-		// log.Printf("checkIpInGlobalDecisionList: matched %s", ipString)
-		return true
-	}
-
-	// not found with direct match, try to match if contain within CIDR subnet
-	if _, ok := (*decisionLists).GlobalDecisionListsIPFilter[Allow]; ok {
-		if (*decisionLists).GlobalDecisionListsIPFilter[Allow].Allowed(ipString) {
-			// log.Printf("checkIpInGlobalDecisionList: matched in ipfilter %s", ipString)
-			return true
-		}
-	}
-	return false
-}
-
-func checkIpInPerSiteDecisionList(
-	urlString string,
-	ipString string,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
-) (bool) {
-	decisionListsMutex.Lock()
-	defer decisionListsMutex.Unlock()
-
-	decision, ok := (*decisionLists).PerSiteDecisionLists[urlString][ipString]
-	if (ok && decision == Allow) {
-		// log.Printf("checkIpInPerSiteDecisionList: matched %s %s", urlString, ipString)
-		return true
-	}
-
-	if _, ok := (*decisionLists).PerSiteDecisionListsIPFilter[urlString][Allow]; ok {
-		if (*decisionLists).PerSiteDecisionListsIPFilter[urlString][Allow].Allowed(ipString) {
-			// log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipfilter %s %s", urlString, ipString)
-			return true
-		}
-	}
-	return false
-}
-
 // error: (3 words in log line, bad float, bad rest of log line, bad host, old line)
 // regex match: true, false
 // skip host: true, false
@@ -181,8 +130,7 @@ func consumeLine(
 	ipToRegexStates *IpToRegexStates,
 	banner BannerInterface,
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *StaticDecisionLists,
 ) (consumeLineResult ConsumeLineResult) {
 
 	if config.Debug {
@@ -233,14 +181,7 @@ func consumeLine(
 		return
 	}
 
-	// check per-site decision list first
-	if checkIpInPerSiteDecisionList(urlString, ipString, decisionListsMutex, decisionLists) {
-		consumeLineResult.Exempted = true
-		return
-	}
-
-	// check global decision list
-	if checkIpInGlobalDecisionList(ipString, decisionListsMutex, decisionLists) {
+	if decisionLists.CheckIsAllowed(urlString, ipString) {
 		consumeLineResult.Exempted = true
 		return
 	}
@@ -350,7 +291,7 @@ func applyRegexToLog(
 	if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
 		// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 		ruleResult.RateLimitExceeded = true
-		decision := stringToDecision[regex_with_rate.Decision] // XXX should be an enum already
+		decision, _ := ParseDecision(regex_with_rate.Decision) // XXX should be an enum already
 		banner.BanOrChallengeIp(config, ipString, decision, urlString)
 		// log.Println(line.Text)
 		banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)

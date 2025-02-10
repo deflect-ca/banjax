@@ -28,8 +28,8 @@ const (
 
 func RunHttpServer(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	staticDecisionLists *StaticDecisionLists,
+	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
 	ipToRegexStates *IpToRegexStates,
@@ -163,8 +163,8 @@ func RunHttpServer(
 	r.Any("/auth_request",
 		decisionForNginx(
 			config,
-			decisionListsMutex,
-			decisionLists,
+			staticDecisionLists,
+			dynamicDecisionLists,
 			passwordProtectedPaths,
 			rateLimitMutex,
 			failedChallengeStates,
@@ -179,13 +179,7 @@ func RunHttpServer(
 	})
 
 	r.GET("/decision_lists", func(c *gin.Context) {
-		c.String(200,
-			fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v",
-				(*decisionLists).PerSiteDecisionLists,
-				(*decisionLists).GlobalDecisionLists,
-				(*decisionLists).ExpiringDecisionLists,
-			),
-		)
+		c.String(200, FormatDecisionLists(staticDecisionLists, dynamicDecisionLists))
 	})
 
 	r.GET("/rate_limit_states", func(c *gin.Context) {
@@ -210,7 +204,7 @@ func RunHttpServer(
 			return
 		}
 		banned, _ := banner.IPSetList()
-		expiringDecision, ok := checkExpiringDecisionLists(c, ip, decisionLists)
+		expiringDecision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
 		if !ok {
 			// not found in expiring list, but maybe still banned at ipset level
 			c.JSON(200, gin.H{
@@ -256,7 +250,7 @@ func RunHttpServer(
 		// search in decisionlist
 		c.JSON(200, gin.H{
 			"domain":  domain,
-			"entries": checkExpiringDecisionListsByDomain(domain, decisionLists),
+			"entries": dynamicDecisionLists.CheckByDomain(domain),
 		})
 	})
 
@@ -272,7 +266,7 @@ func RunHttpServer(
 			return
 		}
 		// query decision list, check ban type
-		decision, ok := checkExpiringDecisionLists(c, ip, decisionLists)
+		decision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
 		if !ok || decision.Decision == IptablesBlock {
 			// not found in expiring list, but maybe still banned at ipset level
 			if !banner.IPSetTest(config, ip) {
@@ -300,7 +294,7 @@ func RunHttpServer(
 		}
 		// if found, remove from expiring list, whether its nginx or iptables ban
 		if ok {
-			removeExpiredDecisionsByIp(decisionListsMutex, decisionLists, ip)
+			dynamicDecisionLists.RemoveByIp(ip)
 		}
 		c.JSON(200, gin.H{
 			"ip":                     ip,
@@ -370,7 +364,7 @@ func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
 	challenge(c, config, PasswordCookieName, cookieTtl, config.HmacSecret, roaming)
 	sessionCookieEndPoint(c, config)
-	c.Data(401, "text/html", applyArgsToPasswordPage(config, config.PasswordPageBytes, roaming, cookieTtl))
+	c.Data(401, "text/html", applyArgsToPasswordPage(config.PasswordPageBytes, roaming, cookieTtl))
 	c.Abort()
 }
 
@@ -417,7 +411,7 @@ func applyCookieDomain(pageBytes []byte, cookieName string) (modifiedPageBytes [
 	)
 }
 
-func applyArgsToPasswordPage(config *Config, pageBytes []byte, roaming bool, cookieTtl int) (modifiedPageBytes []byte) {
+func applyArgsToPasswordPage(pageBytes []byte, roaming bool, cookieTtl int) (modifiedPageBytes []byte) {
 	// apply default or site specific expire time
 	modifiedPageBytes = applyCookieMaxAge(pageBytes, PasswordCookieName, cookieTtl)
 
@@ -487,8 +481,7 @@ func tooManyFailedChallenges(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	method string,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *StaticDecisionLists,
 ) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
 	rateLimitMutex.Lock()
 	defer rateLimitMutex.Unlock()
@@ -512,13 +505,7 @@ func tooManyFailedChallenges(
 	}
 
 	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
-		foundInPerSiteList, decision := checkPerSiteDecisionLists(
-			config,
-			decisionListsMutex,
-			decisionLists,
-			host,
-			ip,
-		)
+		decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip)
 
 		var decisionType Decision = IptablesBlock
 		if foundInPerSiteList && decision == Allow {
@@ -591,8 +578,7 @@ func sendOrValidateShaChallenge(
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
 	failAction FailAction,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *StaticDecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -629,7 +615,6 @@ func sendOrValidateShaChallenge(
 			rateLimitMutex,
 			failedChallengeStates,
 			requestedMethod,
-			decisionListsMutex,
 			decisionLists,
 		)
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
@@ -693,8 +678,7 @@ func sendOrValidatePassword(
 	banner BannerInterface,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *StaticDecisionLists,
 ) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -750,7 +734,6 @@ func sendOrValidatePassword(
 		rateLimitMutex,
 		failedChallengeStates,
 		requestedMethod,
-		decisionListsMutex,
 		decisionLists,
 	)
 	sendOrValidatePasswordResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
@@ -835,8 +818,8 @@ type DecisionForNginxResult struct {
 
 func decisionForNginx(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	staticDecisionLists *StaticDecisionLists,
+	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
@@ -846,8 +829,8 @@ func decisionForNginx(
 		decisionForNginxResult := decisionForNginx2(
 			c,
 			config,
-			decisionListsMutex,
-			decisionLists,
+			staticDecisionLists,
+			dynamicDecisionLists,
 			passwordProtectedPaths,
 			rateLimitMutex,
 			failedChallengeStates,
@@ -868,49 +851,11 @@ func decisionForNginx(
 	}
 }
 
-func checkPerSiteDecisionLists(
-	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
-	requestedHost string,
-	clientIp string,
-) (bool, Decision) {
-	// XXX ugh this locking is awful
-	// i got bit by just checking against the zero value here, which is a valid iota enum
-	decisionListsMutex.Lock()
-	decision, ok := (*decisionLists).PerSiteDecisionLists[requestedHost][clientIp]
-	decisionListsMutex.Unlock()
-
-	// found as plain IP form, no need to check IPFilter
-	if ok {
-		return ok, decision
-	}
-
-	foundInIpPerSiteFilter := false
-
-	// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
-	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-		if instanceIPFilter, ok := (*decisionLists).PerSiteDecisionListsIPFilter[requestedHost][iterateDecision]; ok && instanceIPFilter != nil {
-			if instanceIPFilter.Allowed(clientIp) {
-				if config.Debug {
-					log.Printf("matched in per-site ipfilter %s %v %s", requestedHost, iterateDecision, clientIp)
-				}
-				decision = iterateDecision
-				foundInIpPerSiteFilter = true
-				break
-			}
-		}
-	}
-
-	return foundInIpPerSiteFilter, decision
-}
-
 func decisionForNginx2(
 	c *gin.Context,
 	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	staticDecisionLists *StaticDecisionLists,
+	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
 	rateLimitMutex *sync.Mutex,
 	failedChallengeStates *FailedChallengeStates,
@@ -966,8 +911,7 @@ func decisionForNginx2(
 						banner,
 						rateLimitMutex,
 						failedChallengeStates,
-						decisionListsMutex,
-						decisionLists,
+						staticDecisionLists,
 					)
 					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
 					decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
@@ -983,14 +927,11 @@ func decisionForNginx2(
 		}
 	}
 
-	foundInPerSiteList, decision := checkPerSiteDecisionLists(
+	decision, foundInPerSiteList := staticDecisionLists.CheckPerSite(
 		config,
-		decisionListsMutex,
-		decisionLists,
 		requestedHost,
 		clientIp,
 	)
-
 	if foundInPerSiteList {
 		switch decision {
 		case Allow:
@@ -1007,8 +948,7 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				Block, // FailAction
-				decisionListsMutex,
-				decisionLists,
+				staticDecisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = PerSiteChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -1022,26 +962,8 @@ func decisionForNginx2(
 		}
 	}
 
-	decisionListsMutex.Lock()
-	decision, ok = (*decisionLists).GlobalDecisionLists[clientIp]
-	decisionListsMutex.Unlock()
-	foundInIpFilter := false
-	if !ok {
-		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-			// check if Ipfilter ref associated to this iterateDecision exists
-			if _, globalOk := (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision]; globalOk {
-				if (*decisionLists).GlobalDecisionListsIPFilter[iterateDecision].Allowed(clientIp) {
-					if config.Debug {
-						log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
-					}
-					decision = iterateDecision
-					foundInIpFilter = true
-					break
-				}
-			}
-		}
-	}
-	if ok || foundInIpFilter {
+	decision, foundInGlobalList := staticDecisionLists.CheckGlobal(config, clientIp)
+	if foundInGlobalList {
 		switch decision {
 		case Allow:
 			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted])
@@ -1057,8 +979,7 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				Block, // FailAction
-				decisionListsMutex,
-				decisionLists,
+				staticDecisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = GlobalChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -1076,9 +997,7 @@ func decisionForNginx2(
 	// when we insert something into the list, really we might just be extending the expiry time and/or
 	// changing the decision.
 	// XXX i forget if that comment is stale^
-	decisionListsMutex.Lock()
-	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, decisionLists)
-	decisionListsMutex.Unlock()
+	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, dynamicDecisionLists)
 	if !ok {
 		// log.Println("no mention in expiring lists")
 	} else {
@@ -1108,8 +1027,7 @@ func decisionForNginx2(
 					rateLimitMutex,
 					failedChallengeStates,
 					Block, // FailAction
-					decisionListsMutex,
-					decisionLists,
+					staticDecisionLists,
 				)
 				decisionForNginxResult.DecisionListResult = ExpiringChallenge
 				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -1126,9 +1044,7 @@ func decisionForNginx2(
 
 	// the legacy banjax_sha_inv and user_banjax_sha_inv
 	// difference is one blocks after many failures and the other doesn't
-	decisionListsMutex.Lock()
-	failAction, ok := (*decisionLists).SitewideShaInvList[requestedHost]
-	decisionListsMutex.Unlock()
+	failAction, ok := staticDecisionLists.CheckSitewideShaInv(requestedHost)
 	if !ok {
 		// log.Println("no mention in sitewide list")
 	} else {
@@ -1143,8 +1059,7 @@ func decisionForNginx2(
 				rateLimitMutex,
 				failedChallengeStates,
 				failAction,
-				decisionListsMutex,
-				decisionLists,
+				staticDecisionLists,
 			)
 			decisionForNginxResult.DecisionListResult = SiteWideChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
@@ -1171,31 +1086,9 @@ func CleanRequestedPath(requestedPath string) string {
 	return path
 }
 
-func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *DecisionLists) (ExpiringDecision, bool) {
-	// check session ID then check expiring lists IP
-	sessionId, err := c.Cookie(SessionCookieName)
-	if err == nil {
-		expiringDecision, ok := (*decisionLists).ExpiringDecisionListsSessionId[sessionId]
-		if ok {
-			log.Printf("DSC: found expiringDecision from session %s (%s)", sessionId, expiringDecision.Decision)
-			if time.Now().Sub(expiringDecision.Expires) > 0 {
-				delete((*decisionLists).ExpiringDecisionListsSessionId, sessionId)
-				// log.Println("deleted expired decision from expiring lists")
-				ok = false
-			}
-			return expiringDecision, ok
-		}
-	}
-
-	expiringDecision, ok := (*decisionLists).ExpiringDecisionLists[clientIp]
-	if ok {
-		if time.Now().Sub(expiringDecision.Expires) > 0 {
-			delete((*decisionLists).ExpiringDecisionLists, clientIp)
-			// log.Println("deleted expired decision from expiring lists")
-			ok = false
-		}
-	}
-	return expiringDecision, ok
+func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *DynamicDecisionLists) (ExpiringDecision, bool) {
+	sessionId, _ := c.Cookie(SessionCookieName)
+	return decisionLists.Check(sessionId, clientIp)
 }
 
 func checkPerSiteShaInvPathExceptions(

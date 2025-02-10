@@ -92,7 +92,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		config.PasswordPageBytes = passwordPageBytes
 	}
 
-	for i, _ := range config.RegexesWithRates {
+	for i := range config.RegexesWithRates {
 		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
 		if err != nil {
 			panic("bad regex")
@@ -102,7 +102,7 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 
 	for site, p_regex := range config.PerSiteRegexWithRates {
 		log.Printf("PerSiteRegexWithRates: %s\n", site)
-		for i, _ := range p_regex {
+		for i := range p_regex {
 			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
 			if err != nil {
 				panic("bad regex")
@@ -177,10 +177,6 @@ func main() {
 
 	var passwordProtectedPaths internal.PasswordProtectedPaths
 
-	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
-	var decisionLists internal.DecisionLists
-
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	debugPtr := flag.Bool("debug", false, "debug mode with verbose logging")
@@ -193,6 +189,13 @@ func main() {
 	config := internal.Config{}
 	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
 
+	staticDecisionLists, err := internal.NewStaticDecisionListsFromConfig(&config)
+	if err != nil {
+		panic(fmt.Sprintf("%v", err))
+	}
+
+	dynamicDecisionLists := internal.NewDynamicDecisionLists()
+
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
 	// XXX i forgot i had this config reload functionality.
@@ -200,13 +203,17 @@ func main() {
 	// RunHttpServer, RunLogTailer, etc. because they might have internal state that
 	// referenced old config values.
 	go func() {
-		for _ = range sighup_channel {
+		for range sighup_channel {
 			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
 			rateLimitMutex.Lock()
 			config = internal.Config{}
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
 			rateLimitMutex.Unlock()
-			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+
+			staticDecisionLists.UpdateFromConfig(&config)
+			dynamicDecisionLists.Clear()
+
+			configToStructs(&config, &passwordProtectedPaths)
 		}
 	}()
 
@@ -231,7 +238,7 @@ func main() {
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+	configToStructs(&config, &passwordProtectedPaths)
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
@@ -255,11 +262,10 @@ func main() {
 	defer banningLogFileTemp.Close()
 
 	banner := internal.Banner{
-		&decisionListsMutex,
-		&decisionLists,
-		log.New(banningLogFile, "", 0),
-		log.New(banningLogFileTemp, "", 0),
-		init_ipset(&config),
+		DecisionLists: dynamicDecisionLists,
+		Logger: log.New(banningLogFile, "", 0),
+		LoggerTemp: log.New(banningLogFileTemp, "", 0),
+		IPSetInstance: init_ipset(&config),
 	}
 
 	var wg sync.WaitGroup
@@ -267,8 +273,8 @@ func main() {
 	wg.Add(1)
 	go internal.RunHttpServer(
 		&config,
-		&decisionListsMutex,
-		&decisionLists,
+		staticDecisionLists,
+		dynamicDecisionLists,
 		&passwordProtectedPaths,
 		&rateLimitMutex,
 		&ipToRegexStates,
@@ -283,8 +289,7 @@ func main() {
 		banner,
 		&rateLimitMutex,
 		&ipToRegexStates,
-		&decisionListsMutex,
-		&decisionLists,
+		staticDecisionLists,
 		&wg,
 	)
 
@@ -294,8 +299,7 @@ func main() {
 		wg.Add(1)
 		go internal.RunKafkaReader(
 			&config,
-			&decisionListsMutex,
-			&decisionLists,
+			dynamicDecisionLists,
 			&wg,
 		)
 
@@ -334,15 +338,11 @@ func main() {
 					)
 				}
 			case <-expireTicker.C:
-				internal.RemoveExpiredDecisions(
-					&decisionListsMutex,
-					&decisionLists,
-				)
+				dynamicDecisionLists.RemoveExpired()
 			case <-metricsTicker.C:
 				internal.WriteMetricsToEncoder(
 					metricsLogEncoder,
-					&decisionListsMutex,
-					&decisionLists,
+					dynamicDecisionLists,
 					&rateLimitMutex,
 					&ipToRegexStates,
 					&failedChallengeStates,
@@ -359,11 +359,9 @@ var configToStructsMutex sync.Mutex
 func configToStructs(
 	config *internal.Config,
 	passwordProtectedPaths *internal.PasswordProtectedPaths,
-	decisionLists *internal.DecisionLists,
 ) {
 	configToStructsMutex.Lock()
 	defer configToStructsMutex.Unlock()
 
 	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
-	*decisionLists = internal.ConfigToDecisionLists(config)
 }

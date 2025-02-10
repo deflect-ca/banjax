@@ -3,12 +3,19 @@
 package main
 
 import (
+	"io"
+	"log"
 	"os"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
+	// Suppress log output to reduce noise.
+	logWriter := log.Writer()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(logWriter)
+
 	setUp()
 	exit_code := m.Run()
 	tearDown()
