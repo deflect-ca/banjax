@@ -11,6 +11,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jeremy5189/ipfilter-no-iploc/v2"
@@ -85,43 +86,36 @@ func ParseFailAction(s string) (FailAction, error) {
 
 // Decision lists that don't change until the program is restarted or the config is hot-reloaded.
 type StaticDecisionLists struct {
-	value staticDecisionLists
-	mutex sync.Mutex
+	content atomic.Pointer[staticDecisionLists]
 }
 
 func NewStaticDecisionListsFromConfig(config *Config) (*StaticDecisionLists, error) {
-	value, err := newStaticDecisionListsFromConfig(config)
+	content, err := newStaticDecisionListsFromConfig(config)
 	if err != nil {
 		return nil, err
 	}
 
-	lists := &StaticDecisionLists{
-		value: value,
-		mutex: sync.Mutex{},
-	}
+	lists := &StaticDecisionLists{}
+	lists.content.Store(&content)
 
 	return lists, nil
 }
 
 func (l *StaticDecisionLists) UpdateFromConfig(config *Config) error {
-	value, err := newStaticDecisionListsFromConfig(config)
+	content, err := newStaticDecisionListsFromConfig(config)
 	if err != nil {
 		return fmt.Errorf("failed to update static decision lists from config: %w", err)
 	}
 
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	l.value = value
+	l.content.Store(&content)
 
 	return nil
 }
 
 func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp string) (Decision, bool) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	c := l.content.Load()
 
-	decision, ok := l.value.perSiteDecisionLists[site][clientIp]
+	decision, ok := c.perSiteDecisionLists[site][clientIp]
 
 	// found as plain IP form, no need to check IPFilter
 	if ok {
@@ -131,7 +125,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 	// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
 	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-		if instanceIPFilter, ok := l.value.perSiteDecisionListsIPFilter[site][iterateDecision]; ok && instanceIPFilter != nil {
+		if instanceIPFilter, ok := c.perSiteDecisionListsIPFilter[site][iterateDecision]; ok && instanceIPFilter != nil {
 			if instanceIPFilter.Allowed(string(clientIp)) {
 				if config.Debug {
 					log.Printf("matched in per-site ipfilter %s %v %s", site, iterateDecision, clientIp)
@@ -145,17 +139,16 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 }
 
 func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Decision, bool) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	c := l.content.Load()
 
-	decision, ok := l.value.globalDecisionLists[clientIp]
+	decision, ok := c.globalDecisionLists[clientIp]
 
 	if ok {
 		return decision, true
 	} else {
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
 			// check if Ipfilter ref associated to this iterateDecision exists
-			filter, ok := l.value.globalDecisionListsIPFilter[iterateDecision]
+			filter, ok := c.globalDecisionListsIPFilter[iterateDecision]
 			if ok && filter.Allowed(clientIp) {
 				if config.Debug {
 					log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
@@ -169,39 +162,37 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 }
 
 func (l *StaticDecisionLists) CheckSitewideShaInv(site string) (FailAction, bool) {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	c := l.content.Load()
 
-	failAction, ok := l.value.sitewideShaInvList[site]
+	failAction, ok := c.sitewideShaInvList[site]
 	return failAction, ok
 }
 
 func (l *StaticDecisionLists) CheckIsAllowed(site string, clientIp string) bool {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	c := l.content.Load()
 
 	// check per-site decision list first
-	decision, ok := l.value.perSiteDecisionLists[site][clientIp]
+	decision, ok := c.perSiteDecisionLists[site][clientIp]
 	if ok && decision == Allow {
 		// log.Printf("checkIpInPerSiteDecisionList: matched %s %s", urlString, ipString)
 		return true
 	}
 
-	filter, ok := l.value.perSiteDecisionListsIPFilter[site][Allow]
+	filter, ok := c.perSiteDecisionListsIPFilter[site][Allow]
 	if ok && filter.Allowed(clientIp) {
 		// log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipfilter %s %s", urlString, ipString)
 		return true
 	}
 
 	// check global decision list
-	decision, ok = l.value.globalDecisionLists[clientIp]
+	decision, ok = c.globalDecisionLists[clientIp]
 	if ok && decision == Allow {
 		// log.Printf("checkIpInGlobalDecisionList: matched %s", ipString)
 		return true
 	}
 
 	// not found with direct match, try to match if contain within CIDR subnet
-	filter, ok = l.value.globalDecisionListsIPFilter[Allow]
+	filter, ok = c.globalDecisionListsIPFilter[Allow]
 	if ok && filter.Allowed(clientIp) {
 		// log.Printf("checkIpInGlobalDecisionList: matched in ipfilter %s", ipString)
 		return true
@@ -572,15 +563,14 @@ type dynamicDecisionLists struct {
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	sc := s.content.Load()
 
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
 	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v",
-		s.value.perSiteDecisionLists,
-		s.value.globalDecisionLists,
+		sc.perSiteDecisionLists,
+		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
 	)
 }
