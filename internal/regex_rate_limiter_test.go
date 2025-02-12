@@ -15,7 +15,6 @@ import (
 
 	// "io/ioutil"
 	"net/url"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -90,11 +89,13 @@ func TestConsumeLine(t *testing.T) {
 	var rateLimitMutex sync.Mutex
 	configString := `
 regexes_with_rates:
-  - rule: 'rule1'
+  - decision: nginx_block
+    rule: 'rule1'
     regex: 'GET example\.com GET .*'
     interval: 5
     hits_per_interval: 2
-  - rule: 'rule2'
+  - decision: challenge
+    rule: 'rule2'
     regex: 'POST .*'
     interval: 5
     hits_per_interval: 1
@@ -110,7 +111,7 @@ per_site_regexes_with_rates:
 	config := Config{}
 	err := yaml.Unmarshal([]byte(configString), &config)
 	if err != nil {
-		panic("couldn't parse config file!")
+		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
@@ -122,25 +123,6 @@ per_site_regexes_with_rates:
 
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths)
-
-	// XXX duplicated from main()
-	for i := range config.RegexesWithRates {
-		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-		if err != nil {
-			panic("bad regex")
-		}
-		config.RegexesWithRates[i].CompiledRegex = *re
-	}
-
-	for site, p_regex := range config.PerSiteRegexWithRates {
-		for i := range p_regex {
-			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
-			if err != nil {
-				panic("bad regex")
-			}
-			config.PerSiteRegexWithRates[site][i].CompiledRegex = *re
-		}
-	}
 
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
@@ -298,7 +280,8 @@ func TestConsumeLineHostsToSkip(t *testing.T) {
 	var rateLimitMutex sync.Mutex
 	configString := `
 regexes_with_rates:
-  - rule: 'rule1'
+  - decision: nginx_block
+    rule: 'rule1'
     regex: '^GET https?:\/\/\.*'
     interval: 5
     hits_per_interval: 2
@@ -309,7 +292,7 @@ regexes_with_rates:
 	config := Config{}
 	err := yaml.Unmarshal([]byte(configString), &config)
 	if err != nil {
-		panic("couldn't parse config file!")
+		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
@@ -321,15 +304,6 @@ regexes_with_rates:
 
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths)
-
-	// XXX duplicated from main()
-	for i := range config.RegexesWithRates {
-		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-		if err != nil {
-			panic("bad regex")
-		}
-		config.RegexesWithRates[i].CompiledRegex = *re
-	}
 
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
@@ -362,7 +336,8 @@ regexes_with_rates:
 		}
 		path := url.Path
 		configString += fmt.Sprintf(`
-  - rule: 'rule%d'
+  - decision: nginx_block
+    rule: 'rule%d'
     regex: 'GET %s GET \%s HTTP\/[0-2.]+ .*'
     interval: 1
     hits_per_interval: 0
@@ -376,7 +351,7 @@ regexes_with_rates:
 	config := Config{}
 	err := yaml.Unmarshal([]byte(configString), &config)
 	if err != nil {
-		panic("couldn't parse config file!")
+		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
 
 	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
@@ -386,14 +361,6 @@ regexes_with_rates:
 
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths)
-
-	for i := range config.RegexesWithRates {
-		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-		if err != nil {
-			panic("bad regex")
-		}
-		config.RegexesWithRates[i].CompiledRegex = *re
-	}
 
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}

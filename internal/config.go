@@ -76,13 +76,46 @@ type Config struct {
 }
 
 type RegexWithRate struct {
-	Rule            string `yaml:"rule"`
-	Regex           string `yaml:"regex"`
-	CompiledRegex   regexp.Regexp
-	Interval        float64         `yaml:"interval"`
-	HitsPerInterval int             `yaml:"hits_per_interval"`
-	Decision        string          `yaml:"decision"`
-	HostsToSkip     map[string]bool `yaml:"hosts_to_skip"`
+	Rule            string
+	Regex           regexp.Regexp
+	Interval        float64
+	HitsPerInterval int
+	Decision        Decision
+	HostsToSkip     map[string]bool
+}
+
+func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	var i struct {
+		Rule            string 			`yaml:"rule"`
+		Regex           string    	 	`yaml:"regex"`
+		Interval        float64         `yaml:"interval"`
+		HitsPerInterval int             `yaml:"hits_per_interval"`
+		Decision        string          `yaml:"decision"`
+		HostsToSkip     map[string]bool `yaml:"hosts_to_skip"`
+	}
+
+	if err := unmarshal(&i); err != nil {
+		return err
+	}
+
+	regex, err := regexp.Compile(i.Regex)
+    if err != nil {
+		return err
+    }
+
+    decision, err := ParseDecision(i.Decision)
+    if err != nil {
+		return err
+    }
+
+	r.Rule 				= i.Rule
+	r.Regex 			= *regex
+	r.Interval 		  	= i.Interval
+	r.HitsPerInterval 	= i.HitsPerInterval
+	r.Decision          = decision
+	r.HostsToSkip       = i.HostsToSkip
+
+	return nil
 }
 
 

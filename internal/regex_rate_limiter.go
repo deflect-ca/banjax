@@ -243,7 +243,7 @@ func applyRegexToLog(
 
 	ruleResult := RuleResult{}
 	ruleResult.RuleName = regex_with_rate.Rule
-	matched := regex_with_rate.CompiledRegex.Match([]byte(timeIpRest[2]))
+	matched := regex_with_rate.Regex.Match([]byte(timeIpRest[2]))
 	if !matched {
 		ruleResult.RegexMatch = false
 		// XXX maybe show the non-matches during debug logging?
@@ -291,10 +291,17 @@ func applyRegexToLog(
 	if (*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits > regex_with_rate.HitsPerInterval {
 		// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 		ruleResult.RateLimitExceeded = true
-		decision, _ := ParseDecision(regex_with_rate.Decision) // XXX should be an enum already
-		banner.BanOrChallengeIp(config, ipString, decision, urlString)
+		banner.BanOrChallengeIp(config, ipString, regex_with_rate.Decision, urlString)
 		// log.Println(line.Text)
-		banner.LogRegexBan(config, timestamp, ipString, regex_with_rate.Rule, timeIpRest[2], decision)
+		banner.LogRegexBan(
+			config,
+			timestamp,
+			ipString,
+			regex_with_rate.Rule,
+			timeIpRest[2],
+			regex_with_rate.Decision,
+		)
+
 		(*(*ipToRegexStates)[ipString])[regex_with_rate.Rule].NumHits = 0 // XXX should it be 1?...
 	}
 

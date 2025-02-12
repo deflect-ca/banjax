@@ -14,7 +14,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"regexp"
 	"sync"
 	"syscall"
 	"time"
@@ -92,23 +91,8 @@ func load_config(config *internal.Config, standaloneTestingPtr *bool, configFile
 		config.PasswordPageBytes = passwordPageBytes
 	}
 
-	for i := range config.RegexesWithRates {
-		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-		if err != nil {
-			panic("bad regex")
-		}
-		config.RegexesWithRates[i].CompiledRegex = *re
-	}
-
-	for site, p_regex := range config.PerSiteRegexWithRates {
+	for site, _ := range config.PerSiteRegexWithRates {
 		log.Printf("PerSiteRegexWithRates: %s\n", site)
-		for i := range p_regex {
-			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
-			if err != nil {
-				panic("bad regex")
-			}
-			config.PerSiteRegexWithRates[site][i].CompiledRegex = *re
-		}
 	}
 
 	if config.Debug {

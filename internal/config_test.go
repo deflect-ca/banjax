@@ -7,10 +7,12 @@
 package internal
 
 import (
+	"fmt"
 	"log"
 	"testing"
 
 	"gopkg.in/yaml.v2"
+	"github.com/stretchr/testify/assert"
 )
 
 const passwordProtectedConfString = `
@@ -52,11 +54,36 @@ func TestConfigToPasswordProtectedPaths(t *testing.T) {
 	pathTester(testExceptionPaths, passwordProtectedPaths.SiteToExceptionToBool)
 }
 
+const regexWithRateString = `
+decision: nginx_block
+hits_per_interval: 800
+interval: 30
+regex: .*
+rule: "All sites/methods: 800 req/30 sec"
+hosts_to_skip:
+  localhost: true
+`
+func TestRegexWithRate(t *testing.T) {
+	var r RegexWithRate
+	err := yaml.Unmarshal([]byte(regexWithRateString), &r)
+	if err != nil {
+		t.Fatal("unexpected error:", err)
+	}
+
+	assert.Equal(t, NginxBlock, r.Decision)
+  assert.Equal(t, 800, r.HitsPerInterval)
+  assert.Equal(t, 30.0, r.Interval)
+  assert.Equal(t, ".*", r.Regex.String())
+  assert.Equal(t, "All sites/methods: 800 req/30 sec", r.Rule)
+  assert.Equal(t, 1, len(r.HostsToSkip))
+  assert.Equal(t, true, r.HostsToSkip["localhost"])
+}
+
 func loadConfigString(configStr string) *Config {
 	config := &Config{}
 	err := yaml.Unmarshal([]byte(configStr), config)
 	if err != nil {
-		panic("Couldn't parse config file.")
+		panic(fmt.Sprintf("Couldn't parse config file: %v", err))
 	}
 	return config
 }
