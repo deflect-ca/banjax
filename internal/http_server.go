@@ -46,8 +46,11 @@ func RunHttpServer(
 		ginLogFileName = config.GinLogFile
 	}
 
-	ginLogFile, _ := os.Create(ginLogFileName)
-	gin.DefaultWriter = ginLogFile
+	if ginLogFileName != "" && ginLogFileName != "-" {
+		if ginLogFile, err := os.Create(ginLogFileName); err == nil {
+			gin.DefaultWriter = ginLogFile
+		}
+	}
 
 	if !config.Debug {
 		gin.SetMode(gin.ReleaseMode)
@@ -55,35 +58,37 @@ func RunHttpServer(
 
 	r := gin.New()
 
-	type LogLine struct {
-		Time          string
-		ClientIp      string
-		ClientReqHost string
-		ClientReqPath string
-		Method        string
-		Path          string
-		Status        int
-		Latency       int
-	}
+	if ginLogFileName != "" {
+		type LogLine struct {
+			Time          string
+			ClientIp      string
+			ClientReqHost string
+			ClientReqPath string
+			Method        string
+			Path          string
+			Status        int
+			Latency       int
+		}
 
-	r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
-		logLine := LogLine{
-			Time:          param.TimeStamp.Format(time.RFC1123),
-			ClientIp:      param.Request.Header.Get("X-Client-IP"),
-			ClientReqHost: param.Request.Header.Get("X-Requested-Host"),
-			ClientReqPath: param.Request.Header.Get("X-Requested-Path"),
-			Method:        param.Method,
-			Path:          param.Path,
-			Status:        param.StatusCode,
-			Latency:       int(param.Latency / time.Microsecond),
-		}
-		bytes, err := json.Marshal(logLine)
-		if err != nil {
-			log.Println("!!! failed to marshal log line !!!")
-			return "{\"error\": \"bad\"}"
-		}
-		return string(bytes) + "\n" // XXX ?
-	}))
+		r.Use(gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+			logLine := LogLine{
+				Time:          param.TimeStamp.Format(time.RFC1123),
+				ClientIp:      param.Request.Header.Get("X-Client-IP"),
+				ClientReqHost: param.Request.Header.Get("X-Requested-Host"),
+				ClientReqPath: param.Request.Header.Get("X-Requested-Path"),
+				Method:        param.Method,
+				Path:          param.Path,
+				Status:        param.StatusCode,
+				Latency:       int(param.Latency / time.Microsecond),
+			}
+			bytes, err := json.Marshal(logLine)
+			if err != nil {
+				log.Println("!!! failed to marshal log line !!!")
+				return "{\"error\": \"bad\"}"
+			}
+			return string(bytes) + "\n" // XXX ?
+		}))
+	}
 
 	/*
 		example panic:

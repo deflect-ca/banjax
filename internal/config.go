@@ -59,6 +59,8 @@ type Config struct {
 	ReloadTime                             int
 	Hostname                               string
 	HmacSecret                             string              `yaml:"hmac_secret"`
+	// Path to the file to write gin (http server) log to. Use "-" to log to the stdout or empty
+	// string to disable logging.
 	GinLogFile                             string              `yaml:"gin_log_file"`
 	SitewideShaInvList                     map[string]string   `yaml:"sitewide_sha_inv_list"`
 	MetricsLogFileName                     string              `yaml:"metrics_log_file"`

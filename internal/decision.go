@@ -353,10 +353,18 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 		expiringDecisionListsSessionId: make(sessionIdToExpiringDecision),
 	}
 
-	return &DynamicDecisionLists{
+	lists := &DynamicDecisionLists{
 		value: value,
 		mutex: sync.Mutex{},
 	}
+
+	go func() {
+		for range time.NewTicker(9 * time.Second).C {
+			lists.removeExpired()
+		}
+	}()
+
+	return lists
 }
 
 func (h *DynamicDecisionLists) Update(
@@ -487,18 +495,6 @@ func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 	return bannedEntries
 }
 
-func (h *DynamicDecisionLists) RemoveExpired() {
-	h.mutex.Lock()
-	defer h.mutex.Unlock()
-
-	for ip, expiringDecision := range h.value.expiringDecisionLists {
-		if time.Now().Sub(expiringDecision.Expires) > 0 {
-			delete(h.value.expiringDecisionLists, ip)
-			// log.Println("deleted expired decision from expiring lists")
-		}
-	}
-}
-
 func (h *DynamicDecisionLists) RemoveByIp(ip string) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -533,6 +529,17 @@ func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiring
 	return
 }
 
+func (h *DynamicDecisionLists) removeExpired() {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for ip, expiringDecision := range h.value.expiringDecisionLists {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionLists, ip)
+			// log.Println("deleted expired decision from expiring lists")
+		}
+	}
+}
 
 type ipAddrToExpiringDecision map[string]ExpiringDecision
 

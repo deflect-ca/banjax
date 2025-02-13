@@ -247,8 +247,8 @@ func main() {
 
 	banner := internal.Banner{
 		DecisionLists: dynamicDecisionLists,
-		Logger: log.New(banningLogFile, "", 0),
-		LoggerTemp: log.New(banningLogFileTemp, "", 0),
+		Logger:        log.New(banningLogFile, "", 0),
+		LoggerTemp:    log.New(banningLogFileTemp, "", 0),
 		IPSetInstance: init_ipset(&config),
 	}
 
@@ -296,46 +296,68 @@ func main() {
 		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
-	metricsLogFileName := ""
-	if config.StandaloneTesting {
-		metricsLogFileName = "list-metrics.log"
-	} else {
-		metricsLogFileName = config.MetricsLogFileName
+	go reportMetrics(
+		29*time.Second,
+		&config,
+		dynamicDecisionLists,
+		&rateLimitMutex,
+		&ipToRegexStates,
+		&failedChallengeStates,
+	)
+
+	if !config.DisableKafka {
+		go reportKafkaStatusMessage(19*time.Second, &config)
 	}
 
-	metricsLogFile, _ := os.Create(metricsLogFileName)
-	defer metricsLogFile.Close()
-	metricsLogEncoder := json.NewEncoder(metricsLogFile)
-
-	// statusTicker := time.NewTicker(5 * time.Second)
-	expireTicker := time.NewTicker(9 * time.Second)
-	statusTicker := time.NewTicker(19 * time.Second)
-	metricsTicker := time.NewTicker(29 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-statusTicker.C:
-				// log.Println("calling ReportStatusMessage")
-				if !config.DisableKafka {
-					internal.ReportStatusMessage(
-						&config,
-					)
-				}
-			case <-expireTicker.C:
-				dynamicDecisionLists.RemoveExpired()
-			case <-metricsTicker.C:
-				internal.WriteMetricsToEncoder(
-					metricsLogEncoder,
-					dynamicDecisionLists,
-					&rateLimitMutex,
-					&ipToRegexStates,
-					&failedChallengeStates,
-				)
-			}
-		}
-	}()
-
 	wg.Wait()
+}
+
+func reportKafkaStatusMessage(interval time.Duration, config *internal.Config) {
+	for range time.NewTicker(interval).C {
+		if !config.DisableKafka {
+			internal.ReportStatusMessage(config)
+		}
+	}
+}
+
+func reportMetrics(
+	interval time.Duration,
+	config *internal.Config,
+	decisionLists *internal.DynamicDecisionLists,
+	rateLimitMutex *sync.Mutex,
+	ipToRegexStates *internal.IpToRegexStates,
+	failedChallengeStates *internal.FailedChallengeStates,
+) {
+	logFileName := ""
+	if config.StandaloneTesting {
+		logFileName = "list-metrics.log"
+	} else {
+		logFileName = config.MetricsLogFileName
+	}
+
+	if logFileName == "" {
+		return
+	}
+
+	logFile, err := os.Create(logFileName)
+	if err != nil {
+		log.Println("failed to create metrics log file:", err)
+		return
+	}
+
+	defer logFile.Close()
+
+	logEncoder := json.NewEncoder(logFile)
+
+	for range time.NewTicker(interval).C {
+		internal.WriteMetricsToEncoder(
+			logEncoder,
+			decisionLists,
+			rateLimitMutex,
+			ipToRegexStates,
+			failedChallengeStates,
+		)
+	}
 }
 
 var configToStructsMutex sync.Mutex
