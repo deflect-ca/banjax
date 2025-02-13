@@ -234,9 +234,9 @@ func (m siteToIPAddrToDecision) String() string {
 	return b.String()
 }
 
-type siteToFailAction 			map[string]FailAction
-type decisionToIPFilter     	map[Decision]*ipfilter.IPFilter
-type siteToDecisionToIPFilter 	map[string]map[Decision]*ipfilter.IPFilter
+type siteToFailAction map[string]FailAction
+type decisionToIPFilter map[Decision]*ipfilter.IPFilter
+type siteToDecisionToIPFilter map[string]map[Decision]*ipfilter.IPFilter
 
 // Decision lists that don't change unless the program is restarted or the config is hot-reloaded.
 type staticDecisionLists struct {

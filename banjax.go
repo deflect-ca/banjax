@@ -153,14 +153,6 @@ func init_ipset(config *internal.Config) ipset.IPSet {
 }
 
 func main() {
-	// XXX protects ipToRegexStates and failedChallengeStates
-	// (why both? because there are too many parameters already?)
-	var rateLimitMutex sync.Mutex
-	ipToRegexStates := internal.IpToRegexStates{}
-	failedChallengeStates := internal.FailedChallengeStates{}
-
-	var passwordProtectedPaths internal.PasswordProtectedPaths
-
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	debugPtr := flag.Bool("debug", false, "debug mode with verbose logging")
@@ -170,8 +162,12 @@ func main() {
 
 	log.Println("INIT: config file: ", *configFilenamePtr)
 
+	// FIXME: config is not thread-safe
 	config := internal.Config{}
 	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
+
+	rateLimitStates := internal.NewRateLimitStates()
+	passwordProtectedPaths := internal.PasswordProtectedPaths{}
 
 	staticDecisionLists, err := internal.NewStaticDecisionListsFromConfig(&config)
 	if err != nil {
@@ -189,10 +185,9 @@ func main() {
 	go func() {
 		for range sighup_channel {
 			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
-			rateLimitMutex.Lock()
+
 			config = internal.Config{}
 			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
-			rateLimitMutex.Unlock()
 
 			staticDecisionLists.UpdateFromConfig(&config)
 			dynamicDecisionLists.Clear()
@@ -260,9 +255,7 @@ func main() {
 		staticDecisionLists,
 		dynamicDecisionLists,
 		&passwordProtectedPaths,
-		&rateLimitMutex,
-		&ipToRegexStates,
-		&failedChallengeStates,
+		rateLimitStates,
 		banner,
 		&wg,
 	)
@@ -271,9 +264,8 @@ func main() {
 	go internal.RunLogTailer(
 		&config,
 		banner,
-		&rateLimitMutex,
-		&ipToRegexStates,
 		staticDecisionLists,
+		rateLimitStates,
 		&wg,
 	)
 
@@ -300,9 +292,7 @@ func main() {
 		29*time.Second,
 		&config,
 		dynamicDecisionLists,
-		&rateLimitMutex,
-		&ipToRegexStates,
-		&failedChallengeStates,
+		rateLimitStates,
 	)
 
 	if !config.DisableKafka {
@@ -324,9 +314,7 @@ func reportMetrics(
 	interval time.Duration,
 	config *internal.Config,
 	decisionLists *internal.DynamicDecisionLists,
-	rateLimitMutex *sync.Mutex,
-	ipToRegexStates *internal.IpToRegexStates,
-	failedChallengeStates *internal.FailedChallengeStates,
+	rateLimitStates *internal.RateLimitStates,
 ) {
 	logFileName := ""
 	if config.StandaloneTesting {
@@ -353,9 +341,7 @@ func reportMetrics(
 		internal.WriteMetricsToEncoder(
 			logEncoder,
 			decisionLists,
-			rateLimitMutex,
-			ipToRegexStates,
-			failedChallengeStates,
+			rateLimitStates,
 		)
 	}
 }

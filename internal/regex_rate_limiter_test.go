@@ -86,7 +86,6 @@ func configToStructs(
 }
 
 func TestConsumeLine(t *testing.T) {
-	var rateLimitMutex sync.Mutex
 	configString := `
 regexes_with_rates:
   - decision: nginx_block
@@ -113,7 +112,7 @@ per_site_regexes_with_rates:
 	if err != nil {
 		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
-	ipToRegexStates := IpToRegexStates{}
+	rateLimitStates := NewRateLimitStates()
 	mockBanner := MockBanner{}
 
 	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
@@ -130,13 +129,13 @@ per_site_regexes_with_rates:
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok := ipToRegexStates["1.2.3.4"]
+	ipStates, ok := rateLimitStates.GetRegexStates("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail1")
 	}
-	state, ok := (*ipStates)["rule1"]
+	state, ok := ipStates["rule1"]
 	if !ok {
 		t.Errorf("fail2")
 	}
@@ -152,13 +151,13 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 2 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = ipToRegexStates["1.2.3.4"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail4")
 	}
-	state, ok = (*ipStates)["rule1"]
+	state, ok = ipStates["rule1"]
 	if !ok {
 		t.Errorf("fail5")
 	}
@@ -174,13 +173,13 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 GET example.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 3 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = ipToRegexStates["1.2.3.4"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail7")
 	}
-	state, ok = (*ipStates)["rule1"]
+	state, ok = ipStates["rule1"]
 	if !ok {
 		t.Errorf("fail8")
 	}
@@ -196,20 +195,20 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 4 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = ipToRegexStates["1.2.3.4"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail10")
 	}
-	state, ok = (*ipStates)["rule1"]
+	state, ok = ipStates["rule1"]
 	if !ok {
 		t.Errorf("fail11")
 	}
 	if state.NumHits != 1 {
 		t.Errorf("fail12")
 	}
-	state, ok = (*ipStates)["rule2"]
+	state, ok = ipStates["rule2"]
 	if !ok {
 		t.Fatalf("fail13")
 	}
@@ -225,20 +224,20 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.2.3.4 POST example.com POST /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 5 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = ipToRegexStates["1.2.3.4"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail15")
 	}
-	state, ok = (*ipStates)["rule1"]
+	state, ok = ipStates["rule1"]
 	if !ok {
 		t.Errorf("fail16")
 	}
 	if state.NumHits != 1 {
 		t.Errorf("fail17")
 	}
-	state, ok = (*ipStates)["rule2"]
+	state, ok = ipStates["rule2"]
 	if !ok {
 		t.Fatalf("fail18")
 	}
@@ -255,10 +254,10 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.6.6.6 GET per-site.com GET /blockme/?a HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 6 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
 	// there should be a match for the per-site regex
-	ipStates, ok = ipToRegexStates["1.6.6.6"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.6.6.6")
 	if !ok {
 		t.Fatalf("fail20")
 	}
@@ -267,17 +266,16 @@ per_site_regexes_with_rates:
 	line = tail.Line{Text: lineTime + " 1.6.6.7 GET no-per-site.com GET /blockme/?a HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 7 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
 	// there should NO match for the per-site regex
-	ipStates, ok = ipToRegexStates["1.6.6.7"]
+	ipStates, ok = rateLimitStates.GetRegexStates("1.6.6.7")
 	if ok {
 		t.Fatalf("fail21")
 	}
 }
 
 func TestConsumeLineHostsToSkip(t *testing.T) {
-	var rateLimitMutex sync.Mutex
 	configString := `
 regexes_with_rates:
   - decision: nginx_block
@@ -294,7 +292,7 @@ regexes_with_rates:
 	if err != nil {
 		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
-	ipToRegexStates := IpToRegexStates{}
+	rateLimitStates := NewRateLimitStates()
 	mockBanner := MockBanner{}
 
 	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
@@ -311,16 +309,15 @@ regexes_with_rates:
 	line := tail.Line{Text: lineTime + " 1.2.3.4 GET skiphost.com GET /whatever HTTP/1.1 " +
 		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36 -"}
 	fmt.Println("-- 1 --")
-	consumeLine(&line, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	_, ok := ipToRegexStates["1.2.3.4"]
+	_, ok := rateLimitStates.GetRegexStates("1.2.3.4")
 	if ok {
 		t.Fatalf("should not have found a state since we skip this host")
 	}
 }
 
 func TestPerSiteRegexStress(t *testing.T) {
-	var rateLimitMutex sync.Mutex
 	var domains []string
 	var paths []string
 	testCount := 10000
@@ -362,7 +359,7 @@ regexes_with_rates:
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths)
 
-	ipToRegexStates := IpToRegexStates{}
+	rateLimitStates := NewRateLimitStates()
 	mockBanner := MockBanner{}
 
 	for j := 0; j < testCount; j++ {
@@ -374,13 +371,13 @@ regexes_with_rates:
 		// log.Printf("Testing: " + logLine)
 		lineTail := tail.Line{Text: logLine}
 
-		consumeLine(&lineTail, &rateLimitMutex, &ipToRegexStates, &mockBanner, &config, decisionLists)
+		consumeLine(&lineTail, rateLimitStates, &mockBanner, &config, decisionLists)
 
-		ipStates, ok := ipToRegexStates[ip]
+		ipStates, ok := rateLimitStates.GetRegexStates(ip)
 		if !ok {
 			t.Fatalf("fail1, IP not found in ipToRegexStates")
 		}
-		state, ok := (*ipStates)[fmt.Sprintf("rule%d", j)]
+		state, ok := ipStates[fmt.Sprintf("rule%d", j)]
 		if !ok {
 			t.Errorf("fail2, rule not found in ipStates")
 		}

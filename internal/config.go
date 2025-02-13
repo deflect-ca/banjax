@@ -7,14 +7,12 @@
 package internal
 
 import (
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -58,29 +56,29 @@ type Config struct {
 	RestartTime                            int
 	ReloadTime                             int
 	Hostname                               string
-	HmacSecret                             string              `yaml:"hmac_secret"`
+	HmacSecret                             string `yaml:"hmac_secret"`
 	// Path to the file to write gin (http server) log to. Use "-" to log to the stdout or empty
 	// string to disable logging.
-	GinLogFile                             string              `yaml:"gin_log_file"`
-	SitewideShaInvList                     map[string]string   `yaml:"sitewide_sha_inv_list"`
-	MetricsLogFileName                     string              `yaml:"metrics_log_file"`
-	ShaInvChallengeHTML                    string              `yaml:"sha_inv_challenge_html"`
-	PasswordProtectedPathHTML              string              `yaml:"password_protected_path_html"`
-	Debug                                  bool                `yaml:"debug"`
-	DisableLogging                         map[string]bool     `yaml:"disable_logging"`
-	BanningLogFileTemp                     string              `yaml:"banning_log_file_temp"`
-	DisableKafka                           bool                `yaml:"disable_kafka"`
-	SessionCookieHmacSecret                string              `yaml:"session_cookie_hmac_secret"`
-	SessionCookieTtlSeconds                int                 `yaml:"session_cookie_ttl_seconds"`
-	SessionCookieNotVerify                 bool                `yaml:"session_cookie_not_verify"`
-	SitesToDisableBaskerville              map[string]bool     `yaml:"sites_to_disable_baskerville"`
-	SitesToShaInvPathExceptions            map[string][]string `yaml:"sha_inv_path_exceptions"`
+	GinLogFile                  string              `yaml:"gin_log_file"`
+	SitewideShaInvList          map[string]string   `yaml:"sitewide_sha_inv_list"`
+	MetricsLogFileName          string              `yaml:"metrics_log_file"`
+	ShaInvChallengeHTML         string              `yaml:"sha_inv_challenge_html"`
+	PasswordProtectedPathHTML   string              `yaml:"password_protected_path_html"`
+	Debug                       bool                `yaml:"debug"`
+	DisableLogging              map[string]bool     `yaml:"disable_logging"`
+	BanningLogFileTemp          string              `yaml:"banning_log_file_temp"`
+	DisableKafka                bool                `yaml:"disable_kafka"`
+	SessionCookieHmacSecret     string              `yaml:"session_cookie_hmac_secret"`
+	SessionCookieTtlSeconds     int                 `yaml:"session_cookie_ttl_seconds"`
+	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
+	SitesToDisableBaskerville   map[string]bool     `yaml:"sites_to_disable_baskerville"`
+	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
 }
 
 type RegexWithRate struct {
 	Rule            string
 	Regex           regexp.Regexp
-	Interval        float64
+	Interval        time.Duration
 	HitsPerInterval int
 	Decision        Decision
 	HostsToSkip     map[string]bool
@@ -88,8 +86,8 @@ type RegexWithRate struct {
 
 func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var i struct {
-		Rule            string 			`yaml:"rule"`
-		Regex           string    	 	`yaml:"regex"`
+		Rule            string          `yaml:"rule"`
+		Regex           string          `yaml:"regex"`
 		Interval        float64         `yaml:"interval"`
 		HitsPerInterval int             `yaml:"hits_per_interval"`
 		Decision        string          `yaml:"decision"`
@@ -101,25 +99,27 @@ func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 
 	regex, err := regexp.Compile(i.Regex)
-    if err != nil {
+	if err != nil {
 		return err
-    }
+	}
 
-    decision, err := ParseDecision(i.Decision)
-    if err != nil {
+	// Convert from seconds as float to Duration
+	interval := time.Duration(i.Interval * float64(time.Second.Nanoseconds()))
+
+	decision, err := ParseDecision(i.Decision)
+	if err != nil {
 		return err
-    }
+	}
 
-	r.Rule 				= i.Rule
-	r.Regex 			= *regex
-	r.Interval 		  	= i.Interval
-	r.HitsPerInterval 	= i.HitsPerInterval
-	r.Decision          = decision
-	r.HostsToSkip       = i.HostsToSkip
+	r.Rule = i.Rule
+	r.Regex = *regex
+	r.Interval = interval
+	r.HitsPerInterval = i.HitsPerInterval
+	r.Decision = decision
+	r.HostsToSkip = i.HostsToSkip
 
 	return nil
 }
-
 
 type StringToBool map[string]bool
 type StringToStringToBool map[string]StringToBool
@@ -196,51 +196,6 @@ func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
 	}
 }
 
-// XXX use string.Builder
-func (ipToRegexStates IpToRegexStates) String() string {
-	buf := bytes.Buffer{}
-	for ip, states := range ipToRegexStates {
-		buf.WriteString(fmt.Sprintf("%v", ip))
-		buf.WriteString(":\n")
-		for rule, state := range *states {
-			buf.WriteString("\t")
-			buf.WriteString(fmt.Sprintf("%v", rule))
-			buf.WriteString(":\n")
-			buf.WriteString("\t\t")
-			buf.WriteString(fmt.Sprintf("%v", *state))
-			buf.WriteString("\n")
-		}
-		buf.WriteString("\n")
-	}
-	return buf.String()
-}
-
-// one of these for each regex_with_rate for each IP
-// XXX should this reference the whole rule so i can get the Decision later?
-type NumHitsAndIntervalStart struct {
-	NumHits           int
-	IntervalStartTime time.Time
-}
-
-type RuleName = string
-
-type IpAddress = string
-
-type RegexStates map[RuleName]*NumHitsAndIntervalStart
-
-type IpToRegexStates map[IpAddress]*RegexStates
-
-type FailedChallengeStates map[IpAddress]*NumHitsAndIntervalStart
-
-// XXX use string.Builder
-func (failedChallengeStates FailedChallengeStates) String() string {
-	buf := bytes.Buffer{}
-	for ip, state := range failedChallengeStates {
-		buf.WriteString(fmt.Sprintf("%v,: interval_start: %v, num hits: %v\n", ip, state.IntervalStartTime.Format("15:04:05"), state.NumHits))
-	}
-	return buf.String()
-}
-
 type BannedEntry struct {
 	IpOrSessionId   string `json:"ip"`
 	domain          string
@@ -269,18 +224,17 @@ type MetricsLogLine struct {
 func WriteMetricsToEncoder(
 	metricsLogEncoder *json.Encoder,
 	decisionLists *DynamicDecisionLists,
-	rateLimitMutex *sync.Mutex,
-	ipToRegexStates *IpToRegexStates,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 ) {
 	lenExpiringChallenges, lenExpiringBlocks := decisionLists.Metrics()
+	lenRegexStates, lenFailedChallengeStates := rateLimitStates.Metrics()
 
 	metricsLogLine := MetricsLogLine{
 		Time:                     time.Now().Format(time.RFC1123),
 		LenExpiringChallenges:    lenExpiringChallenges,
 		LenExpiringBlocks:        lenExpiringBlocks,
-		LenIpToRegexStates:       len(*ipToRegexStates),
-		LenFailedChallengeStates: len(*failedChallengeStates),
+		LenIpToRegexStates:       lenRegexStates,
+		LenFailedChallengeStates: lenFailedChallengeStates,
 	}
 
 	err := metricsLogEncoder.Encode(metricsLogLine)

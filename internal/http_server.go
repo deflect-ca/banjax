@@ -31,9 +31,7 @@ func RunHttpServer(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
-	ipToRegexStates *IpToRegexStates,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	banner BannerInterface,
 	wg *sync.WaitGroup,
 ) {
@@ -171,8 +169,7 @@ func RunHttpServer(
 			staticDecisionLists,
 			dynamicDecisionLists,
 			passwordProtectedPaths,
-			rateLimitMutex,
-			failedChallengeStates,
+			rateLimitStates,
 			banner,
 		),
 	)
@@ -188,14 +185,7 @@ func RunHttpServer(
 	})
 
 	r.GET("/rate_limit_states", func(c *gin.Context) {
-		rateLimitMutex.Lock()
-		c.String(200,
-			fmt.Sprintf("regexes:\n%v\nfailed challenges:\n%v",
-				ipToRegexStates.String(),
-				failedChallengeStates.String(),
-			),
-		)
-		rateLimitMutex.Unlock()
+		c.String(200, "%v\n", rateLimitStates)
 	})
 
 	// API to check if given IP was banned by iptables
@@ -443,37 +433,6 @@ func applyArgsToShaInvPage(config *Config) (modifiedPageBytes []byte) {
 	return
 }
 
-type FailedChallengeRateLimitResult uint
-
-const (
-	_ FailedChallengeRateLimitResult = iota
-	FirstFailure
-	PreviousFailureBeforeInterval
-	PreviousFailureWithinInterval
-)
-
-type TooManyFailedChallengesResult struct {
-	FailedChallengeRateLimitResult FailedChallengeRateLimitResult
-	TooManyFailedChallenges        bool
-}
-
-var FailedChallengeRateLimitResultToString = map[FailedChallengeRateLimitResult]string{
-	FirstFailure:                  "FirstFailure",
-	PreviousFailureBeforeInterval: "PreviousFailureBeforeInterval",
-	PreviousFailureWithinInterval: "PreviousFailureWithinInterval",
-}
-
-func (fcr FailedChallengeRateLimitResult) MarshalJSON() ([]byte, error) {
-	buffer := bytes.NewBufferString(`"`)
-	if s, ok := FailedChallengeRateLimitResultToString[fcr]; ok {
-		buffer.WriteString(s)
-	} else {
-		buffer.WriteString("nil")
-	}
-	buffer.WriteString(`"`)
-	return buffer.Bytes(), nil
-}
-
 // XXX this is very close to how the regex rate limits work
 func tooManyFailedChallenges(
 	config *Config,
@@ -483,36 +442,16 @@ func tooManyFailedChallenges(
 	path string,
 	banner BannerInterface,
 	challengeType string,
-	rateLimitMutex *sync.Mutex,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	method string,
 	decisionLists *StaticDecisionLists,
-) (tooManyFailedChallengesResult TooManyFailedChallengesResult) {
-	rateLimitMutex.Lock()
-	defer rateLimitMutex.Unlock()
+) (RateLimitResult) {
+	result := rateLimitStates.ApplyFailedChallenge(ip, config)
 
-	now := time.Now()
-	state, ok := (*failedChallengeStates)[ip]
-	if !ok {
-		// log.Println("IP hasn't failed a challenge before")
-		tooManyFailedChallengesResult.FailedChallengeRateLimitResult = FirstFailure
-		(*failedChallengeStates)[ip] = &NumHitsAndIntervalStart{1, now}
-	} else {
-		if now.Sub(state.IntervalStartTime) > time.Duration(time.Duration(config.TooManyFailedChallengesIntervalSeconds)*time.Second) {
-			// log.Println("IP has failed a challenge, but longer ago than $interval")
-			tooManyFailedChallengesResult.FailedChallengeRateLimitResult = PreviousFailureBeforeInterval
-			(*failedChallengeStates)[ip] = &NumHitsAndIntervalStart{1, now}
-		} else {
-			// log.Println("IP has failed a challenge in this $interval")
-			tooManyFailedChallengesResult.FailedChallengeRateLimitResult = PreviousFailureWithinInterval
-			(*failedChallengeStates)[ip].NumHits++
-		}
-	}
-
-	if (*failedChallengeStates)[ip].NumHits > config.TooManyFailedChallengesThreshold {
+	if result.Exceeded {
 		decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip)
 
-		var decisionType Decision = IptablesBlock
+		decisionType := IptablesBlock
 		if foundInPerSiteList && decision == Allow {
 			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
 			decisionType = NginxBlock
@@ -530,13 +469,9 @@ func tooManyFailedChallenges(
 			decisionType,
 			method,
 		)
-		(*failedChallengeStates)[ip].NumHits = 0 // XXX should it be 1?...
-		tooManyFailedChallengesResult.TooManyFailedChallenges = true
-		return tooManyFailedChallengesResult
 	}
 
-	tooManyFailedChallengesResult.TooManyFailedChallenges = false
-	return tooManyFailedChallengesResult
+	return result
 }
 
 type ShaChallengeResult uint
@@ -573,15 +508,14 @@ func (scr ShaChallengeResult) MarshalJSON() ([]byte, error) {
 
 type SendOrValidateShaChallengeResult struct {
 	ShaChallengeResult            ShaChallengeResult
-	TooManyFailedChallengesResult TooManyFailedChallengesResult
+	TooManyFailedChallengesResult RateLimitResult
 }
 
 func sendOrValidateShaChallenge(
 	config *Config,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
@@ -617,13 +551,12 @@ func sendOrValidateShaChallenge(
 			requestedPath,
 			banner,
 			"sha_inv",
-			rateLimitMutex,
-			failedChallengeStates,
+			rateLimitStates,
 			requestedMethod,
 			decisionLists,
 		)
 		sendOrValidateShaChallengeResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
-		if tooManyFailedChallengesResult.TooManyFailedChallenges {
+		if tooManyFailedChallengesResult.Exceeded {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 			accessDenied(c, config, "TooManyFailedChallenges")
 			return sendOrValidateShaChallengeResult
@@ -671,7 +604,7 @@ func (pcr PasswordChallengeResult) MarshalJSON() ([]byte, error) {
 
 type SendOrValidatePasswordResult struct {
 	PasswordChallengeResult       PasswordChallengeResult
-	TooManyFailedChallengesResult TooManyFailedChallengesResult
+	TooManyFailedChallengesResult RateLimitResult
 }
 
 // XXX does it make sense to have separate password auth cookies and sha-inv cookies?
@@ -681,8 +614,7 @@ func sendOrValidatePassword(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	decisionLists *StaticDecisionLists,
 ) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -736,14 +668,13 @@ func sendOrValidatePassword(
 		requestedPath,
 		banner,
 		"password",
-		rateLimitMutex,
-		failedChallengeStates,
+		rateLimitStates,
 		requestedMethod,
 		decisionLists,
 	)
 	sendOrValidatePasswordResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 	// log.Println(tooManyFailedChallengesResult)
-	if tooManyFailedChallengesResult.TooManyFailedChallenges {
+	if tooManyFailedChallengesResult.Exceeded {
 		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 		accessDenied(c, config, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
@@ -818,7 +749,7 @@ type DecisionForNginxResult struct {
 	DecisionListResult            DecisionListResult
 	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
 	ShaChallengeResult            *ShaChallengeResult
-	TooManyFailedChallengesResult *TooManyFailedChallengesResult
+	TooManyFailedChallengesResult *RateLimitResult
 }
 
 func decisionForNginx(
@@ -826,8 +757,7 @@ func decisionForNginx(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -837,8 +767,7 @@ func decisionForNginx(
 			staticDecisionLists,
 			dynamicDecisionLists,
 			passwordProtectedPaths,
-			rateLimitMutex,
-			failedChallengeStates,
+			rateLimitStates,
 			banner,
 		)
 		if config.Debug {
@@ -862,8 +791,7 @@ func decisionForNginx2(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitMutex *sync.Mutex,
-	failedChallengeStates *FailedChallengeStates,
+	rateLimitStates *RateLimitStates,
 	banner BannerInterface,
 ) (decisionForNginxResult DecisionForNginxResult) {
 	// XXX duplication
@@ -914,8 +842,7 @@ func decisionForNginx2(
 						passwordProtectedPaths,
 						c,
 						banner,
-						rateLimitMutex,
-						failedChallengeStates,
+						rateLimitStates,
 						staticDecisionLists,
 					)
 					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
@@ -950,8 +877,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitMutex,
-				failedChallengeStates,
+				rateLimitStates,
 				Block, // FailAction
 				staticDecisionLists,
 			)
@@ -981,8 +907,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitMutex,
-				failedChallengeStates,
+				rateLimitStates,
 				Block, // FailAction
 				staticDecisionLists,
 			)
@@ -1029,8 +954,7 @@ func decisionForNginx2(
 					config,
 					c,
 					banner,
-					rateLimitMutex,
-					failedChallengeStates,
+					rateLimitStates,
 					Block, // FailAction
 					staticDecisionLists,
 				)
@@ -1061,8 +985,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitMutex,
-				failedChallengeStates,
+				rateLimitStates,
 				failAction,
 				staticDecisionLists,
 			)
