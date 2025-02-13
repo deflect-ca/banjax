@@ -47,7 +47,7 @@ func RunHttpServer(
 	}
 
 	ginLogFile, _ := os.Create(ginLogFileName)
-	gin.DefaultWriter = io.MultiWriter(ginLogFile)
+	gin.DefaultWriter = ginLogFile
 
 	if !config.Debug {
 		gin.SetMode(gin.ReleaseMode)
