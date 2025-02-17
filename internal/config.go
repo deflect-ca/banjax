@@ -224,10 +224,12 @@ type MetricsLogLine struct {
 func WriteMetricsToEncoder(
 	metricsLogEncoder *json.Encoder,
 	decisionLists *DynamicDecisionLists,
-	rateLimitStates *RateLimitStates,
+	regexStates *RegexRateLimitStates,
+	failedChallengeStates *FailedChallengeRateLimitStates,
 ) {
 	lenExpiringChallenges, lenExpiringBlocks := decisionLists.Metrics()
-	lenRegexStates, lenFailedChallengeStates := rateLimitStates.Metrics()
+	lenRegexStates := regexStates.Len()
+	lenFailedChallengeStates := failedChallengeStates.Len()
 
 	metricsLogLine := MetricsLogLine{
 		Time:                     time.Now().Format(time.RFC1123),

@@ -166,7 +166,8 @@ func main() {
 	config := internal.Config{}
 	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
 
-	rateLimitStates := internal.NewRateLimitStates()
+	regexStates := internal.NewRegexRateLimitStates()
+	failedChallengeStates := internal.NewFailedChallengeRateLimitStates()
 	passwordProtectedPaths := internal.PasswordProtectedPaths{}
 
 	staticDecisionLists, err := internal.NewStaticDecisionListsFromConfig(&config)
@@ -255,7 +256,8 @@ func main() {
 		staticDecisionLists,
 		dynamicDecisionLists,
 		&passwordProtectedPaths,
-		rateLimitStates,
+		regexStates,
+		failedChallengeStates,
 		banner,
 		&wg,
 	)
@@ -265,7 +267,7 @@ func main() {
 		&config,
 		banner,
 		staticDecisionLists,
-		rateLimitStates,
+		regexStates,
 		&wg,
 	)
 
@@ -292,7 +294,8 @@ func main() {
 		29*time.Second,
 		&config,
 		dynamicDecisionLists,
-		rateLimitStates,
+		regexStates,
+		failedChallengeStates,
 	)
 
 	if !config.DisableKafka {
@@ -314,7 +317,8 @@ func reportMetrics(
 	interval time.Duration,
 	config *internal.Config,
 	decisionLists *internal.DynamicDecisionLists,
-	rateLimitStates *internal.RateLimitStates,
+	regexStates *internal.RegexRateLimitStates,
+	failedChallengeStates *internal.FailedChallengeRateLimitStates,
 ) {
 	logFileName := ""
 	if config.StandaloneTesting {
@@ -341,7 +345,8 @@ func reportMetrics(
 		internal.WriteMetricsToEncoder(
 			logEncoder,
 			decisionLists,
-			rateLimitStates,
+			regexStates,
+			failedChallengeStates,
 		)
 	}
 }

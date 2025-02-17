@@ -22,7 +22,7 @@ func RunLogTailer(
 	config *Config,
 	banner BannerInterface,
 	decisionLists *StaticDecisionLists,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *RegexRateLimitStates,
 	wg *sync.WaitGroup,
 ) {
 	// log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
@@ -97,7 +97,7 @@ func parseTimestamp(timeIpRest []string) (timestamp time.Time, err error) {
 // parsing these unescaped space-separated strings is gross. maybe pass json instead.
 func consumeLine(
 	line *tail.Line,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *RegexRateLimitStates,
 	banner BannerInterface,
 	config *Config,
 	decisionLists *StaticDecisionLists,
@@ -202,7 +202,7 @@ func applyRegexToLog(
 	banner BannerInterface,
 	config *Config,
 	regexWithRate RegexWithRate,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *RegexRateLimitStates,
 	timeIpRest []string,
 	timestamp time.Time,
 	ipString string,
@@ -232,7 +232,7 @@ func applyRegexToLog(
 	}
 	result.SkipHost = false
 
-	seenIp, rateLimitResult := rateLimitStates.ApplyRegex(ipString, regexWithRate, timestamp)
+	seenIp, rateLimitResult := rateLimitStates.Apply(ipString, regexWithRate, timestamp)
 	result.SeenIp = seenIp
 	result.RateLimitResult = rateLimitResult
 

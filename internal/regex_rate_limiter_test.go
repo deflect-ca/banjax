@@ -112,7 +112,7 @@ per_site_regexes_with_rates:
 	if err != nil {
 		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
-	rateLimitStates := NewRateLimitStates()
+	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}
 
 	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
@@ -131,7 +131,7 @@ per_site_regexes_with_rates:
 	fmt.Println("-- 1 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok := rateLimitStates.GetRegexStates("1.2.3.4")
+	ipStates, ok := rateLimitStates.Get("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail1")
 	}
@@ -153,7 +153,7 @@ per_site_regexes_with_rates:
 	fmt.Println("-- 2 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
+	ipStates, ok = rateLimitStates.Get("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail4")
 	}
@@ -175,7 +175,7 @@ per_site_regexes_with_rates:
 	fmt.Println("-- 3 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
+	ipStates, ok = rateLimitStates.Get("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail7")
 	}
@@ -197,7 +197,7 @@ per_site_regexes_with_rates:
 	fmt.Println("-- 4 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
+	ipStates, ok = rateLimitStates.Get("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail10")
 	}
@@ -226,7 +226,7 @@ per_site_regexes_with_rates:
 	fmt.Println("-- 5 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	ipStates, ok = rateLimitStates.GetRegexStates("1.2.3.4")
+	ipStates, ok = rateLimitStates.Get("1.2.3.4")
 	if !ok {
 		t.Fatalf("fail15")
 	}
@@ -257,7 +257,7 @@ per_site_regexes_with_rates:
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
 	// there should be a match for the per-site regex
-	ipStates, ok = rateLimitStates.GetRegexStates("1.6.6.6")
+	ipStates, ok = rateLimitStates.Get("1.6.6.6")
 	if !ok {
 		t.Fatalf("fail20")
 	}
@@ -269,7 +269,7 @@ per_site_regexes_with_rates:
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
 	// there should NO match for the per-site regex
-	ipStates, ok = rateLimitStates.GetRegexStates("1.6.6.7")
+	ipStates, ok = rateLimitStates.Get("1.6.6.7")
 	if ok {
 		t.Fatalf("fail21")
 	}
@@ -292,7 +292,7 @@ regexes_with_rates:
 	if err != nil {
 		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
-	rateLimitStates := NewRateLimitStates()
+	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}
 
 	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
@@ -311,7 +311,7 @@ regexes_with_rates:
 	fmt.Println("-- 1 --")
 	consumeLine(&line, rateLimitStates, &mockBanner, &config, decisionLists)
 
-	_, ok := rateLimitStates.GetRegexStates("1.2.3.4")
+	_, ok := rateLimitStates.Get("1.2.3.4")
 	if ok {
 		t.Fatalf("should not have found a state since we skip this host")
 	}
@@ -359,7 +359,7 @@ regexes_with_rates:
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths)
 
-	rateLimitStates := NewRateLimitStates()
+	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}
 
 	for j := 0; j < testCount; j++ {
@@ -373,7 +373,7 @@ regexes_with_rates:
 
 		consumeLine(&lineTail, rateLimitStates, &mockBanner, &config, decisionLists)
 
-		ipStates, ok := rateLimitStates.GetRegexStates(ip)
+		ipStates, ok := rateLimitStates.Get(ip)
 		if !ok {
 			t.Fatalf("fail1, IP not found in ipToRegexStates")
 		}

@@ -31,7 +31,8 @@ func RunHttpServer(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitStates *RateLimitStates,
+	regexStates *RegexRateLimitStates,
+	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 	wg *sync.WaitGroup,
 ) {
@@ -169,7 +170,7 @@ func RunHttpServer(
 			staticDecisionLists,
 			dynamicDecisionLists,
 			passwordProtectedPaths,
-			rateLimitStates,
+			failedChallengeStates,
 			banner,
 		),
 	)
@@ -185,7 +186,12 @@ func RunHttpServer(
 	})
 
 	r.GET("/rate_limit_states", func(c *gin.Context) {
-		c.String(200, "%v\n", rateLimitStates)
+		c.String(
+			200,
+			"regexes:\n%v\nfailed challenges:\n%v\n",
+			regexStates,
+			failedChallengeStates,
+		)
 	})
 
 	// API to check if given IP was banned by iptables
@@ -442,11 +448,11 @@ func tooManyFailedChallenges(
 	path string,
 	banner BannerInterface,
 	challengeType string,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *FailedChallengeRateLimitStates,
 	method string,
 	decisionLists *StaticDecisionLists,
 ) (RateLimitResult) {
-	result := rateLimitStates.ApplyFailedChallenge(ip, config)
+	result := rateLimitStates.Apply(ip, config)
 
 	if result.Exceeded {
 		decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip)
@@ -515,7 +521,7 @@ func sendOrValidateShaChallenge(
 	config *Config,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
@@ -614,7 +620,7 @@ func sendOrValidatePassword(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	c *gin.Context,
 	banner BannerInterface,
-	rateLimitStates *RateLimitStates,
+	rateLimitStates *FailedChallengeRateLimitStates,
 	decisionLists *StaticDecisionLists,
 ) (sendOrValidatePasswordResult SendOrValidatePasswordResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -757,7 +763,7 @@ func decisionForNginx(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitStates *RateLimitStates,
+	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -767,7 +773,7 @@ func decisionForNginx(
 			staticDecisionLists,
 			dynamicDecisionLists,
 			passwordProtectedPaths,
-			rateLimitStates,
+			failedChallengeStates,
 			banner,
 		)
 		if config.Debug {
@@ -791,7 +797,7 @@ func decisionForNginx2(
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
-	rateLimitStates *RateLimitStates,
+	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 ) (decisionForNginxResult DecisionForNginxResult) {
 	// XXX duplication
@@ -842,7 +848,7 @@ func decisionForNginx2(
 						passwordProtectedPaths,
 						c,
 						banner,
-						rateLimitStates,
+						failedChallengeStates,
 						staticDecisionLists,
 					)
 					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
@@ -877,7 +883,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitStates,
+				failedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
 			)
@@ -907,7 +913,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitStates,
+				failedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
 			)
@@ -954,7 +960,7 @@ func decisionForNginx2(
 					config,
 					c,
 					banner,
-					rateLimitStates,
+					failedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
 				)
@@ -985,7 +991,7 @@ func decisionForNginx2(
 				config,
 				c,
 				banner,
-				rateLimitStates,
+				failedChallengeStates,
 				failAction,
 				staticDecisionLists,
 			)
