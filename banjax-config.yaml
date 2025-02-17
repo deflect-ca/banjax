@@ -113,9 +113,9 @@ debug: true
 disable_kafka: true
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html
-disable_logging:
-  "localhost:8081": true
-  localhost: true
+# disable_logging:
+#   "localhost:8081": true
+#   localhost: true
 banning_log_file_temp: /etc/banjax/ban_ip_list_temp.log
 session_cookie_hmac_secret: some_secret
 session_cookie_ttl_seconds: 3600

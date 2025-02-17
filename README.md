@@ -74,11 +74,12 @@ From the perspective of the JS and cookie cryptographic implementation, these wo
 
 # Development
 
-```
-docker-compose up
-```
+Create a empty `.env` file for docker-compose. `touch .env`
 
-Note: Uncomment line 33 to 36 and comment line 37 in `Dockerfile` to enable `air` hot-reload during development
+```
+export ENABLE_AIR=1  # enable hot-reloading for dev
+docker-compose up --build
+```
 
 # Installation
 
