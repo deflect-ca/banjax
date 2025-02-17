@@ -81,11 +81,12 @@ func getDialer(config *Config) *kafka.Dialer {
 
 func RunKafkaReader(
 	ctx context.Context,
-	config *Config,
+	configHolder *ConfigHolder,
 	decisionLists *DynamicDecisionLists,
 ) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
+		config := configHolder.Get()
 		r := kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        config.KafkaBrokers,
 			GroupID:        uuid.New().String(),
@@ -123,7 +124,7 @@ func RunKafkaReader(
 				string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
 
 			handleCommand(
-				config,
+				configHolder.Get(),
 				command,
 				decisionLists,
 			)
@@ -311,10 +312,11 @@ var messageChan chan []byte
 // current commands: status, ip_{passed,failed}_challenge, ip_banned, ip_in_database
 func RunKafkaWriter(
 	ctx context.Context,
-	config *Config,
+	configHolder *ConfigHolder,
 ) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
+		config := configHolder.Get()
 		w := kafka.NewWriter(kafka.WriterConfig{
 			Brokers: config.KafkaBrokers,
 			Topic:   config.KafkaReportTopic,

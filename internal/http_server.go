@@ -29,7 +29,7 @@ const (
 
 func RunHttpServer(
 	ctx context.Context,
-	config *Config,
+	configHolder *ConfigHolder,
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
@@ -37,6 +37,10 @@ func RunHttpServer(
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 ) {
+	addr := "127.0.0.1:8081" // XXX config
+
+	config := configHolder.Get()
+
 	ginLogFileName := ""
 	if config.StandaloneTesting {
 		ginLogFileName = "gin.log"
@@ -137,7 +141,7 @@ func RunHttpServer(
 		// XXX think about these options?
 		logFile, err := os.OpenFile(config.ServerLogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			panic("failed to open ServerLogFile for writing in StandaloneTesting mode")
+			log.Panic("failed to open ServerLogFile for writing in StandaloneTesting mode: ", err)
 		}
 		defer logFile.Close()
 
@@ -160,12 +164,11 @@ func RunHttpServer(
 				log.Printf("failed to write? %v\n", err)
 			}
 		})
-	} else {
 	}
 
 	r.Any("/auth_request",
 		decisionForNginx(
-			config,
+			configHolder,
 			staticDecisionLists,
 			dynamicDecisionLists,
 			passwordProtectedPaths,
@@ -176,7 +179,7 @@ func RunHttpServer(
 
 	r.GET("/info", func(c *gin.Context) {
 		c.JSON(200, gin.H{
-			"config_version": config.ConfigVersion,
+			"config_version": configHolder.Get().ConfigVersion,
 		})
 	})
 
@@ -256,6 +259,8 @@ func RunHttpServer(
 
 	// API to unban an IP
 	r.POST("/unban", func(c *gin.Context) {
+		config := configHolder.Get()
+
 		// get ip from post data
 		ip := strings.TrimSpace(c.PostForm("ip"))
 		if ip == "" {
@@ -305,9 +310,10 @@ func RunHttpServer(
 	})
 
 	server := &http.Server{
-		Addr:    "127.0.0.1:8081", // XXX config
+		Addr:    addr,
 		Handler: r,
 	}
+	defer server.Close()
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -316,7 +322,6 @@ func RunHttpServer(
 	}()
 
 	<-ctx.Done()
-	server.Close()
 }
 
 // this adds the headers that Nginx usually would in production
@@ -770,7 +775,7 @@ type DecisionForNginxResult struct {
 }
 
 func decisionForNginx(
-	config *Config,
+	configHolder *ConfigHolder,
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
 	passwordProtectedPaths *PasswordProtectedPaths,
@@ -778,6 +783,7 @@ func decisionForNginx(
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		config := configHolder.Get()
 		decisionForNginxResult := decisionForNginx2(
 			c,
 			config,

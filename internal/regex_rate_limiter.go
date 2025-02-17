@@ -20,7 +20,7 @@ import (
 
 func RunLogTailer(
 	ctx context.Context,
-	config *Config,
+	configHolder *ConfigHolder,
 	banner BannerInterface,
 	decisionLists *StaticDecisionLists,
 	rateLimitStates *RegexRateLimitStates,
@@ -28,7 +28,7 @@ func RunLogTailer(
 	var tailer *tail.Tail
 
 	for {
-		t, err := tail.TailFile(config.ServerLogFile, tail.Config{
+		t, err := tail.TailFile(configHolder.Get().ServerLogFile, tail.Config{
 			Follow: true,
 			Location: &tail.SeekInfo{
 				Offset: 0,
@@ -56,6 +56,7 @@ func RunLogTailer(
 		case <-ctx.Done():
 			return
 		case line := <-tailer.Lines:
+			config := configHolder.Get()
 			result := consumeLine(
 				line,
 				rateLimitStates,
