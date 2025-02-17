@@ -80,15 +80,13 @@ func getDialer(config *Config) *kafka.Dialer {
 }
 
 func RunKafkaReader(
-	config *Config,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
-	wg *sync.WaitGroup,
+	ctx context.Context,
+	configHolder *ConfigHolder,
+	decisionLists *DynamicDecisionLists,
 ) {
-	defer wg.Done()
-
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
+		config := configHolder.Get()
 		r := kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        config.KafkaBrokers,
 			GroupID:        uuid.New().String(),
@@ -102,15 +100,15 @@ func RunKafkaReader(
 		log.Printf("KAFKA: NewReader started")
 
 		for {
-			// XXX read about go contexts
-			// ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-			// defer cancel()
-			ctx := context.Background()
 			m, err := r.ReadMessage(ctx)
+
+			if ctx.Err() != nil {
+				return
+			}
+
 			if err != nil {
-				log.Println("KAFKA: r.ReadMessage() failed")
-				log.Println(err.Error())
-				continue // XXX what to do here?
+				log.Println("KAFKA: r.ReadMessage() failed:", err)
+				break
 			}
 
 			// log.Printf("KAFKA: message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
@@ -126,14 +124,18 @@ func RunKafkaReader(
 				string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
 
 			handleCommand(
-				config,
+				configHolder.Get(),
 				command,
-				decisionListsMutex,
 				decisionLists,
 			)
 		}
 
-		time.Sleep(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			continue
+		}
 	}
 }
 
@@ -158,8 +160,7 @@ func getBlockSessionTtl(config *Config, host string) (blockSessionTtl int) {
 func handleCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 ) {
 	// exempt a site from baskerville according to config
 	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled {
@@ -170,18 +171,18 @@ func handleCommand(
 	// handle commands
 	switch command.Name {
 	case "challenge_ip":
-		handleIPCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		handleIPCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_ip":
 		ttl := getBlockIpTtl(config, command.Host)
-		handleIPCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
+		handleIPCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	case "challenge_session":
-		handleSessionCommand(config, command, decisionListsMutex, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		handleSessionCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_session":
 		ttl := getBlockSessionTtl(config, command.Host)
-		handleSessionCommand(config, command, decisionListsMutex, decisionLists, NginxBlock, ttl)
+		handleSessionCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	default:
 		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
@@ -191,8 +192,7 @@ func handleCommand(
 func handleIPCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 	decision Decision,
 	expireDuration int,
 ) {
@@ -204,11 +204,9 @@ func handleIPCommand(
 	log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
 		command.Host, command.Value, decision, expireDuration)
 
-	updateExpiringDecisionLists(
+	decisionLists.Update(
 		config,
 		command.Value,
-		decisionListsMutex,
-		decisionLists,
 		time.Now().Add(time.Duration(expireDuration)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
@@ -219,8 +217,7 @@ func handleIPCommand(
 func handleSessionCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
-	decisionLists *DecisionLists,
+	decisionLists *DynamicDecisionLists,
 	decision Decision,
 	expireDuration int,
 ) {
@@ -234,12 +231,10 @@ func handleSessionCommand(
 	log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
 		command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
 
-	updateExpiringDecisionListsSessionId(
+	decisionLists.UpdateBySessionId(
 		config,
 		command.Value,
 		sessionIdDecoded,
-		decisionListsMutex,
-		decisionLists,
 		time.Now().Add(time.Duration(expireDuration)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
@@ -316,11 +311,12 @@ var messageChan chan []byte
 
 // current commands: status, ip_{passed,failed}_challenge, ip_banned, ip_in_database
 func RunKafkaWriter(
-	config *Config,
-	wg *sync.WaitGroup,
+	ctx context.Context,
+	configHolder *ConfigHolder,
 ) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
+		config := configHolder.Get()
 		w := kafka.NewWriter(kafka.WriterConfig{
 			Brokers: config.KafkaBrokers,
 			Topic:   config.KafkaReportTopic,
@@ -339,15 +335,19 @@ func RunKafkaWriter(
 			msgBytes := <-messageChan
 			// log.Println("got message from messageChan")
 
-			err := w.WriteMessages(context.Background(),
+			err := w.WriteMessages(ctx,
 				kafka.Message{
 					Key:   []byte("some-key"),
 					Value: msgBytes,
 				},
 			)
+
+			if ctx.Err() != nil {
+				return
+			}
+
 			if err != nil {
-				log.Println("KAFKA: WriteMessages() failed")
-				log.Println(err)
+				log.Println("KAFKA: WriteMessages() failed:", err)
 				break
 			}
 
@@ -356,6 +356,11 @@ func RunKafkaWriter(
 			// time.Sleep(2 * time.Second) // XXX just for testing at the moment
 		}
 
-		time.Sleep(5 * time.Second) // try to reconnect if we get dropped
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second): // try to reconnect if we get dropped
+			continue
+		}
 	}
 }

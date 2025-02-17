@@ -3,12 +3,19 @@
 package main
 
 import (
+	"io"
+	"log"
 	"os"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
+	// Suppress log output to reduce noise.
+	logWriter := log.Writer()
+	log.SetOutput(io.Discard)
+	defer log.SetOutput(logWriter)
+
 	setUp()
 	exit_code := m.Run()
 	tearDown()
@@ -16,7 +23,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestPathWithChallengeCookies(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 1)
+	defer reloadConfig(fixtureConfigTest, 1, t)
 
 	prefix := "/auth_request?path="
 	httpTesterWithCookie(t, []TestResource{
@@ -26,14 +33,14 @@ func TestPathWithChallengeCookies(t *testing.T) {
 	})
 
 	// reload without per site max age, test if default value 14400 present
-	reloadConfig(fixtureConfigTestReloadCIDR, 1)
+	reloadConfig(fixtureConfigTestReloadCIDR, 1, t)
 	httpTesterWithCookie(t, []TestResource{
 		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3", "14400"}}, // testing max-age
 	})
 }
 
 func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 1)
+	defer reloadConfig(fixtureConfigTest, 1, t)
 
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
@@ -48,7 +55,7 @@ func TestGlobalPerSiteDecisionListsMask(t *testing.T) {
 		{"GET", prefix + "/per_site_mask_128_ban", 429, ClientIP("192.168.0.128"), nil},
 	})
 
-	reloadConfig(fixtureConfigTestReloadCIDR, 1)
+	reloadConfig(fixtureConfigTestReloadCIDR, 1, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-03-02"}},
 		{"GET", prefix + "/global_mask_64_nginx_block", 403, ClientIP("192.168.2.64"), nil},
@@ -94,7 +101,7 @@ func TestBanjaxEndpoint(t *testing.T) {
 }
 
 func TestProtectedResources(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 50)
+	defer reloadConfig(fixtureConfigTest, 50, t)
 
 	/*
 		password_protected_paths:
@@ -138,7 +145,7 @@ func TestProtectedResources(t *testing.T) {
 			"localhost":
 				- wp-admin
 	*/
-	reloadConfig(fixtureConfigTestReload, 50)
+	reloadConfig(fixtureConfigTestReload, 50, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// protected resources
@@ -147,7 +154,7 @@ func TestProtectedResources(t *testing.T) {
 }
 
 func TestGlobalDecisionLists(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 50)
+	defer reloadConfig(fixtureConfigTest, 50, t)
 
 	/*
 		global_decision_lists:
@@ -177,7 +184,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 			challenge:
 				- 20.20.20.20  # test value change
 	*/
-	reloadConfig(fixtureConfigTestReload, 50)
+	reloadConfig(fixtureConfigTestReload, 50, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// global_decision_lists
@@ -187,7 +194,7 @@ func TestGlobalDecisionLists(t *testing.T) {
 }
 
 func TestPerSiteDecisionLists(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 50)
+	defer reloadConfig(fixtureConfigTest, 50, t)
 
 	/*
 		per_site_decision_lists:
@@ -215,7 +222,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 				block:
 				- 92.92.92.92
 	*/
-	reloadConfig(fixtureConfigTestReload, 50)
+	reloadConfig(fixtureConfigTestReload, 50, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// per_site_decision_lists
@@ -223,7 +230,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 	})
 
 	// test if return 403 after too many failed password page, after it should see 401 immediately
-	reloadConfig(fixtureConfigTestPersiteFail, 1)
+	reloadConfig(fixtureConfigTestPersiteFail, 1, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2023-08-23"}},
 		{"GET", prefix + "/wp-admin", 401, ClientIP("92.92.92.92"), nil},
@@ -244,7 +251,7 @@ func TestPerSiteDecisionLists(t *testing.T) {
 }
 
 func TestSitewideShaInvList(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 50)
+	defer reloadConfig(fixtureConfigTest, 50, t)
 
 	/*
 		sitewide_sha_inv_list:
@@ -263,7 +270,7 @@ func TestSitewideShaInvList(t *testing.T) {
 			foobar.com: no_block
 			"localhost:8081": block
 	*/
-	reloadConfig(fixtureConfigTestShaInv, 50)
+	reloadConfig(fixtureConfigTestShaInv, 50, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// sitewide_sha_inv_list on
@@ -275,7 +282,7 @@ func TestSitewideShaInvList(t *testing.T) {
 			example.com: block
 			foobar.com: no_block
 	*/
-	reloadConfig(fixtureConfigTest, 50)
+	reloadConfig(fixtureConfigTest, 50, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-01-02"}},
 		// sitewide_sha_inv_list off
@@ -284,7 +291,7 @@ func TestSitewideShaInvList(t *testing.T) {
 }
 
 func TestRegexesWithRatesChallengeme(t *testing.T) {
-	defer reloadConfig(fixtureConfigTestRegexBanner, 1) // prepare for next test
+	defer reloadConfig(fixtureConfigTestRegexBanner, 1, t) // prepare for next test
 
 	/*
 		- decision: challenge
@@ -308,7 +315,7 @@ func TestRegexesWithRatesChallengeme(t *testing.T) {
 	/*
 		removed
 	*/
-	reloadConfig(fixtureConfigTestReload, 1)
+	reloadConfig(fixtureConfigTestReload, 1, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
 		// regexes_with_rates (rule removed)
@@ -318,7 +325,7 @@ func TestRegexesWithRatesChallengeme(t *testing.T) {
 }
 
 func TestRegexesWithRates(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 1)
+	defer reloadConfig(fixtureConfigTest, 1, t)
 
 	/* (fixtureConfigTestRegexBanner)
 	# test target 1
@@ -353,7 +360,9 @@ func TestRegexesWithRates(t *testing.T) {
 	// test target 2, make 45 req
 	httpStress(
 		[]TestResource{{"GET", prefix + "/45in60", 200, ClientIP("11.11.11.11"), nil}},
-		45)
+		45,
+		t,
+	)
 
 	time.Sleep(2 * time.Second)
 	httpTester(t, []TestResource{
@@ -364,7 +373,9 @@ func TestRegexesWithRates(t *testing.T) {
 	// test target 3, make 45 req
 	httpStress(
 		[]TestResource{{"GET", prefix + "/45in60-whitelist", 200, ClientIP("12.12.12.12"), nil}},
-		45)
+		45,
+		t,
+	)
 
 	time.Sleep(2 * time.Second)
 	httpTester(t, []TestResource{
@@ -374,7 +385,7 @@ func TestRegexesWithRates(t *testing.T) {
 }
 
 func TestRegexesWithRatesAllowList(t *testing.T) {
-	defer reloadConfig(fixtureConfigTest, 1)
+	defer reloadConfig(fixtureConfigTest, 1, t)
 
 	prefix := "/auth_request?path="
 

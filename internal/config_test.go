@@ -7,9 +7,11 @@
 package internal
 
 import (
-	"log"
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 )
 
@@ -30,55 +32,51 @@ password_hashes:
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 `
 
-type TestPaths struct {
-	hostname string
-	paths    []string
+func TestPasswordProtectedPaths(t *testing.T) {
+	config := loadConfigString(passwordProtectedConfString)
+	ppp, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost:8081", "/wp-admin"))
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost:8081", "/app/protected"))
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost", "/wp-admin"))
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost:8081", "/wp-admin/admin-ajax.php"))
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost", "/app/admin/no-ban.php"))
+	assert.Equal(t, NotPasswordProtected, ppp.ClassifyPath("localhost", "/foo"))
 }
 
-func TestConfigToPasswordProtectedPaths(t *testing.T) {
-	config := loadConfigString(passwordProtectedConfString)
-	passwordProtectedPaths := ConfigToPasswordProtectedPaths(config)
+const regexWithRateString = `
+decision: nginx_block
+hits_per_interval: 800
+interval: 30
+regex: .*
+rule: "All sites/methods: 800 req/30 sec"
+hosts_to_skip:
+  localhost: true
+`
 
-	testProtectedPaths := []TestPaths{
-		{"localhost:8081", []string{"/wp-admin", "/app/protected"}},
-		{"localhost", []string{"/wp-admin"}},
+func TestRegexWithRate(t *testing.T) {
+	var r RegexWithRate
+	err := yaml.Unmarshal([]byte(regexWithRateString), &r)
+	if err != nil {
+		t.Fatal("unexpected error:", err)
 	}
-	pathTester(testProtectedPaths, passwordProtectedPaths.SiteToPathToBool)
 
-	testExceptionPaths := []TestPaths{
-		{"localhost:8081", []string{"/wp-admin/admin-ajax.php"}},
-		{"localhost", []string{"/app/admin/no-ban.php"}},
-	}
-	pathTester(testExceptionPaths, passwordProtectedPaths.SiteToExceptionToBool)
+	assert.Equal(t, NginxBlock, r.Decision)
+	assert.Equal(t, 800, r.HitsPerInterval)
+	assert.Equal(t, 30*time.Second, r.Interval)
+	assert.Equal(t, ".*", r.Regex.String())
+	assert.Equal(t, "All sites/methods: 800 req/30 sec", r.Rule)
+	assert.Equal(t, 1, len(r.HostsToSkip))
+	assert.Equal(t, true, r.HostsToSkip["localhost"])
 }
 
 func loadConfigString(configStr string) *Config {
 	config := &Config{}
 	err := yaml.Unmarshal([]byte(configStr), config)
 	if err != nil {
-		panic("Couldn't parse config file.")
+		panic(fmt.Sprintf("Couldn't parse config file: %v", err))
 	}
 	return config
 }
 
-func pathTester(
-	testPaths []TestPaths,
-	toBool StringToStringToBool,
-) {
-	for _, testProtectedPath := range testPaths {
-		requestedHost := testProtectedPath.hostname
-		for _, requestedResource := range testProtectedPath.paths {
-			pathToBools, ok := toBool[requestedHost]
-			if !ok {
-				log.Fatal("The host entry was not loaded: ", requestedHost)
-			}
-			boolValue, ok2 := pathToBools[requestedResource]
-			if !ok2 {
-				log.Fatal("The resource value was not loaded for ", requestedHost, "/", requestedResource)
-			}
-			if boolValue != true {
-				log.Fatal("The expected bool value was not loaded for ", requestedHost, "/", requestedResource)
-			}
-		}
-	}
-}

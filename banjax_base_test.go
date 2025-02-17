@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -43,7 +42,7 @@ func tearDown() {
 }
 
 func createTempDir() {
-	dir, err := ioutil.TempDir("", "banjax-tests")
+	dir, err := os.MkdirTemp("", "banjax-tests")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -100,21 +99,24 @@ func httpTester(t *testing.T, resources []TestResource) {
 
 func httpCheck(client *http.Client, resource_ptr *TestResource, t *testing.T) {
 	resource := *resource_ptr
-	resp := httpRequest(client, resource)
+	resp := httpRequest(client, resource, t)
 
 	assert.Equal(t, resource.response_code, resp.StatusCode, "Response code is not correct")
 
 	if len(resource.contains) > 0 {
 		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			log.Fatal("Error when ready Body from ", resource.method, resource.name)
-		}
+		assert.Nil(t, err, "Error when ready Body from ", resource.method, resource.name)
 		resp.Body.Close()
 		for _, lookup := range resource.contains {
-			if !strings.Contains(string(body), lookup) {
-				log.Fatalf("Expected string [[ %s ]] not found when testing: %s %s",
-					lookup, resource.method, resource.name)
-			}
+			assert.Containsf(
+				t,
+				string(body),
+				lookup,
+				"Expected string [[ %s ]] not found when testing: %s %s",
+				lookup,
+				resource.method,
+				resource.name,
+			)
 		}
 	}
 }
@@ -131,7 +133,7 @@ func httpTesterWithCookie(t *testing.T, resources []TestResource) {
 			if len(resource.contains) > 1 {
 				log.Print(cookies[resource.contains[0]])
 				expectedMaxAge, _ := strconv.Atoi(resource.contains[1])
-				assert.Equal(t, cookies[resource.contains[0]].MaxAge, expectedMaxAge)
+				assert.Equal(t, expectedMaxAge, cookies[resource.contains[0]].MaxAge)
 			}
 		})
 	}
@@ -139,7 +141,7 @@ func httpTesterWithCookie(t *testing.T, resources []TestResource) {
 
 func httpCheckWithCookie(client *http.Client, resource_ptr *TestResource, t *testing.T) (cookieMap CookieMap) {
 	resource := *resource_ptr
-	resp := httpRequest(client, resource)
+	resp := httpRequest(client, resource, t)
 
 	assert.Equal(t, resource.response_code, resp.StatusCode, "Response code is not correct")
 
@@ -153,12 +155,12 @@ func httpCheckWithCookie(client *http.Client, resource_ptr *TestResource, t *tes
 	return
 }
 
-func httpStress(resources []TestResource, repeat int) {
+func httpStress(resources []TestResource, repeat int, t *testing.T) {
 	var resp *http.Response
 	client := http.Client{}
 	for _, resource := range resources {
 		for i := 0; i <= repeat; i++ {
-			resp = httpRequest(&client, resource)
+			resp = httpRequest(&client, resource, t)
 			if resp != nil && resp.Body != nil {
 				resp.Body.Close()
 			}
@@ -166,21 +168,17 @@ func httpStress(resources []TestResource, repeat int) {
 	}
 }
 
-func httpRequest(client *http.Client, resource TestResource) *http.Response {
+func httpRequest(client *http.Client, resource TestResource, t *testing.T) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
-	if err != nil {
-		log.Fatal("Error when creating the request object",
-			resource.method, resource.name)
-	}
+	assert.Nil(t, err, "Error when creating the request object", resource.method, resource.name)
+
 	for key, values := range resource.headers {
 		for _, value := range values {
 			req.Header.Set(key, value)
 		}
 	}
 	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatal("Error when doing the request ", resource.method, resource.name, err)
-	}
+	assert.Nil(t, err, "Error when doing the request ", resource.method, resource.name, err)
 
 	if req != nil && req.Body != nil {
 		req.Body.Close()
@@ -205,18 +203,23 @@ func randomIP() string {
 	return strings.Join(octets, ".")
 }
 
-func reloadConfig(path string, randomReqCount int) {
+func reloadConfig(path string, randomReqCount int, t *testing.T) {
 	done := make(chan bool)
 
 	// just to make a mark in log so we know when the reload is done
 	httpStress(
-		[]TestResource{{"GET", "/auth_request?path=/reloadConfig", 200, randomXClientIP(), nil}}, 1)
+		[]TestResource{{"GET", "/auth_request?path=/reloadConfig", 200, randomXClientIP(), nil}},
+		1,
+		t,
+	)
 
 	// Simulate activity of http requests when the config is reloaded
 	go func() {
 		httpStress(
 			[]TestResource{{"GET", "/auth_request?path=/", 200, randomXClientIP(), nil}},
-			randomReqCount)
+			randomReqCount,
+			t,
+		)
 		done <- true
 	}()
 

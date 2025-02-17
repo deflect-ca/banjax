@@ -60,6 +60,7 @@ regexes_with_rates:
     hosts_to_skip:
       example.com: true
       foo.bar: true
+      localhost: true
   - decision: challenge
     hits_per_interval: 45
     interval: 60
@@ -70,6 +71,8 @@ regexes_with_rates:
     interval: 10
     regex: "^GET .*"
     rule: "All sites/GET on root: 22 req/10 sec"
+    hosts_to_skip:
+      localhost: true
   - decision: allow
     hits_per_interval: 0
     interval: 1
