@@ -22,6 +22,7 @@ func BenchmarkAuthRequest(b *testing.B) {
 		resp = httpRequest(
 			&client,
 			TestResource{"GET", "/auth_request", 0, randomXClientIP(), nil},
+			nil,
 		)
 		if resp != nil && resp.Body != nil {
 			resp.Body.Close()
@@ -55,6 +56,7 @@ func BenchmarkProtectedPaths(b *testing.B) {
 			resp = httpRequest(
 				&client,
 				protected_resource,
+				nil,
 			)
 			if resp != nil && resp.Body != nil {
 				resp.Body.Close()
