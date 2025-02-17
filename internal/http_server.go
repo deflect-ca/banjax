@@ -647,7 +647,7 @@ func sendOrValidatePassword(
 	requestedMethod := c.Request.Method
 	// log.Println("passwordCookie: ", passwordCookie)
 	if err == nil {
-		expectedHashedPassword, ok := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
+		expectedHashedPassword, ok := passwordProtectedPaths.GetPasswordHash(requestedHost)
 		if !ok {
 			log.Println("!!!! BAD - missing password in config") // XXX fail open or closed?
 			sendOrValidatePasswordResult.PasswordChallengeResult = ErrorNoPassword
@@ -657,7 +657,7 @@ func sendOrValidatePassword(
 		err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), getUserAgentOrIp(c, config), expectedHashedPassword)
 		if err != nil {
 			// Password fail, but provide second chance if password_hash_roaming is set
-			expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
+			expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.GetRoamingPasswordHash(requestedHost)
 			if hasPasswordRoaming {
 				// log.Printf("Password challenge failed, but password_hash_roaming is set for %s, checking that", requestedHost)
 				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), getUserAgentOrIp(c, config), expectedHashedPassword2)
@@ -701,7 +701,7 @@ func sendOrValidatePassword(
 		accessDenied(c, config, "TooManyFailedPassword")
 		return sendOrValidatePasswordResult
 	}
-	_, allowRoaming := passwordProtectedPaths.SiteToExpandCookieDomain[requestedHost]
+	_, allowRoaming := passwordProtectedPaths.GetExpandCookieDomain(requestedHost)
 	// log.Println("passwordChallenge: allowRoaming: ", allowRoaming)
 	passwordChallenge(c, config, allowRoaming)
 	return sendOrValidatePasswordResult
@@ -834,8 +834,8 @@ func decisionForNginx2(
 	passwordCookie, passwordCookieErr := c.Cookie(PasswordCookieName)
 	if passwordCookieErr == nil {
 		var grantPriorityPass bool = false
-		expectedHashedPassword, hasPasswordHash := passwordProtectedPaths.SiteToPasswordHash[requestedHost]
-		expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.SiteToRoamingPasswordHash[requestedHost]
+		expectedHashedPassword, hasPasswordHash := passwordProtectedPaths.GetPasswordHash(requestedHost)
+		expectedHashedPassword2, hasPasswordRoaming := passwordProtectedPaths.GetRoamingPasswordHash(requestedHost)
 		if hasPasswordHash {
 			err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), clientIp, expectedHashedPassword)
 			if err == nil {
@@ -854,32 +854,27 @@ func decisionForNginx2(
 		}
 	}
 
-	pathToBools, ok := passwordProtectedPaths.SiteToPathToBool[requestedHost]
-	if ok {
-		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
-		if !hasExceptions || !exceptions[requestedProtectedPath] {
-			for protectedPath, boolFlag := range pathToBools {
-				if boolFlag && strings.HasPrefix(requestedProtectedPath, protectedPath) {
-					sendOrValidatePasswordResult := sendOrValidatePassword(
-						config,
-						passwordProtectedPaths,
-						c,
-						banner,
-						failedChallengeStates,
-						staticDecisionLists,
-					)
-					decisionForNginxResult.DecisionListResult = PasswordProtectedPath
-					decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
-					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
-					return
-				}
-			}
-		} else {
-			decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
-			// FIXED: prevent password challenge exception path getting challenge
-			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPathException])
-			return
-		}
+	switch passwordProtectedPaths.ClassifyPath(requestedHost, requestedProtectedPath) {
+	case PasswordProtected:
+		sendOrValidatePasswordResult := sendOrValidatePassword(
+			config,
+			passwordProtectedPaths,
+			c,
+			banner,
+			failedChallengeStates,
+			staticDecisionLists,
+		)
+		decisionForNginxResult.DecisionListResult = PasswordProtectedPath
+		decisionForNginxResult.PasswordChallengeResult = &sendOrValidatePasswordResult.PasswordChallengeResult
+		decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidatePasswordResult.TooManyFailedChallengesResult
+		return
+	case PasswordProtectedException:
+		decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
+		// FIXED: prevent password challenge exception path getting challenge
+		accessGranted(c, config, DecisionListResultToString[PasswordProtectedPathException])
+		return
+	case NotPasswordProtected:
+	default:
 	}
 
 	decision, foundInPerSiteList := staticDecisionLists.CheckPerSite(
@@ -1002,8 +997,10 @@ func decisionForNginx2(
 	} else {
 		// log.Println("challenge from sitewide list")
 		// Reuse the exception from password prot for site-wide sha inv exceptions path
-		exceptions, hasExceptions := passwordProtectedPaths.SiteToExceptionToBool[requestedHost]
-		if !hasExceptions || !exceptions[requestedProtectedPath] {
+		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
+			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
+			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException])
+		} else {
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
@@ -1015,12 +1012,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = SiteWideChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
-			return
-		} else {
-			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
-			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException])
-			return
 		}
+
+		return
 	}
 
 	// log.Println("no mention in any lists, access granted")

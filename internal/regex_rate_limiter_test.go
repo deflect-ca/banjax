@@ -11,12 +11,12 @@ import (
 
 	"github.com/brianvoe/gofakeit/v6"
 	"github.com/hpcloud/tail"
+	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v2"
 
 	// "io/ioutil"
 	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -73,17 +73,6 @@ func (mb *MockBanner) IPSetDel(ip string) error {
 	return nil
 }
 
-var configToStructsMutex sync.Mutex
-
-func configToStructs(
-	config *Config,
-	passwordProtectedPaths *PasswordProtectedPaths,
-) {
-	configToStructsMutex.Lock()
-	defer configToStructsMutex.Unlock()
-
-	*passwordProtectedPaths = ConfigToPasswordProtectedPaths(config)
-}
 
 func TestConsumeLine(t *testing.T) {
 	configString := `
@@ -115,13 +104,8 @@ per_site_regexes_with_rates:
 	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}
 
-	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
-	if err != nil {
-		panic(fmt.Sprintf("couldn't create decision list: %v", err))
-	}
-
-	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths)
+	decisionLists, err := NewStaticDecisionLists(&config)
+	assert.Nil(t, err)
 
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
@@ -295,13 +279,8 @@ regexes_with_rates:
 	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}
 
-	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
-	if err != nil {
-		panic(fmt.Sprintf("couldn't create decision list: %v", err))
-	}
-
-	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths)
+	decisionLists, err := NewStaticDecisionLists(&config)
+	assert.Nil(t, err)
 
 	nowNanos := float64(time.Now().UnixNano())
 	nowSeconds := nowNanos / 1e9
@@ -351,13 +330,8 @@ regexes_with_rates:
 		panic(fmt.Sprintf("couldn't parse config file: %v", err))
 	}
 
-	decisionLists, err := NewStaticDecisionListsFromConfig(&config)
-	if err != nil {
-		panic(fmt.Sprintf("couldn't create decision lists: %v", err))
-	}
-
-	var passwordProtectedPaths PasswordProtectedPaths
-	configToStructs(&config, &passwordProtectedPaths)
+	decisionLists, err := NewStaticDecisionLists(&config)
+	assert.Nil(t, err)
 
 	rateLimitStates := NewRegexRateLimitStates()
 	mockBanner := MockBanner{}

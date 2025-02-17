@@ -89,7 +89,7 @@ type StaticDecisionLists struct {
 	content atomic.Pointer[staticDecisionLists]
 }
 
-func NewStaticDecisionListsFromConfig(config *Config) (*StaticDecisionLists, error) {
+func NewStaticDecisionLists(config *Config) (*StaticDecisionLists, error) {
 	content, err := newStaticDecisionListsFromConfig(config)
 	if err != nil {
 		return nil, err

@@ -8,7 +8,6 @@ package internal
 
 import (
 	"fmt"
-	"log"
 	"testing"
 	"time"
 
@@ -33,26 +32,17 @@ password_hashes:
   "localhost": "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
 `
 
-type TestPaths struct {
-	hostname string
-	paths    []string
-}
-
-func TestConfigToPasswordProtectedPaths(t *testing.T) {
+func TestPasswordProtectedPaths(t *testing.T) {
 	config := loadConfigString(passwordProtectedConfString)
-	passwordProtectedPaths := ConfigToPasswordProtectedPaths(config)
+	ppp, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
 
-	testProtectedPaths := []TestPaths{
-		{"localhost:8081", []string{"/wp-admin", "/app/protected"}},
-		{"localhost", []string{"/wp-admin"}},
-	}
-	pathTester(testProtectedPaths, passwordProtectedPaths.SiteToPathToBool)
-
-	testExceptionPaths := []TestPaths{
-		{"localhost:8081", []string{"/wp-admin/admin-ajax.php"}},
-		{"localhost", []string{"/app/admin/no-ban.php"}},
-	}
-	pathTester(testExceptionPaths, passwordProtectedPaths.SiteToExceptionToBool)
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost:8081", "/wp-admin"))
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost:8081", "/app/protected"))
+	assert.Equal(t, PasswordProtected, ppp.ClassifyPath("localhost", "/wp-admin"))
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost:8081", "/wp-admin/admin-ajax.php"))
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost", "/app/admin/no-ban.php"))
+	assert.Equal(t, NotPasswordProtected, ppp.ClassifyPath("localhost", "/foo"))
 }
 
 const regexWithRateString = `
@@ -90,24 +80,3 @@ func loadConfigString(configStr string) *Config {
 	return config
 }
 
-func pathTester(
-	testPaths []TestPaths,
-	toBool StringToStringToBool,
-) {
-	for _, testProtectedPath := range testPaths {
-		requestedHost := testProtectedPath.hostname
-		for _, requestedResource := range testProtectedPath.paths {
-			pathToBools, ok := toBool[requestedHost]
-			if !ok {
-				log.Fatal("The host entry was not loaded: ", requestedHost)
-			}
-			boolValue, ok2 := pathToBools[requestedResource]
-			if !ok2 {
-				log.Fatal("The resource value was not loaded for ", requestedHost, "/", requestedResource)
-			}
-			if boolValue != true {
-				log.Fatal("The expected bool value was not loaded for ", requestedHost, "/", requestedResource)
-			}
-		}
-	}
-}

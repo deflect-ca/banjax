@@ -14,7 +14,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -80,16 +79,18 @@ func main() {
 
 	regexStates := internal.NewRegexRateLimitStates()
 	failedChallengeStates := internal.NewFailedChallengeRateLimitStates()
-	passwordProtectedPaths := internal.PasswordProtectedPaths{}
 
-	staticDecisionLists, err := internal.NewStaticDecisionListsFromConfig(config)
+	passwordProtectedPaths, err := internal.NewPasswordProtectedPaths(config)
+	if err != nil {
+		panic(err)
+	}
+
+	staticDecisionLists, err := internal.NewStaticDecisionLists(config)
 	if err != nil {
 		panic(err)
 	}
 
 	dynamicDecisionLists := internal.NewDynamicDecisionLists()
-
-	configToStructs(config, &passwordProtectedPaths)
 
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
@@ -101,7 +102,7 @@ func main() {
 		for range sighup_channel {
 			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
 
-			err := configHolder.Reload(*configFilenamePtr)
+			err := configHolder.Reload()
 			if err != nil {
 				log.Println("failed to reload config:", err)
 				continue
@@ -111,8 +112,7 @@ func main() {
 
 			staticDecisionLists.UpdateFromConfig(config)
 			dynamicDecisionLists.Clear()
-
-			configToStructs(config, &passwordProtectedPaths)
+			passwordProtectedPaths.UpdateFromConfig(config)
 		}
 	}()
 
@@ -152,7 +152,7 @@ func main() {
 		configHolder,
 		staticDecisionLists,
 		dynamicDecisionLists,
-		&passwordProtectedPaths,
+		passwordProtectedPaths,
 		regexStates,
 		failedChallengeStates,
 		banner,
@@ -264,16 +264,4 @@ func reportMetrics(
 			)
 		}
 	}
-}
-
-var configToStructsMutex sync.Mutex
-
-func configToStructs(
-	config *internal.Config,
-	passwordProtectedPaths *internal.PasswordProtectedPaths,
-) {
-	configToStructsMutex.Lock()
-	defer configToStructsMutex.Unlock()
-
-	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
 }

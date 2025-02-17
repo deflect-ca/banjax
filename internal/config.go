@@ -7,12 +7,10 @@
 package internal
 
 import (
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"regexp"
-	"strings"
 	"time"
 )
 
@@ -119,81 +117,6 @@ func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	r.HostsToSkip = i.HostsToSkip
 
 	return nil
-}
-
-type StringToBool map[string]bool
-type StringToStringToBool map[string]StringToBool
-type StringToBytes map[string][]byte
-
-type PasswordProtectedPaths struct {
-	SiteToPathToBool          StringToStringToBool
-	SiteToExceptionToBool     StringToStringToBool
-	SiteToPasswordHash        StringToBytes
-	SiteToRoamingPasswordHash StringToBytes
-	SiteToExpandCookieDomain  StringToBool
-}
-
-func ConfigToPasswordProtectedPaths(config *Config) PasswordProtectedPaths {
-	siteToPathToBool := make(StringToStringToBool)
-	siteToExceptionToBool := make(StringToStringToBool)
-	siteToPasswordHash := make(StringToBytes)
-	siteToRoamingPasswordHash := make(StringToBytes)
-	siteToExpandCookieDomain := make(StringToBool)
-
-	for site, paths := range config.SitesToProtectedPaths {
-		for _, path := range paths {
-			path = "/" + strings.Trim(path, "/")
-			_, ok := siteToPathToBool[site]
-			if !ok {
-				siteToPathToBool[site] = make(StringToBool)
-			}
-			siteToPathToBool[site][path] = true
-			if config.Debug {
-				log.Printf("password protected path: %s/%s\n", site, path)
-			}
-		}
-	}
-
-	for site, exceptions := range config.SitesToProtectedPathExceptions {
-		for _, exception := range exceptions {
-			exception = "/" + strings.Trim(exception, "/")
-			_, ok := siteToExceptionToBool[site]
-			if !ok {
-				siteToExceptionToBool[site] = make(StringToBool)
-			}
-			siteToExceptionToBool[site][exception] = true
-		}
-	}
-
-	for site, passwordHashHex := range config.SitesToPasswordHashes {
-		passwordHashBytes, err := hex.DecodeString(passwordHashHex)
-		if err != nil {
-			log.Fatal("bad password hash!")
-		}
-		siteToPasswordHash[site] = passwordHashBytes
-		if config.Debug {
-			log.Println("passwordhashbytes:")
-			log.Println(passwordHashBytes)
-		}
-	}
-
-	for site, rootSiteToRoam := range config.SitesToPasswordHashesRoaming {
-		// try to get the password hash from the root site
-		passwordHashBytes, ok := siteToPasswordHash[rootSiteToRoam]
-		if ok {
-			siteToRoamingPasswordHash[site] = passwordHashBytes
-			siteToExpandCookieDomain[rootSiteToRoam] = true // set this to let root domain cookie expand to subdomains
-			// log.Printf("site %s has roaming password hash from root site %s\n", site, rootSiteToRoam)
-		}
-	}
-
-	return PasswordProtectedPaths{
-		siteToPathToBool,
-		siteToExceptionToBool,
-		siteToPasswordHash,
-		siteToRoamingPasswordHash,
-		siteToExpandCookieDomain,
-	}
 }
 
 type BannedEntry struct {

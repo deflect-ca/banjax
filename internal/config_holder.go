@@ -26,11 +26,13 @@ var passProtPathEmbed []byte
 // Thread-safe holder for config which supports hot-reloading.
 type ConfigHolder struct {
 	config atomic.Pointer[Config]
+	path   string
 }
 
 func NewConfigHolder(path string, standaloneTesting bool, debug bool) (*ConfigHolder, error) {
 	holder := &ConfigHolder{
 		config: atomic.Pointer[Config]{},
+		path:   path,
 	}
 
 	restartTime := int(time.Now().Unix())
@@ -49,10 +51,10 @@ func (h *ConfigHolder) Get() *Config {
 	return h.config.Load()
 }
 
-// Reload config from a file at the given path.
-func (h *ConfigHolder) Reload(path string) error {
+// Reload config.
+func (h *ConfigHolder) Reload() error {
 	old := h.config.Load()
-	new, err := load(path, old.RestartTime, old.StandaloneTesting, old.Debug)
+	new, err := load(h.path, old.RestartTime, old.StandaloneTesting, old.Debug)
 
 	if err != nil {
 		return err
@@ -157,4 +159,3 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 
 	return config, nil
 }
-
