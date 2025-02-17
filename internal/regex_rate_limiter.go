@@ -7,28 +7,27 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/hpcloud/tail"
 )
 
 func RunLogTailer(
+	ctx context.Context,
 	config *Config,
 	banner BannerInterface,
 	decisionLists *StaticDecisionLists,
 	rateLimitStates *RegexRateLimitStates,
-	wg *sync.WaitGroup,
 ) {
-	// log.Println("len(RegexesWithRates) is: ", len(config.RegexesWithRates))
-	// if TailFile() fails or we hit EOF, we should retry
+	var tailer *tail.Tail
+
 	for {
-		defer wg.Done()
 		t, err := tail.TailFile(config.ServerLogFile, tail.Config{
 			Follow: true,
 			Location: &tail.SeekInfo{
@@ -36,29 +35,44 @@ func RunLogTailer(
 				Whence: io.SeekEnd,
 			},
 		})
-		if err != nil {
-			log.Println("RunLogTailer: log tailer failed to start. waiting a bit and trying again.")
+		if err == nil {
+			tailer = t
+			break
 		} else {
-			log.Println("RunLogTailer: log tailer started")
-			for line := range t.Lines {
-				consumeLineResult := consumeLine(
-					line,
-					rateLimitStates,
-					banner,
-					config,
-					decisionLists,
-				)
-				if config.Debug {
-					bytes, err := json.MarshalIndent(consumeLineResult, "", "  ")
-					if err != nil {
-						log.Println("error marshalling consumeLineResult:", err)
-					} else {
-						log.Println(string(bytes))
-					}
+			log.Println("RunLogTailer: log tailer failed to start. waiting a bit and trying again.")
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+				continue
+			}
+		}
+	}
+
+	log.Println("RunLogTailer: log tailer started")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case line := <-tailer.Lines:
+			result := consumeLine(
+				line,
+				rateLimitStates,
+				banner,
+				config,
+				decisionLists,
+			)
+
+			if config.Debug {
+				bytes, err := json.MarshalIndent(result, "", "  ")
+				if err != nil {
+					log.Println("error marshalling consumeLineResult:", err)
+				} else {
+					log.Println(string(bytes))
 				}
 			}
 		}
-		time.Sleep(5 * time.Second)
 	}
 }
 

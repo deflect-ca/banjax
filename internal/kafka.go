@@ -80,12 +80,10 @@ func getDialer(config *Config) *kafka.Dialer {
 }
 
 func RunKafkaReader(
+	ctx context.Context,
 	config *Config,
 	decisionLists *DynamicDecisionLists,
-	wg *sync.WaitGroup,
 ) {
-	defer wg.Done()
-
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		r := kafka.NewReader(kafka.ReaderConfig{
@@ -101,15 +99,15 @@ func RunKafkaReader(
 		log.Printf("KAFKA: NewReader started")
 
 		for {
-			// XXX read about go contexts
-			// ctx, cancel := context.WithTimeout(context.Background(), 5 * time.Second)
-			// defer cancel()
-			ctx := context.Background()
 			m, err := r.ReadMessage(ctx)
+
+			if ctx.Err() != nil {
+				return
+			}
+
 			if err != nil {
-				log.Println("KAFKA: r.ReadMessage() failed")
-				log.Println(err.Error())
-				continue // XXX what to do here?
+				log.Println("KAFKA: r.ReadMessage() failed:", err)
+				break
 			}
 
 			// log.Printf("KAFKA: message at offset %d: %s = %s\n", m.Offset, string(m.Key), string(m.Value))
@@ -131,7 +129,12 @@ func RunKafkaReader(
 			)
 		}
 
-		time.Sleep(5 * time.Second)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			continue
+		}
 	}
 }
 
@@ -307,8 +310,8 @@ var messageChan chan []byte
 
 // current commands: status, ip_{passed,failed}_challenge, ip_banned, ip_in_database
 func RunKafkaWriter(
+	ctx context.Context,
 	config *Config,
-	wg *sync.WaitGroup,
 ) {
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
@@ -330,15 +333,19 @@ func RunKafkaWriter(
 			msgBytes := <-messageChan
 			// log.Println("got message from messageChan")
 
-			err := w.WriteMessages(context.Background(),
+			err := w.WriteMessages(ctx,
 				kafka.Message{
 					Key:   []byte("some-key"),
 					Value: msgBytes,
 				},
 			)
+
+			if ctx.Err() != nil {
+				return
+			}
+
 			if err != nil {
-				log.Println("KAFKA: WriteMessages() failed")
-				log.Println(err)
+				log.Println("KAFKA: WriteMessages() failed:", err)
 				break
 			}
 
@@ -347,6 +354,11 @@ func RunKafkaWriter(
 			// time.Sleep(2 * time.Second) // XXX just for testing at the moment
 		}
 
-		time.Sleep(5 * time.Second) // try to reconnect if we get dropped
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second): // try to reconnect if we get dropped
+			continue
+		}
 	}
 }

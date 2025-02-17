@@ -7,6 +7,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -248,10 +249,11 @@ func main() {
 		IPSetInstance: init_ipset(&config),
 	}
 
-	var wg sync.WaitGroup
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	wg.Add(1)
 	go internal.RunHttpServer(
+		ctx,
 		&config,
 		staticDecisionLists,
 		dynamicDecisionLists,
@@ -259,38 +261,35 @@ func main() {
 		regexStates,
 		failedChallengeStates,
 		banner,
-		&wg,
 	)
 
-	wg.Add(1)
 	go internal.RunLogTailer(
+		ctx,
 		&config,
 		banner,
 		staticDecisionLists,
 		regexStates,
-		&wg,
 	)
 
 	if !config.DisableKafka {
 		log.Println("INIT: starting RunKafkaReader/RunKafkaWriter")
 
-		wg.Add(1)
 		go internal.RunKafkaReader(
+			ctx,
 			&config,
 			dynamicDecisionLists,
-			&wg,
 		)
 
-		wg.Add(1)
 		go internal.RunKafkaWriter(
+			ctx,
 			&config,
-			&wg,
 		)
 	} else {
 		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
 	go reportMetrics(
+		ctx,
 		29*time.Second,
 		&config,
 		dynamicDecisionLists,
@@ -299,21 +298,30 @@ func main() {
 	)
 
 	if !config.DisableKafka {
-		go reportKafkaStatusMessage(19*time.Second, &config)
+		go reportKafkaStatusMessage(ctx, 19*time.Second, &config)
 	}
 
-	wg.Wait()
+	// Wait for SIGINT/SIGTERM
+	<-ctx.Done()
 }
 
-func reportKafkaStatusMessage(interval time.Duration, config *internal.Config) {
-	for range time.NewTicker(interval).C {
-		if !config.DisableKafka {
-			internal.ReportStatusMessage(config)
+func reportKafkaStatusMessage(ctx context.Context, interval time.Duration, config *internal.Config) {
+	ticker := time.NewTicker(interval)
+
+	for {
+		select {
+		case <- ctx.Done():
+			return
+		case <- ticker.C:
+			if !config.DisableKafka {
+				internal.ReportStatusMessage(config)
+			}
 		}
 	}
 }
 
 func reportMetrics(
+	ctx context.Context,
 	interval time.Duration,
 	config *internal.Config,
 	decisionLists *internal.DynamicDecisionLists,
@@ -340,14 +348,20 @@ func reportMetrics(
 	defer logFile.Close()
 
 	logEncoder := json.NewEncoder(logFile)
+	ticker := time.NewTicker(interval)
 
-	for range time.NewTicker(interval).C {
-		internal.WriteMetricsToEncoder(
-			logEncoder,
-			decisionLists,
-			regexStates,
-			failedChallengeStates,
-		)
+	for {
+		select {
+		case <- ctx.Done():
+			return
+		case <- ticker.C:
+			internal.WriteMetricsToEncoder(
+				logEncoder,
+				decisionLists,
+				regexStates,
+				failedChallengeStates,
+			)
+		}
 	}
 }
 

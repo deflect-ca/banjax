@@ -1,8 +1,7 @@
 #!/bin/bash
 
 if [ -n "$ENABLE_AIR" ]; then
-    air -c .air.toml
+    exec air -c .air.toml
 else
-    ./banjax
+    exec ./banjax
 fi
-

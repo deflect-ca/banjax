@@ -8,14 +8,15 @@ package internal
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -27,6 +28,7 @@ const (
 )
 
 func RunHttpServer(
+	ctx context.Context,
 	config *Config,
 	staticDecisionLists *StaticDecisionLists,
 	dynamicDecisionLists *DynamicDecisionLists,
@@ -34,10 +36,7 @@ func RunHttpServer(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
-	wg *sync.WaitGroup,
 ) {
-	defer wg.Done()
-
 	ginLogFileName := ""
 	if config.StandaloneTesting {
 		ginLogFileName = "gin.log"
@@ -305,7 +304,19 @@ func RunHttpServer(
 		})
 	})
 
-	r.Run("127.0.0.1:8081") // XXX config
+	server := &http.Server{
+		Addr:    "127.0.0.1:8081", // XXX config
+		Handler: r,
+	}
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("http server failed: %v\n", err)
+		}
+	}()
+
+	<-ctx.Done()
+	server.Close()
 }
 
 // this adds the headers that Nginx usually would in production
@@ -451,7 +462,7 @@ func tooManyFailedChallenges(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	method string,
 	decisionLists *StaticDecisionLists,
-) (RateLimitResult) {
+) RateLimitResult {
 	result := rateLimitStates.Apply(ip, config)
 
 	if result.Exceeded {

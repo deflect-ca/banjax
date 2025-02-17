@@ -101,10 +101,9 @@ func (s *RegexRateLimitStates) String() string {
 	return s.states.String()
 }
 
-
 // States for tracking rate limits triggered by failed challenges.
 type FailedChallengeRateLimitStates struct {
-	mutex   sync.Mutex
+	mutex  sync.Mutex
 	states ipToFailedChallengeStates
 }
 
@@ -130,7 +129,7 @@ func (s *FailedChallengeRateLimitStates) Apply(ip string, config *Config) (resul
 
 	state, ok := s.states[ip]
 	if ok {
-		if timestamp.Sub(state.IntervalStartTime) > time.Duration(config.TooManyFailedChallengesIntervalSeconds) * time.Second {
+		if timestamp.Sub(state.IntervalStartTime) > time.Duration(config.TooManyFailedChallengesIntervalSeconds)*time.Second {
 			// log.Println("IP has failed a challenge, but longer ago than $interval")
 			result.MatchType = OutsideInterval
 			*state = NumHitsAndIntervalStart{1, timestamp}
@@ -231,4 +230,3 @@ func (s ipToFailedChallengeStates) String() string {
 	}
 	return buf.String()
 }
-

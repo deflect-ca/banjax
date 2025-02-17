@@ -74,7 +74,7 @@ func TestRegexWithRate(t *testing.T) {
 
 	assert.Equal(t, NginxBlock, r.Decision)
 	assert.Equal(t, 800, r.HitsPerInterval)
-	assert.Equal(t, 30 * time.Second, r.Interval)
+	assert.Equal(t, 30*time.Second, r.Interval)
 	assert.Equal(t, ".*", r.Regex.String())
 	assert.Equal(t, "All sites/methods: 800 req/30 sec", r.Rule)
 	assert.Equal(t, 1, len(r.HostsToSkip))
