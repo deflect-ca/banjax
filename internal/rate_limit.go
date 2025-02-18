@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -179,17 +180,21 @@ const (
 	InsideInterval
 )
 
-func (t RateLimitMatchType) MarshalJSON() ([]byte, error) {
+func (t RateLimitMatchType) String() string {
 	switch t {
 	case FirstTime:
-		return []byte("FirstTime"), nil
+		return "FirstTime"
 	case OutsideInterval:
-		return []byte("OutsideInterval"), nil
+		return "OutsideInterval"
 	case InsideInterval:
-		return []byte("InsideInterval"), nil
+		return "InsideInterval"
 	default:
-		return nil, fmt.Errorf("invalid RateLimitMatchType: %v", t)
+		panic("invalid RateLimitMatchType")
 	}
+}
+
+func (t RateLimitMatchType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.String())
 }
 
 type RegexStates map[string]*NumHitsAndIntervalStart

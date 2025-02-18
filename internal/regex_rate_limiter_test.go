@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/brianvoe/gofakeit/v6"
@@ -72,7 +73,6 @@ func (mb *MockBanner) IPSetList() (*ipset.Info, error) {
 func (mb *MockBanner) IPSetDel(ip string) error {
 	return nil
 }
-
 
 func TestConsumeLine(t *testing.T) {
 	configString := `
@@ -361,5 +361,19 @@ regexes_with_rates:
 		if mockBanner.bannedIp != ip {
 			t.Errorf("should have banned this ip, but mockBanner.bannedIp is %s", mockBanner.bannedIp)
 		}
+	}
+}
+
+func TestMarshalRateLimitMatchType(t *testing.T) {
+	data := map[RateLimitMatchType]string{
+		FirstTime       :	`"FirstTime"`,
+		OutsideInterval : `"OutsideInterval"`,
+		InsideInterval  :	`"InsideInterval"`,
+	}
+
+	for value, expected := range data {
+		json, err := json.Marshal(value)
+		assert.Nil(t, err)
+		assert.Equal(t, expected, string(json))
 	}
 }

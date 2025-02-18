@@ -79,4 +79,3 @@ func loadConfigString(configStr string) *Config {
 	}
 	return config
 }
-

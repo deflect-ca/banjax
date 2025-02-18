@@ -93,9 +93,12 @@ type PathType int
 
 func (t PathType) String() string {
 	switch t {
-		case NotPasswordProtected: 		 return "NotPasswordProtected"
-		case PasswordProtected: 		 return "PasswordProtected"
-		case PasswordProtectedException: return "PasswordProtectedException"
+	case NotPasswordProtected:
+		return "NotPasswordProtected"
+	case PasswordProtected:
+		return "PasswordProtected"
+	case PasswordProtectedException:
+		return "PasswordProtectedException"
 	}
 
 	panic("invalid PathType")
