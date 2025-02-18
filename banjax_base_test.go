@@ -168,7 +168,7 @@ func httpStress(resources []TestResource, repeat int, t *testing.T) {
 	}
 }
 
-func httpRequest(client *http.Client, resource TestResource, t *testing.T) *http.Response {
+func httpRequest(client *http.Client, resource TestResource, t testing.TB) *http.Response {
 	req, err := http.NewRequest(resource.method, endpoint+resource.name, nil)
 	assert.Nil(t, err, "Error when creating the request object", resource.method, resource.name)
 
