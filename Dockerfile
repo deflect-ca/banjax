@@ -13,7 +13,7 @@ RUN set -x \
 
 RUN mkdir -p /opt/banjax
 COPY ./ /opt/banjax/
-RUN cd /opt/banjax && go test && go build
+RUN cd /opt/banjax && go test && go build -o banjax -tags debug
 
 RUN mkdir -p /etc/banjax
 COPY ./banjax-config.yaml /etc/banjax/
@@ -31,7 +31,7 @@ WORKDIR /opt/banjax
 
 # To enable live reload for dev, uncomment the following lines
 # COPY ./.air.toml /opt/banjax/
-# RUN go install github.com/air-verse/air@latest
+# RUN go install github.com/air-verse/air@v1.52.3
 # RUN mkdir -p /opt/banjax/tmp
 # CMD ["air", "-c", ".air.toml"]
 CMD ["./banjax"]

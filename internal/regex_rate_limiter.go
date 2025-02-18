@@ -22,9 +22,9 @@ import (
 func RunLogTailer(
 	config *Config,
 	banner BannerInterface,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	wg *sync.WaitGroup,
 ) {
@@ -120,12 +120,12 @@ func parseTimestamp(timeIpRest []string) (timestamp time.Time, err error) {
 
 func checkIpInGlobalDecisionList(
 	ipString string,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 )(bool) {
 	// Check if IP is in the global allow list that should be skipped
-	decisionListsMutex.Lock()
-	defer decisionListsMutex.Unlock()
+	decisionListsMutex.RLock()
+	defer decisionListsMutex.RUnlock()
 
 	decision, ok := (*decisionLists).GlobalDecisionLists[ipString]
 	if (ok && decision == Allow) {
@@ -146,11 +146,11 @@ func checkIpInGlobalDecisionList(
 func checkIpInPerSiteDecisionList(
 	urlString string,
 	ipString string,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) (bool) {
-	decisionListsMutex.Lock()
-	defer decisionListsMutex.Unlock()
+	decisionListsMutex.RLock()
+	defer decisionListsMutex.RUnlock()
 
 	decision, ok := (*decisionLists).PerSiteDecisionLists[urlString][ipString]
 	if (ok && decision == Allow) {
@@ -177,11 +177,11 @@ func checkIpInPerSiteDecisionList(
 // parsing these unescaped space-separated strings is gross. maybe pass json instead.
 func consumeLine(
 	line *tail.Line,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	banner BannerInterface,
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) (consumeLineResult ConsumeLineResult) {
 

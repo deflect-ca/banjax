@@ -81,7 +81,7 @@ func getDialer(config *Config) *kafka.Dialer {
 
 func RunKafkaReader(
 	config *Config,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	wg *sync.WaitGroup,
 ) {
@@ -158,7 +158,7 @@ func getBlockSessionTtl(config *Config, host string) (blockSessionTtl int) {
 func handleCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) {
 	// exempt a site from baskerville according to config
@@ -191,7 +191,7 @@ func handleCommand(
 func handleIPCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	decision Decision,
 	expireDuration int,
@@ -219,7 +219,7 @@ func handleIPCommand(
 func handleSessionCommand(
 	config *Config,
 	command commandMessage,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	decision Decision,
 	expireDuration int,

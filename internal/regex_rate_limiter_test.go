@@ -89,7 +89,7 @@ func configToStructs(
 }
 
 func TestConsumeLine(t *testing.T) {
-	var rateLimitMutex sync.Mutex
+	var rateLimitMutex sync.RWMutex
 	configString := `
 regexes_with_rates:
   - rule: 'rule1'
@@ -116,7 +116,7 @@ per_site_regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
@@ -293,7 +293,7 @@ per_site_regexes_with_rates:
 }
 
 func TestConsumeLineHostsToSkip(t *testing.T) {
-	var rateLimitMutex sync.Mutex
+	var rateLimitMutex sync.RWMutex
 	configString := `
 regexes_with_rates:
   - rule: 'rule1'
@@ -311,7 +311,7 @@ regexes_with_rates:
 	}
 	ipToRegexStates := IpToRegexStates{}
 	mockBanner := MockBanner{}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
@@ -340,7 +340,7 @@ regexes_with_rates:
 }
 
 func TestPerSiteRegexStress(t *testing.T) {
-	var rateLimitMutex sync.Mutex
+	var rateLimitMutex sync.RWMutex
 	var domains []string
 	var paths []string
 	testCount := 10000
@@ -372,7 +372,7 @@ regexes_with_rates:
 	if err != nil {
 		panic("couldn't parse config file!")
 	}
-	var decisionListsMutex sync.Mutex
+	var decisionListsMutex sync.RWMutex
 	var decisionLists DecisionLists
 	var passwordProtectedPaths PasswordProtectedPaths
 	configToStructs(&config, &passwordProtectedPaths, &decisionLists)

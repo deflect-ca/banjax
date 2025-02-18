@@ -452,7 +452,7 @@ func checkExpiringDecisionListsByDomain(domain string, decisionLists *DecisionLi
 
 // XXX mmm could hold the lock for a while?
 func RemoveExpiredDecisions(
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 ) {
 	decisionListsMutex.Lock()
@@ -467,7 +467,7 @@ func RemoveExpiredDecisions(
 }
 
 func removeExpiredDecisionsByIp(
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	ip string,
 ) {
@@ -481,7 +481,7 @@ func removeExpiredDecisionsByIp(
 func updateExpiringDecisionLists(
 	config *Config,
 	ip string,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	expires time.Time,
 	newDecision Decision,
@@ -515,7 +515,7 @@ func updateExpiringDecisionListsSessionId(
 	config *Config,
 	ip string,
 	sessionId string,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
 	expires time.Time,
 	newDecision Decision,
@@ -551,14 +551,14 @@ type MetricsLogLine struct {
 
 func WriteMetricsToEncoder(
 	metricsLogEncoder *json.Encoder,
-	decisionListsMutex *sync.Mutex,
+	decisionListsMutex *sync.RWMutex,
 	decisionLists *DecisionLists,
-	rateLimitMutex *sync.Mutex,
+	rateLimitMutex *sync.RWMutex,
 	ipToRegexStates *IpToRegexStates,
 	failedChallengeStates *FailedChallengeStates,
 ) {
-	decisionListsMutex.Lock()
-	defer decisionListsMutex.Unlock()
+	decisionListsMutex.RLock()
+	defer decisionListsMutex.RUnlock()
 
 	lenExpiringChallenges := 0
 	lenExpiringBlocks := 0

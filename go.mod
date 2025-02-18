@@ -25,6 +25,7 @@ require (
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.16.0
+	github.com/gin-contrib/pprof v1.5.0
 	github.com/gonetx/ipset v0.1.0
 	github.com/jeremy5189/ipfilter-no-iploc/v2 v2.0.3
 	github.com/stretchr/testify v1.9.0
