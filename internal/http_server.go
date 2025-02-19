@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 )
 
@@ -308,6 +309,11 @@ func RunHttpServer(
 			"unban":                  true,
 		})
 	})
+
+	if config.Profile {
+		pprof.Register(r)
+		runtime.SetMutexProfileFraction(1)
+	}
 
 	server := &http.Server{
 		Addr:    addr,

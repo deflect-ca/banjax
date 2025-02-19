@@ -366,9 +366,9 @@ regexes_with_rates:
 
 func TestMarshalRateLimitMatchType(t *testing.T) {
 	data := map[RateLimitMatchType]string{
-		FirstTime       :	`"FirstTime"`,
-		OutsideInterval : `"OutsideInterval"`,
-		InsideInterval  :	`"InsideInterval"`,
+		FirstTime:       `"FirstTime"`,
+		OutsideInterval: `"OutsideInterval"`,
+		InsideInterval:  `"InsideInterval"`,
 	}
 
 	for value, expected := range data {

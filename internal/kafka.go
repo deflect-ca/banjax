@@ -45,7 +45,7 @@ type commandMessage struct {
 }
 
 func getDialer(config *Config) *kafka.Dialer {
-	tlsConfig := tls.Config{}
+	var tlsConfig *tls.Config
 
 	if config.KafkaSslCert != "" {
 		keypair, err := tls.LoadX509KeyPair(config.KafkaSslCert, config.KafkaSslKey)
@@ -64,7 +64,7 @@ func getDialer(config *Config) *kafka.Dialer {
 			log.Fatalf("KAFKA: failed to parse CA root: %s", err)
 		}
 
-		tlsConfig = tls.Config{
+		tlsConfig = &tls.Config{
 			Certificates:       []tls.Certificate{keypair},
 			RootCAs:            caCertPool,
 			InsecureSkipVerify: true, // XXX is this ok?
@@ -74,7 +74,7 @@ func getDialer(config *Config) *kafka.Dialer {
 	dialer := &kafka.Dialer{
 		Timeout:   10 * time.Second,
 		DualStack: true,
-		TLS:       &tlsConfig,
+		TLS:       tlsConfig,
 	}
 	return dialer
 }
