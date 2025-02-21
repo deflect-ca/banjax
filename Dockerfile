@@ -4,7 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
-FROM golang:1.22.6-bookworm
+FROM golang:1.23.6-bookworm
 
 RUN set -x \
  && DEBIAN_FRONTEND=noninteractive apt-get update \
@@ -25,13 +25,14 @@ COPY ./banjax-config.yaml /etc/banjax/
 
 RUN mkdir -p /var/log/banjax
 
+# Support live reload with air. To enable it, define ENABLE_AIR=1 env variable when running the
+# container.
+COPY ./.air.toml /opt/banjax/
+RUN mkdir -p /opt/banjax/tmp
+RUN go install github.com/air-verse/air@latest
+
 EXPOSE 8081
 
 WORKDIR /opt/banjax
 
-# To enable live reload for dev, uncomment the following lines
-# COPY ./.air.toml /opt/banjax/
-# RUN go install github.com/air-verse/air@latest
-# RUN mkdir -p /opt/banjax/tmp
-# CMD ["air", "-c", ".air.toml"]
-CMD ["./banjax"]
+CMD ["./entrypoint.sh"]

@@ -14,6 +14,7 @@ services:
       - ./logs/banjax:/var/log/banjax/
       - .:/opt/banjax/
     restart: on-failure:5
+    env_file: ".env"
 
   nginx:
     build:

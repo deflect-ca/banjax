@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"regexp"
@@ -41,7 +41,7 @@ func ruleToRuleSpec(rule string) ([]string, error) {
 	entryFields = entryFields[2:]
 	// alright, this is a bit annoying. the entries from List() have the comment string quoted,
 	// like `--comment "added:1234"`, but Delete() requires each field to be unquoted...
-	for i, _ := range entryFields {
+	for i := range entryFields {
 		if strings.HasPrefix(entryFields[i], "\"added:") {
 			unquotedField, err := strconv.Unquote(entryFields[i])
 			if err != nil {
@@ -126,11 +126,10 @@ type BannerInterface interface {
 }
 
 type Banner struct {
-	DecisionListsMutex *sync.Mutex
-	DecisionLists      *DecisionLists
-	Logger             *log.Logger
-	LoggerTemp         *log.Logger
-	IPSetInstance      ipset.IPSet
+	DecisionLists *DynamicDecisionLists
+	Logger        *log.Logger
+	LoggerTemp    *log.Logger
+	IPSetInstance ipset.IPSet
 }
 
 func purgeNginxAuthCacheForIp(ip string) {
@@ -148,7 +147,7 @@ func purgeNginxAuthCacheForIp(ip string) {
 		return
 	}
 
-	body, err := ioutil.ReadAll(response.Body)
+	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		log.Println("ioutil.ReadAll() failed!")
 		return
@@ -280,11 +279,9 @@ func (b Banner) BanOrChallengeIp(
 	log.Println("IPTABLES: BanOrChallengeIp", ip, decision)
 
 	expires := time.Now().Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
-	updateExpiringDecisionLists(
+	b.DecisionLists.Update(
 		config,
 		ip,
-		&(*b.DecisionListsMutex),
-		&(*b.DecisionLists),
 		expires,
 		decision,
 		false, // not from baskerville
