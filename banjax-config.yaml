@@ -133,3 +133,5 @@ sha_inv_path_exceptions:
     - /no_challenge
   "localhost":
     - /no_challenge
+# enable pprof for debugging
+profile: false
