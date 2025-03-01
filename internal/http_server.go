@@ -450,20 +450,11 @@ func passwordChallenge(c *gin.Context, config *Config, roaming bool) {
 }
 
 func shaInvChallenge(c *gin.Context, config *Config) {
-	log.Println("issueing sha inverse challenge")
 	challenge(c, config, ChallengeCookieName, config.ShaInvCookieTtlSeconds, config.HmacSecret, false)
 	sessionCookieEndPoint(c, config)
 	c.Data(429, "text/html", applyArgsToShaInvPage(config))
 	c.Abort()
 }
-
-// func puzzleChallenge(c *gin.Context, config *Config) {
-// 	log.Println("issueing captcha challenge")
-// 	challenge(c, config, PuzzleChallengeCookieName, config.PuzzleChallengeTtlSeconds, config.HmacSecret, false)
-// 	sessionCookieEndPoint(c, config)
-// 	c.Data(429, "text/html", applyArgsToShaInvPage(config))
-// 	c.Abort()
-// }
 
 func getPerSiteCookieTtlOrDefault(config *Config, domain string, defaultTtl int) (cookieTtl int) {
 	cookieTtl, ok := config.SitesToPasswordCookieTtlSeconds[domain]
@@ -703,8 +694,12 @@ func sendPuzzleChallenge(
 		puzzleGenerator.SolutionCache.Delete(challengeCookieValue)
 	}
 
-	cookieTtl := getPerSiteCookieTtlOrDefault(config, c.Request.Header.Get("X-Requested-Host"), config.PasswordCookieTtlSeconds)
-	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieTtl, getUserAgentOrIp(c, config))
+	cookieExpiryMS := 600_000 //a default expiry 10 minutes
+	targetDifficultyProfile, exists := puzzleGenerator.DifficultyConfigController.GetTargetProfile()
+	if exists {
+		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
+	}
+	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
 
 	//load either the default image, or use path + a hostname? to identify
 	//the logo of a company, then load that b64 png logo and it will work
@@ -721,11 +716,6 @@ func sendPuzzleChallenge(
 		return
 	}
 
-	cookieExpiryMS := 600_000 //a default expiry 10 minutes
-	targetDifficultyProfile, exists := puzzleGenerator.DifficultyConfigController.GetTargetProfile()
-	if exists {
-		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
-	}
 	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS, "/", "", true, false)
 	c.JSON(http.StatusOK, newCaptcha)
 }
