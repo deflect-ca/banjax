@@ -25,6 +25,7 @@ require (
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.16.0
+	github.com/gin-contrib/pprof v1.5.2
 	github.com/gonetx/ipset v0.1.0
 	github.com/jeremy5189/ipfilter-no-iploc/v2 v2.0.3
 	github.com/stretchr/testify v1.9.0
@@ -37,7 +38,6 @@ require (
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.7 // indirect
-	github.com/gin-contrib/pprof v1.5.2 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect

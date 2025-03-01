@@ -1,0 +1,54 @@
+
+
+
+/*REFRESH is just for what happens when the user literally refreshes the page or when the challenge runs out of time or user exceeds buttons clicks triggering AUTOMATIC REFRESH*/
+.fade-out {
+    opacity: 0;
+    transform: scale(1.05);
+    filter: blur(5px);
+    transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;
+}
+
+
+/*
+overlay that can be used to cover any individual part that might be updated during the refresh like the puzzle grid or thumbnail
+this way we can then add a spinner to each of these and show they are loading
+*/
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(64, 64, 64, 0.6);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+
+/* spinner itself */
+.loading-spinner {
+    border: 6px solid #f3f3f3;
+    border-top: 6px solid #3498db;
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%); 
+    pointer-events: none;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* we need to make sure that the parent is positioned correctly for absolute overlay */
+.position-relative {
+    position: relative;
+}

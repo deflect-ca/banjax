@@ -1,0 +1,58 @@
+target: medium_hard
+
+profiles:
+  easy:
+    nPartitions: 9 #3x3
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 160
+    removeTileIndex: 0
+    timeToSolve_ms: 1_200_000 #20 mins
+    showCountdownTimer: false
+
+  medium:
+    nPartitions: 16 #4x4
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 200
+    removeTileIndex: 0
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
+
+  medium_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 200
+    removeTileIndex: 12
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
+
+  hard:
+    nPartitions: 16 #4x4
+    nShuffles: [12, 22]
+    maxNumberOfMovesAllowed: 220
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 600_000
+    showCountdownTimer: false
+
+  very_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [40, 60]
+    maxNumberOfMovesAllowed: 500
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 420_000
+    showCountdownTimer: false
+
+  painful:
+    nPartitions: 49 #7x7
+    nShuffles: [30, 50]
+    maxNumberOfMovesAllowed: 300
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 420_000
+    showCountdownTimer: false
+
+  nightmare_fuel:
+    nPartitions: 100 #10x10
+    nShuffles: [1000, 2000]
+    maxNumberOfMovesAllowed: 6000
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 360_000
+    showCountdownTimer: false

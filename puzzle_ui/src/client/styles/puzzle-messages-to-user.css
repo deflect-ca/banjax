@@ -1,0 +1,48 @@
+
+
+.display-message-to-user {
+    display: none;
+    color: red;
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: rgba(255, 0, 0, 0.1);
+    text-align: center;
+    font-weight:normal;
+    opacity: 0;
+    transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+    transform: translateY(-10px);
+}
+
+/*
+    if we need to communicate something to the user, add the .show class such that message is visible 
+*/
+.display-message-to-user.show {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* 
+    to communicate success to the user, add .success class
+*/
+.display-message-to-user.success {
+    background-color: rgba(0, 128, 0, 0.1);
+    color: green;
+}
+
+/* 
+    to communicate warning to the user, add .warning class
+*/
+.display-message-to-user.warning {
+    background-color: rgba(255, 165, 0, 0.1);
+    color: orange;
+}
+
+/* 
+    to communicate error to the user, add .error class
+*/
+.display-message-to-user.error {
+    background-color: rgba(255, 0, 0, 0.1);
+    color: red;
+}
