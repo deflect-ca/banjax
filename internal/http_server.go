@@ -342,22 +342,55 @@ func RunHttpServer(
 		The user interacts with the challenge. When they submit their solution, bundle.js sends a POST request to /validate_puzzle_solution.
 		The backend verifies the solution and, if correct, allows the user to proceed.
 	*/
-	r.StaticFile("/puzzle-ui", "./puzzle_ui/index.html")                            //serve the challenge index
-	r.StaticFile("/deflect_logo.svg", "./puzzle_ui/deflect_logo.svg")               //serve the logo
-	r.StaticFile("/scripts/bundle.js", "./puzzle_ui/dist/client/scripts/bundle.js") //serve the bundle.js
+	// r.GET("/puzzle-ui", func(c *gin.Context) {
+	// 	log.Println("Received request for /puzzle-ui")
+	// 	log.Println("Request headers: ", c.Request.Header)
+	// 	c.File("./puzzle_ui/index.html")
+	// })
+	// r.StaticFile("/puzzle-ui", "./puzzle_ui/index.html")                            //serve the challenge index
+	//r.StaticFile("/deflect_logo.svg", "./puzzle_ui/deflect_logo.svg") //serve the logo
+	// r.StaticFile("/scripts/bundle.js", "./puzzle_ui/dist/client/scripts/bundle.js") //serve the bundle.js
 
-	r.GET("/new_puzzle_challenge", func(c *gin.Context) {
-		sendPuzzleChallenge(c, config, failedChallengeStates, Block, staticDecisionLists)
-	})
+	// r.GET("/deflect_logo.svg", func(c *gin.Context) {
+	// 	log.Println("Received request for logo")
+	// 	log.Println("Request headers: ", c.Request.Header)
+	// 	// c.File("./puzzle_ui/deflect_logo.svg")
+	// 	absPath, err := sharedUtils.GetAbsolutePath("/puzzle_ui/deflect_logo.svg")
+	// 	if err != nil {
+	// 		log.Printf("[FAILED]: unable to make absolute path: %v", err)
+	// 		c.JSON(http.StatusInternalServerError, gin.H{})
 
-	r.POST("/validate_puzzle_solution", func(c *gin.Context) {
-		verifyPuzzleSolution(c, config, failedChallengeStates, Block, staticDecisionLists)
-	})
+	// 	}
+	// 	c.File(absPath)
+	// })
+
+	// r.GET("/scripts/bundle.js", func(c *gin.Context) {
+	// 	log.Println("Received request for bundle")
+	// 	log.Println("Request headers: ", c.Request.Header)
+	// 	absPath, err := sharedUtils.GetAbsolutePath("/puzzle_ui/dist/client/scripts/bundle.js")
+	// 	if err != nil {
+	// 		log.Printf("[FAILED]: unable to make absolute path: %v", err)
+	// 		c.JSON(http.StatusInternalServerError, gin.H{})
+	// 	}
+	// 	c.File(absPath)
+	// })
+
+	// r.GET("/new_puzzle_challenge", func(c *gin.Context) {
+	// 	sendPuzzleChallenge(c, config, failedChallengeStates, Block, staticDecisionLists)
+	// })
+
+	// r.POST("/validate_puzzle_solution", func(c *gin.Context) {
+	// 	verifyPuzzleSolution(c, config, failedChallengeStates, Block, staticDecisionLists)
+	// })
 
 	if config.Profile {
 		pprof.Register(r)
 		runtime.SetMutexProfileFraction(1)
 	}
+
+	// for _, route := range r.Routes() {
+	// 	log.Printf("Registered route: %s %s", route.Method, route.Path)
+	// }
 
 	server := &http.Server{
 		Addr:    addr,
@@ -653,35 +686,75 @@ func sendOrValidateShaChallenge(
 	return sendOrValidateShaChallengeResult
 }
 
-/*
-sendPuzzleChallenge generates a new CAPTCHA challenge for the client.
+func sendOrValidatePuzzleChallenge(
 
-Workflow:
-1. Checks if the user already has a challenge cookie. If so, deletes the previous solution from cache
-2. Generates a new challenge cookie uniquely tied to the user
-3. Loads a base64 PNG image / company logo (or other by lookup TODO)
-4. Determines challenge difficulty (default or dynamically adjusted TODO)
-5. Generates a new CAPTCHA challenge and returns it as JSON
-6. Sets a new challenge cookie for tracking
-
-Responses:
-- 200: Successfully issued a challenge
-- 500: Failed to generate a challenge
-*/
-func sendPuzzleChallenge(
-
-	c *gin.Context,
 	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
 ) {
 
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+
+	switch requestedPath {
+
+	case "/new_puzzle_challenge":
+		handleNewPuzzleChallenge(config, c, banner, rateLimitStates, failAction, decisionLists)
+		return
+
+	case "/validate_puzzle_solution":
+		handleVerifyPuzzleSolution(config, c, banner, rateLimitStates, failAction, decisionLists)
+		return
+
+	case "/api/generic-error",
+		"/api/captcha-init-error",
+		"/api/inspect-thumbnail-error",
+		"/api/detail-instruction-error",
+		"/api/request-different-puzzle-error",
+		"/api/hostname-footer-header-error":
+		handlePuzzleChallengeError(config, c, banner, rateLimitStates, failAction, decisionLists)
+		return
+
+	default:
+		//sends back the index.html along with the bundles assets and injected initial puzzle state
+		issueCAPTCHAPuzzle(config, c, banner, rateLimitStates, failAction, decisionLists)
+		// c.File("./puzzle_ui/dist/index.html")
+		return
+	}
+}
+
+/*
+issueCAPTCHAPuzzle sends the index.html (which has also had the css and js bundle injected into it at build) and
+subsequently injects the initial puzzle state such that there are no follow up requests.
+
+This issueCAPTCHAPuzzle function is very different from the newPuzzleChallenge handler as it serves the entire challenge
+including the index.html, css and js whereas the handleNewPuzzleChallenge will ONLY generate the actual puzzle itself
+(ie the state of the challenge).
+*/
+func issueCAPTCHAPuzzle(
+
+	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	failAction FailAction,
+	decisionLists *StaticDecisionLists,
+
+) {
+
+	filePath := "./puzzle_ui/dist/index.html"
+	htmlContent, err := os.ReadFile(filePath)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "")
+		return
+	}
+
 	puzzleGeneratorInterface, exists := c.Get(puzzleGeneratorKey)
 	if !exists {
-		log.Println("Failed to get dependencies")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Puzzle generator not available"})
+		c.String(http.StatusInternalServerError, "")
 		return
 	}
 
@@ -699,29 +772,215 @@ func sendPuzzleChallenge(
 	if exists {
 		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
 	}
+
 	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
 
-	//load either the default image, or use path + a hostname? to identify
-	//the logo of a company, then load that b64 png logo and it will work
 	b64PngImage := sharedUtils.LoadDefaultImageBase64()
 
-	//make a decision on difficulty by implementing something on this, you can also make a dynamic decision
-	//and invoke GetProfileByName() instead of relying on the default (target) profile
-	//ie targetDifficulty := puzzleGenerator.DifficultyConfigController.GetProfileByName("medium")
+	//captcha challenger and client side expect a "userDesiredEndpoint" that is parsable as a URL
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	sanitizedPath := strings.TrimPrefix(requestedPath, "/")
+	userDesiredEndpoint := fmt.Sprintf("https://%s/%s", requestedHost, sanitizedPath)
+
 	targetDifficulty := puzzleGenerator.DifficultyConfigController.Target
-	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(userChallengeCookieValue, c.Request.URL.Path, b64PngImage, targetDifficulty)
+	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(userChallengeCookieValue, userDesiredEndpoint, b64PngImage, targetDifficulty)
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{})
 		return
 	}
 
-	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS, "/", "", true, false)
+	serializedGameState, err := json.Marshal(newCaptcha)
+	if err != nil {
+		log.Printf("Error marshalling CAPTCHA: %v", err)
+		c.String(http.StatusInternalServerError, "")
+		return
+	}
+
+	var escapedGameState bytes.Buffer
+	json.HTMLEscape(&escapedGameState, serializedGameState)
+	scriptTag := fmt.Sprintf(`<script id="initial-game-state" type="application/json">%s</script>`, escapedGameState.String())
+
+	modifiedHTML := strings.Replace(
+		string(htmlContent),
+		"<!-- INITIAL_STATE_PLACEHOLDER: this will be replaced by the initial state containing script when serving the CAPTCHA -->",
+		scriptTag,
+		1, //replace only the first occurrence
+	)
+
+	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS/1000, "/", "", true, false)
+	c.Header("Content-Type", "text/html")
+	c.String(http.StatusOK, modifiedHTML)
+}
+
+/*
+handlePuzzleChallengeError handles any error we receive based on the endpoint as well as
+the rateLimitStates.
+
+For now it will log the error, but later we can take into consideration the other options we have
+*/
+func handlePuzzleChallengeError(
+
+	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	failAction FailAction,
+	decisionLists *StaticDecisionLists,
+
+) {
+
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
+	challengeCookie, err := c.Cookie(PuzzleChallengeCookieName)
+	if err != nil {
+		log.Println("Err looking up challenge cookie: ", err)
+	}
+	requestedMethod := c.Request.Method
+
+	log.Printf("\nERROR: %s", requestedPath)
+	log.Println("IP Address: ", clientIp)
+	log.Println("Host: ", requestedHost)
+	log.Println("User Agent: ", clientUserAgent)
+	log.Println("Challenge Cookie: ", challengeCookie)
+	log.Println("Method: ", requestedMethod)
+
+	// handleSendPuzzleChallenge(config, c, banner, rateLimitStates, failAction, decisionLists)
+	return
+}
+
+/*
+handleNewPuzzleChallenge generates a new CAPTCHA challenge for the client. This is only used
+when the user clicks on the new challenge button as it doesnt require anything other than the challenge payload itself
+
+the issueCAPTCHAPuzzle handles injecting the initial puzzle state and sending it off in one request so there are no subsequent
+requests that are necessary as all css and js are also bundled with the index.html
+
+Workflow:
+1. Checks if the user already has a challenge cookie. If so, deletes the previous solution from cache
+2. Generates a new challenge cookie uniquely tied to the user
+3. Loads a base64 PNG image / company logo (or other by lookup TODO)
+4. Determines challenge difficulty (default or dynamically adjusted TODO)
+5. Generates a new CAPTCHA challenge and returns it as JSON
+6. Sets a new challenge cookie for tracking
+
+Responses:
+- 200: Successfully issued a challenge
+- 500: Failed to generate a challenge
+
+NOTE1: For now it will always just issue a challenge, but we can implement the rate limiting logic like sending back the dedicated
+response codes to show the user that they are being rate limited and to wait before trying again - (this is built into the UI as based
+based on response codes)
+
+--
+
+Why do we lookup the userDesiredEndpoint from the previous attempts solution cache when responding to a request for a new puzzle state?
+
+Because of how deflect works, when a user currently has a challenge and clicks on refresh button
+to get a new puzzle, the request is sent to this /new_challenge endpoint which generates only the
+captcha puzzle state itself. Unlike the issueCaptchaChallenge endpoint, here we do not inject
+the state into the index.html and respond, instead we are only send back the state.
+
+The problem is that deflect doesn't remember what endpoint they were actually trying to visit, instead you see that
+the RequestedPath is /new_puzzle_challenge. This is a problem because the UserDesiredEndpoint is one of the
+key properties we are integrity checking to detect tampering. To get around this, since we already have a cache storing
+solutions, I added the UserDesiredEndpoint to the payload being cached. The upside is we need not change the entire
+integrity checking or weaken it to just integrity checking the hostname. The downside is that the cache entry gets purged
+automatically as soon as the user runs of of time as specified in the difficulty configuration. This means that if the user
+tries to ask for a new puzzle after the amount of time allotted to solve the puzzles rules out, we won't find the entry.
+
+So in order to ensure that we know what endpoint to redirect the user to and that they pass when they submit their solution
+even if they requested a different puzzle to solve, we need to lookup the userDesiredEndpoint from cache. If it has been
+purged, we will just send back a 404.
+
+NOTE:
+this is not only extremely unlikely because they would have had to not solve it for like 20 minutes and then click new puzzle
+but the puzzle itself triggers a refresh automatically on the client side when it detects it ran out of time preventing this from occuring
+*/
+func handleNewPuzzleChallenge(
+
+	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	failAction FailAction,
+	decisionLists *StaticDecisionLists,
+
+) {
+
+	puzzleGeneratorInterface, exists := c.Get(puzzleGeneratorKey)
+	if !exists {
+		c.JSON(http.StatusInternalServerError, gin.H{})
+		return
+	}
+
+	puzzleGenerator := puzzleGeneratorInterface.(*captchaUtils.CAPTCHAGenerator)
+
+	userDesiredEndpoint := ""
+
+	challengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
+	if err == nil {
+		/*
+			If cookie exists, remove the previous solution from cache then reissue challenge
+			this happens if the user clicks on "request new puzzle" or refreshes on their own (assuming we determine to challenges again)
+		*/
+		cachedPayloed, exists := puzzleGenerator.SolutionCache.Get(challengeCookieValue)
+		if !exists {
+			log.Println("Error: user desired endpoint cannot be ''")
+			c.String(http.StatusNotFound, "")
+			return
+		}
+
+		userDesiredEndpoint = cachedPayloed.UserDesiredEndpoint
+		puzzleGenerator.SolutionCache.Delete(challengeCookieValue)
+	}
+
+	if userDesiredEndpoint == "" {
+		/*
+			this shouldn't happen, if it does, we would need to fail their existing
+			challenge and subsequently issue an entirely new challenge to them
+		*/
+		log.Println("Error: user desired endpoint cannot be ''")
+		c.String(http.StatusNotFound, "")
+		return
+	}
+
+	cookieExpiryMS := 600_000 //a default expiry 10 minutes
+	targetDifficultyProfile, exists := puzzleGenerator.DifficultyConfigController.GetTargetProfile()
+	if exists {
+		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
+	}
+
+	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
+
+	/*
+		load either the default image, or use path + a hostname? to identify
+		the logo of a company, then load that b64 png logo and it will work
+	*/
+	b64PngImage := sharedUtils.LoadDefaultImageBase64()
+
+	/*
+		make a decision on difficulty by implementing something on this, you can also make a dynamic decision
+		and invoke GetProfileByName() instead of relying on the default (target) profile
+		ie targetDifficulty := puzzleGenerator.DifficultyConfigController.GetProfileByName("medium")
+	*/
+	targetDifficulty := puzzleGenerator.DifficultyConfigController.Target
+	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(userChallengeCookieValue, userDesiredEndpoint, b64PngImage, targetDifficulty)
+	if err != nil {
+		log.Printf("Error generating CAPTCHA: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{})
+		return
+	}
+
+	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS/1000, "/", "", true, false)
 	c.JSON(http.StatusOK, newCaptcha)
 }
 
 /*
-verifyPuzzleSolution validates the user's submitted solution to the CAPTCHA challenge.
+handleVerifyPuzzleSolution validates the user's submitted solution to the CAPTCHA challenge.
 
 Workflow:
 1. Retrieves the puzzle verifier from context
@@ -742,11 +1001,16 @@ Responses:
 - 202: Successfully validated, grants access
 - 400: Incorrect solution
 - 500: Missing dependencies
-*/
-func verifyPuzzleSolution(
 
-	c *gin.Context,
+NOTE: For now it will always just verify a challenge solution, but we can implement the rate limiting logic like sending back the dedicated
+response codes to show the user that they are being rate limited and to wait before trying again - (this is built into the UI as based
+based on response codes)
+*/
+func handleVerifyPuzzleSolution(
+
 	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
@@ -756,26 +1020,32 @@ func verifyPuzzleSolution(
 	puzzleVerifierInterface, exists := c.Get(puzzleVerifierKey)
 	if !exists {
 		log.Println("Failed to get dependencies")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Puzzle verifier not available"})
+		c.JSON(http.StatusInternalServerError, gin.H{})
 		return
 	}
 
 	puzzleVerifier := puzzleVerifierInterface.(*solutionUtils.CAPTCHAVerifier)
 
-	//if the cookie dne on verification, we need to issue a new puzzle since their
-	//cookie is an important part of ensuring this puzzle belong to them in particular as its
-	//coded to them through their cookie. So if it's missing, issue the challenge again
+	/*
+		if the cookie dne on verification, we need to issue a new puzzle since their
+		cookie is an important part of ensuring this puzzle belong to them in particular as its
+		coded to them through their cookie. So if it's missing, issue the challenge again
+	*/
 	userChallengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
 	if err != nil {
-		c.Redirect(http.StatusFound, "/new_puzzle_challenge")
+		// c.Redirect(http.StatusFound, "/new_puzzle_challenge")
+		log.Println("Unable to verify challenge without cookie")
 		return
 	}
 
-	//verify the cookie has not been tampered with
-	err = ValidateShaInvCookie(config.HmacSecret, userChallengeCookieValue, time.Now(), getUserAgentOrIp(c, config), config.ShaInvExpectedZeroBits)
+	/*
+		since I am using the sha cookie generator I just want to integrity check it, but this is not necessary
+		just a heads up as to why I put 0 expected bits because we are not solving PoW
+	*/
+	err = ValidateShaInvCookie(config.HmacSecret, userChallengeCookieValue, time.Now(), getUserAgentOrIp(c, config), 0)
 	if err != nil {
-		//cookie was no good, issue a new challenge because they need it to pass
-		c.Redirect(http.StatusFound, "/new_puzzle_challenge")
+		log.Println("Failed cookie validation")
+		// c.Redirect(http.StatusFound, "/new_puzzle_challenge")
 		return
 	}
 
@@ -786,26 +1056,31 @@ func verifyPuzzleSolution(
 		return
 	}
 
-	//verify their solution
 	err = puzzleVerifier.VerifySolution(userChallengeCookieValue, userSubmission)
 	if err != nil {
 		log.Printf("User solution incorrect for challenge: %s", userChallengeCookieValue)
-		//they can keep retrying but it should obviously subject to rate limit
-		//if they keep spamming, we could also ramp up the difficulty and serve them a new challenge instead?
+		/*
+			they can keep retrying but it should obviously subject to rate limit
+			if they keep spamming, or try to brute force we could also ramp up the
+			difficulty and serve them a new challenge instead?
+		*/
 		c.JSON(http.StatusBadRequest, gin.H{})
 		return
 	}
 
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
-	//attach challenge passed cookie & respond
-	accessGranted(c, config, "PuzzleChallengePassed")
-	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
-	//expire the challenge cookie as they passed
+
+	/*
+		Since the solution was valid, we expire the challenge cookie, attach a
+		challenge passed cookie (if needed?) and then invoke the accessGranted
+	*/
+
 	c.SetCookie(PuzzleChallengeCookieName, "", -1, "/", "", false, false)
 	c.Header("Location", userSubmission.CaptchaProperties.IntegrityCheckFields.UserDesiredEndpoint)
 	c.JSON(http.StatusAccepted, gin.H{})
-
+	accessGranted(c, config, "PuzzleChallengePassed")
+	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 }
 
 type PasswordChallengeResult uint
@@ -1109,8 +1384,14 @@ func decisionForNginx2(
 			// log.Println("challenge from per-site lists")
 
 			if USE_PUZZLE_CHALLENGE {
-				log.Println("Redirecting user to puzzle challenge UI...")
-				c.Redirect(http.StatusFound, "/puzzle-ui")
+				sendOrValidatePuzzleChallenge(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
 				return
 			}
 
@@ -1146,8 +1427,14 @@ func decisionForNginx2(
 			// log.Println("challenge from global lists")
 
 			if USE_PUZZLE_CHALLENGE {
-				log.Println("Redirecting user to puzzle challenge UI...")
-				c.Redirect(http.StatusFound, "/puzzle-ui")
+				sendOrValidatePuzzleChallenge(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
 				return
 			}
 
@@ -1188,8 +1475,14 @@ func decisionForNginx2(
 		case Challenge:
 
 			if USE_PUZZLE_CHALLENGE {
-				log.Println("Redirecting user to puzzle challenge UI...")
-				c.Redirect(http.StatusFound, "/puzzle-ui")
+				sendOrValidatePuzzleChallenge(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
 				return
 			}
 

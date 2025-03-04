@@ -8,6 +8,7 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 8.8.8.8
+    - 192.168.65.1
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
 expiring_decision_ttl_seconds: 300

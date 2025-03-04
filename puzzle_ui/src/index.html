@@ -27,10 +27,8 @@
         <div class="captcha-container">
             <div class="instructions-and-thumbnail-container">
 
-                <!-- instructions-->
                 <h4>Recreate this image by selecting which squares to move</h4>
 
-                <!-- <img id="deflect-puzzle-thumbnail" src="" alt="Complete Puzzle">  -->
                 <div class="thumbnail-display-container">
                     <div class="thumbnail-wrapper" id="thumbnail-wrapper">
                         <img id="deflect-puzzle-thumbnail" src="" alt="Complete Puzzle">
@@ -38,7 +36,6 @@
 
                 </div>
 
-                <!--modal for enlarged thumbnail so that users can inspect it more closely, invisible until thumbnail clicked -->
                 <div id="thumbnail-modal" class="thumbnail-modal">
                     <div class="thumbnail-modal-background">
                         <span class="thumbnail-modal-close">&times;</span>
@@ -50,34 +47,29 @@
     
             <div class="deflect-puzzle-container">
                 <div id="deflect-puzzle">
-                    <!-- puzzle -->
+
                 </div>
             </div>
 
             <div class="display-message-to-user">
-                <!-- any messages that need to be displayed to the user will appear here - function will write it as needed -->
+
             </div>
 
             <div class="puzzle-submission-container">
                 
                 <div class="helper-button-group">
-                    <!--info button to bring up instructions-->
                     <i class="fa-solid fa-circle-info" id="detailed-instructions-info-icon"></i>
-                    <!--request a different puzzle-->
                     <i class="fa-solid fa-arrows-rotate request-different-puzzle-icon" id="request-different-puzzle-icon"></i>
-                    <!--request using audio to solve puzzle-->
                     <i class="fa-solid fa-headphones" id="request-audio-puzzle-icon"></i>
                 </div>
 
 
 
 
-                <!--modal to present the detailed instructions with gif example, invisible until info button is clicked-->
                 <div class="detailed-instructions-overlay" id="detailed-instructions-overlay">
                     <div class="detailed-instructions-with-gif">
                         <span class="detailed-instructions-modal-close">&times;</span>
                         <div class="puzzle-detailed-intructions">
-                            <!--detailed instructions with gif as example-->
 
                             <h2>Rearrange the tiles to match the thumbnail.</h2>
 
@@ -92,21 +84,15 @@
                                 <p> - Pay attention to the details—logos, text, and shapes must align.</p>
                         </div>
                         <div class="puzzle-example-gif">
-                            <!--gif-->
                             <img decoding="async" alt="deflect-puzzle GIF preview" fetchpriority="high" src="https://devel.equalit.ie/wp-content/uploads/2020/10/eq_puzzle_gif.gif">
                         </div>
                     </div>
                 </div>
                 
-
-                <!--submission button and deflect/baskerville logo-->
                 <div class="right-button-logo-group">
-                    <!-- 
-                        I dont think its a good idea to have the url embedded because if they click it accidentally theyll need to restart 
-                    -->
-                    <!-- <a href="https://deflect.ca/" target="_blank"> -->
-                        <img id="deflect-logo" src="deflect_logo.svg" alt="Deflect">
-                    <!-- </a> -->
+                                            
+                    <!-- LOGO_PLACEHOLDER: This will be replaced with the inlined deflect_logo.svg during the build process -->
+
                     <div class="position-relative">
                         <button class="submit-deflect-captcha-solution" id="submit-deflect-captcha-solution">
                             Verify
@@ -133,7 +119,9 @@
             </div>
           </div>
 
-        
-        <script src="/scripts/bundle.js"></script>
+            <!-- INITIAL_STATE_PLACEHOLDER: this will be replaced by the initial state containing script when serving the CAPTCHA -->
+
+            <!-- BUNDLE_PLACEHOLDER: This will be replaced with the inlined bundle.js during the build process -->
+
     </body>
 </html>

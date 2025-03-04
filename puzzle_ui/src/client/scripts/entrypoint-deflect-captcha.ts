@@ -21,7 +21,11 @@ import 'fast-text-encoding' // Polyfill for TextEncoder/TextDecoder
 import 'core-js/es/promise' //for promises
 import 'core-js/stable'
 
-
+//extra for IE11/Older Browsers
+// import 'core-js/es/object/entries' //Object.entries()
+// import 'core-js/es/object/values' //Object.values()
+// import 'core-js/es/array/includes' //Array.prototype.includes()
+// import 'core-js/es/number/is-nan' //Number.isNaN()
 
 
 
@@ -41,6 +45,7 @@ import attachFooterHeaderHostname from "./attach-footer-and-header-info"
 import attachInfoOverlay from "./puzzle-instructions-info-button"
 import attachThumbnailOverlay from "./inspect-target-image-modal"
 import ClientCaptchaSolver from "./client-captcha-solver"
+import checkForInitialState from './check-initial-state'
 import RefreshPuzzle from "./request-different-puzzle"
 
 
@@ -149,26 +154,47 @@ async function runCaptcha(clientSideAttempt:number=0, error?: any):Promise<void>
 
 async function phoneHomeForCaptcha() {
 
-    //this request will already admit the challenge cookie, so we can acceess that from headers
-    const requestForPuzzle = await fetch(NEW_PUZZLE_ENDPOINT, {
-        method:"GET",
-        credentials:"include"
-    })
+    let skipRequestForPuzzle = false
 
-    if (!requestForPuzzle.ok) {
-        throw new Error("ErrNoResponse: Failed to get response")
-    }
-    
-    //at this point we know we got a response back (response.ok)
+    const initialInjectedState:{success:boolean, error:Error | null, initialState:PuzzleChallenge | null}  = checkForInitialState()
 
-    if (requestForPuzzle.status !== 200) {
-        throw new Error(`ErrUnexpectedStatus: Expected status 200, got: ${requestForPuzzle.status}}`)
+    //the null check is a bit redundant given that the checkForInitialState only returns success if it has access but its important since 
+    //its up to the dev to make sure that this is the case and we could mess it up. Plus typescript gets all mad and stuff
+    if (initialInjectedState.success && initialInjectedState !== null) {
+        skipRequestForPuzzle = true
     }
 
-    //at this point we know we received the result as desired (status 200)
+    let puzzleChallenge:PuzzleChallenge
+
+
+    if (skipRequestForPuzzle) {
         
-    //parse challenge we received
-    const puzzleChallenge:PuzzleChallenge = await requestForPuzzle.json()
+        puzzleChallenge = initialInjectedState.initialState
+
+    } else {
+
+        //this request will already admit the challenge cookie, so we can acceess that from headers
+        const requestForPuzzle = await fetch(NEW_PUZZLE_ENDPOINT, {
+            method:"GET",
+            credentials:"include"
+        })
+
+        if (!requestForPuzzle.ok) {
+            throw new Error("ErrNoResponse: Failed to get response")
+        }
+        
+        //at this point we know we got a response back (response.ok)
+
+        if (requestForPuzzle.status !== 200) {
+            throw new Error(`ErrUnexpectedStatus: Expected status 200, got: ${requestForPuzzle.status}}`)
+        }
+
+        //at this point we know we received the result as desired (status 200)
+        //parse challenge we received
+        puzzleChallenge = await requestForPuzzle.json()
+    }
+
+
     
     //the constructor sets up the entire puzzle - ie just initializing is enough
     //NOTE: Since this is a critical error, we will immediately check for retry by throwing and catching in the runChallenge.

@@ -11,6 +11,7 @@ type CAPTCHASolution struct {
 	UnshuffledGameBoard [][]*imageUtils.TileWithoutImage
 	ShuffledGameBoard   [][]*imageUtils.TileWithoutImage
 	PrecomputedSolution string
+	UserDesiredEndpoint string
 }
 
 type CAPTCHASolutionCache struct {
@@ -52,7 +53,9 @@ func (cache *CAPTCHASolutionCache) Get(userChallengeCookie string) (*CAPTCHASolu
 	captchaSol := &CAPTCHASolution{
 		UnshuffledGameBoard: deepCopyBoardWithoutImage(originalSolution.UnshuffledGameBoard),
 		ShuffledGameBoard:   deepCopyBoardWithoutImage(originalSolution.ShuffledGameBoard),
-		PrecomputedSolution: originalSolution.PrecomputedSolution, //no deep copy needed (string is immutable)
+		//no deep copy needed (string is primitive and go passes primitives by value)
+		PrecomputedSolution: originalSolution.PrecomputedSolution,
+		UserDesiredEndpoint: originalSolution.UserDesiredEndpoint,
 	}
 
 	return captchaSol, true

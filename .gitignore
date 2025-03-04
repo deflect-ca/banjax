@@ -26,3 +26,6 @@ puzzle_ui/yarn.lock
 
 .DS_Store
 .vscode/
+puzzle_ui/src/client/.DS_Store
+puzzle_ui/src/.DS_Store
+puzzle_ui/.DS_Store

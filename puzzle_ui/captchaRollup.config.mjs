@@ -1,3 +1,4 @@
+import injectBundleJSIntoIndexHTML from './injectBundleJSToIndexHTML.js'
 import obfuscatorPlugin from 'rollup-plugin-obfuscator'
 import typescript from '@rollup/plugin-typescript'
 import resolve from '@rollup/plugin-node-resolve'
@@ -71,6 +72,22 @@ export default {
                 }]
             ]
         }),
-        terser()
+        terser(),
+        {
+            name: "inline-bundle",
+            writeBundle() { //use the rollups writeBundle hook
+                console.log("Writing bundle into the index.html...")
+
+                try {
+                    const writeToDestination = "dist/index.html"
+                    injectBundleJSIntoIndexHTML(writeToDestination)
+                    console.log(`[SUCCESS] inlined bundle.js into ${writeToDestination}!`)
+                    console.log(`\n\nYou can serve to user from: ${writeToDestination}\nthe puzzle will call out for everything else automatically\n\n`)
+                } catch(error) {
+                    console.error(`[FAIL] unable to inline bundle.js into index.html due to error:\n${error}`)
+                }
+            }
+        }
+
     ].filter(Boolean), //to remove false or undefined that results when process.env.OBFUSCASE !== "true"
 }

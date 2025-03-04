@@ -41,6 +41,10 @@ func getAbsolutePath(relativePath string) (string, error) {
 	return filepath.Join(basePath, relativePath), nil
 }
 
+func GetAbsolutePath(relativePath string) (string, error) {
+	return getAbsolutePath(relativePath)
+}
+
 /*
 This generates a proper hmac, not a hash
 usage:

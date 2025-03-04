@@ -171,6 +171,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 		UnshuffledGameBoard: sol_deepCopyOfUnshuffledBoardWithoutImage,
 		ShuffledGameBoard:   sol_deepCopyOfShuffledBoardWithoutImage,
 		PrecomputedSolution: sol_ExpectedCorrectSolutionHash,
+		UserDesiredEndpoint: users_intended_endpoint,
 	}
 
 	//store the solution in cache until we receive their result such that we can use them in validation
