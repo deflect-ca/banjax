@@ -328,69 +328,10 @@ func RunHttpServer(
 		})
 	})
 
-	/*
-		NOTE: We can make this into a single response by simply bundling the entire challenge payload along with the index.html
-		(that would also include the actual challenge payload coded to the user along with the cookie). This way it's a lot more similar
-		to how the invSha256 challenge works and cuts down a lot of the back and forth. Currently the bundle admits the JS and CSS only
-		as well as dependencies and polyfills for supporting legacy browseres
-
-		For now, the way it works is:
-
-		If the USE_PUZZLE_CHALLENGE var is true, then, when the backend decides that a user must complete a puzzle challenge,
-		we serve index.html. The index.html automatically loads bundle.js from /scripts/bundle.js. The bundle.js makes a request
-		to /new_puzzle_challenge to get the actual challenge payload (ie the challenge for this user in particular)
-		The user interacts with the challenge. When they submit their solution, bundle.js sends a POST request to /validate_puzzle_solution.
-		The backend verifies the solution and, if correct, allows the user to proceed.
-	*/
-	// r.GET("/puzzle-ui", func(c *gin.Context) {
-	// 	log.Println("Received request for /puzzle-ui")
-	// 	log.Println("Request headers: ", c.Request.Header)
-	// 	c.File("./puzzle_ui/index.html")
-	// })
-	// r.StaticFile("/puzzle-ui", "./puzzle_ui/index.html")                            //serve the challenge index
-	//r.StaticFile("/deflect_logo.svg", "./puzzle_ui/deflect_logo.svg") //serve the logo
-	// r.StaticFile("/scripts/bundle.js", "./puzzle_ui/dist/client/scripts/bundle.js") //serve the bundle.js
-
-	// r.GET("/deflect_logo.svg", func(c *gin.Context) {
-	// 	log.Println("Received request for logo")
-	// 	log.Println("Request headers: ", c.Request.Header)
-	// 	// c.File("./puzzle_ui/deflect_logo.svg")
-	// 	absPath, err := sharedUtils.GetAbsolutePath("/puzzle_ui/deflect_logo.svg")
-	// 	if err != nil {
-	// 		log.Printf("[FAILED]: unable to make absolute path: %v", err)
-	// 		c.JSON(http.StatusInternalServerError, gin.H{})
-
-	// 	}
-	// 	c.File(absPath)
-	// })
-
-	// r.GET("/scripts/bundle.js", func(c *gin.Context) {
-	// 	log.Println("Received request for bundle")
-	// 	log.Println("Request headers: ", c.Request.Header)
-	// 	absPath, err := sharedUtils.GetAbsolutePath("/puzzle_ui/dist/client/scripts/bundle.js")
-	// 	if err != nil {
-	// 		log.Printf("[FAILED]: unable to make absolute path: %v", err)
-	// 		c.JSON(http.StatusInternalServerError, gin.H{})
-	// 	}
-	// 	c.File(absPath)
-	// })
-
-	// r.GET("/new_puzzle_challenge", func(c *gin.Context) {
-	// 	sendPuzzleChallenge(c, config, failedChallengeStates, Block, staticDecisionLists)
-	// })
-
-	// r.POST("/validate_puzzle_solution", func(c *gin.Context) {
-	// 	verifyPuzzleSolution(c, config, failedChallengeStates, Block, staticDecisionLists)
-	// })
-
 	if config.Profile {
 		pprof.Register(r)
 		runtime.SetMutexProfileFraction(1)
 	}
-
-	// for _, route := range r.Routes() {
-	// 	log.Printf("Registered route: %s %s", route.Method, route.Path)
-	// }
 
 	server := &http.Server{
 		Addr:    addr,
