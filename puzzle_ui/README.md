@@ -248,7 +248,7 @@
         - Once the data collection is complete, we wiil be able to collect data about gameplay and use it to make predictions about whether a human or bot was playing the game
         - A combination of the correct solution and human-like behaviour while playing will be used to produce the final decision
 
-    This layered approach ensures that bots cannot brute-force, replay, or reconstruct the puzzle while keeping it solvable for real users.
+    This **layered approach** ensures that bots cannot brute-force, replay, or reconstruct the puzzle *while keeping it solvable for real users*.
 
 ### Rate Limiting
 
