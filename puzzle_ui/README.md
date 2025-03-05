@@ -552,10 +552,11 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
     - The UI is built using Node.js and Rollup. 
     - Ensure you have Node.js installed (v18 or later). 
     - Then, install the required dependencies:
-        ```
-        cd puzzle_ui
-        npm install
-        ```
+    
+    ```
+    cd puzzle_ui
+    npm install
+    ```
 
 - Step 3) Create a **.env.production** and **.env.development** files
 
@@ -574,10 +575,10 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
     ```
 
 - Step 4) run the following commands:
-```
-npm run clean
-npm run build
-```
+    ```
+    npm run clean
+    npm run build
+    ```
 
 #### Package.json Commands
 
