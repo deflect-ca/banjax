@@ -559,25 +559,25 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 
 - Step 3) Create a **.env.production** and **.env.development** files
 
-#### .env.production
-- ```    
-    MINIFY_CSS=true
-    SOURCE_MAP=false
-    OBFUSCATE=true
-    ```
+#### .env.production:
+```    
+MINIFY_CSS=true
+SOURCE_MAP=false
+OBFUSCATE=true
+```
 
-#### .env.development
-- ```
-    MINIFY_CSS=false
-    SOURCE_MAP=true
-    OBFUSCATE=false
-    ```
+#### .env.development:
+```
+MINIFY_CSS=false
+SOURCE_MAP=true
+OBFUSCATE=false
+```
 
 - Step 4) run the following commands:
-    ```
-    npm run clean
-    npm run build
-    ```
+```
+npm run clean
+npm run build
+```
 
 #### Package.json Commands
 
