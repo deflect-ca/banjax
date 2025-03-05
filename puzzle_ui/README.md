@@ -524,7 +524,7 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 
 - To properly issue a unique challenge per user, the **server** can follow one of two procedures:
 
-- **1) Recommended Approach (Production Best Practice):**inject the initial state into index.html
+- **1) Recommended Approach (Production Best Practice):** inject the initial state into index.html
     - The server reads index.html before serving it.
     - The server injects a dynamically generated initial state (per user).
     - The user receives index.html with the puzzle state already embedded.
@@ -557,14 +557,17 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
         npm install
         ```
 
-- Step 3) Create a .env.production and .env.development files
-    ```
-    # .env.production
+- Step 3) Create a **.env.production** and **.env.development** files
+
+#### .env.production
+- ```    
     MINIFY_CSS=true
     SOURCE_MAP=false
     OBFUSCATE=true
+    ```
 
-    # .env.development
+#### .env.development
+- ```
     MINIFY_CSS=false
     SOURCE_MAP=true
     OBFUSCATE=false
