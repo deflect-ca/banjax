@@ -513,7 +513,7 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 
 - This means that the only *file* you need to serve is: `dist/index.html`
 - You must also attach a *challenge cookie* along with the `dist/index.html` response payload using the cookie name: `deflect_challenge4`
-- That's it. NOthing else is required.
+- That's it. Nothing else is required.
     
 #### You do **not** need to serve:
 
@@ -552,9 +552,10 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
     - The UI is built using Node.js and Rollup. 
     - Ensure you have Node.js installed (v18 or later). 
     - Then, install the required dependencies:
-        
+        ```
         cd puzzle_ui
         npm install
+        ```
 
 - Step 3) Create a .env.production and .env.development files
     ```
@@ -577,19 +578,19 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 
 #### Package.json Commands
 
-- npm run dev
+- ```npm run dev```
     - deletes the dist/ directory and rebuilds from scratch, bundling all dependencies, and watching for changes to client side code before rebundling (uses dev env variables)
 
-- npm run build
+- ```npm run build```
     - runs Rollup to bundle client-side code (which injects the bundle into the` index.html`)
 
-- npm run clean
+- ```npm run clean```
     - clears the dist/ directory if you want a fresh build
 
-- npm run watch
+- ```npm run watch```
     - watches for changes in client code & automatically rebundles
 
-- npm run prod
+- ```npm run prod```
     - deletes the dist/ directory and rebuilds from scratch using production environment variables
 
 
