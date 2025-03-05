@@ -2,7 +2,7 @@
 
 ## Table of Contents
 
-<details open>
+<details>
 <summary> Introduction - <em>Overview of the type of puzzle and our goals.</em></summary>
 
 - [Introduction](#introduction)
@@ -12,7 +12,7 @@
       - [What We Have Achieved & What Comes Next](#what-we-have-achieved--what-comes-next)
 </details>
 
-<details open>
+<details>
 <summary> User Interaction and Client Side System Design - <em>How users engage with the puzzle & High-level design.</em></summary>
 
 - [How the client side works](#how-the-client-side-works)
@@ -23,7 +23,7 @@
 </details>
 
 
-<details open>
+<details>
 <summary> Security - <em>How we prevent tampering & automated solvers.</em></summary>
 
 - [Security Principles](#security-principles)
