@@ -10,6 +10,874 @@
         <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
+
+
+        <style>
+
+            /*MAIN SECTION*/
+
+            body,
+            html {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
+                    sans-serif;
+                overflow-x: hidden;
+                position: relative;
+            }
+            a {
+                color: #e33624;
+                text-decoration: none;
+            }
+            h1,
+            h2 {
+                font-weight: 400;
+            }
+            .header {
+                height: 33%;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+            .header-wrapper {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                flex-direction: column;
+                
+                top:50px;
+                position: absolute;
+            }
+
+
+            .website {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .website-favicon {
+                width: 32px;
+                margin-right: 15px;
+            }
+            .website-title {
+                font-size: 32px;
+            }
+
+            .footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 67vh;
+                background-color: #ecece2;
+                z-index: -1;
+
+                display: flex;
+                flex-direction: column-reverse;
+                justify-content: flex-end;
+                align-items: center;
+
+                transition: all 0.3s ease-in-out;
+
+                padding-bottom:10px;
+            }
+
+            /* .footer-logo {
+                margin-bottom: 20px;
+            } */
+
+
+            .footer-wrapper {
+                position: absolute;
+                top: calc(240px + 100% / 3 + 20px);
+                left: 0;
+                width: 100%;
+                /* display: flex;
+                justify-content: space-between;
+                flex-direction: column; */
+                text-align: center;
+                transition: color 0.5s ease-in-out, opacity 0.5s ease-in-out;
+            }
+
+            .footer-title {
+                font-size: 24px;
+                transition: color 0.5s ease-in-out, opacity 0.5s ease-in-out;
+                padding-top:20px;
+            }
+
+
+
+            .footer-logo svg {
+                width: 50px;
+                height: 80px;
+            }
+
+            .footer-logo-caption {
+                font-size: 18px;
+            }
+
+            @media screen and (min-width: 2400px) {
+                .footer-logo svg {
+                    width: 2vw;
+                    height: 3vw;
+                }
+                .footer-logo-caption {
+                    font-size: 1vw;
+                }
+                .website-title {
+                    font-size: 2vw;
+                }
+                .website-favicon {
+                    width: 2vw;
+                }
+                .footer-title {
+                    font-size: 1.7vw;
+                }
+            }
+
+
+            /* for all width > 800px  make the "verifiing if your connection secure" and deflect branding disappear just before going under puzzle board*/
+            @media screen and (min-width: 801px) and (max-height: 1290px) {
+                .footer-title {
+                    color: transparent;
+                    opacity: 0;
+                }
+            }
+
+            @media screen and (min-width: 801px) and (max-height: 1090px) {
+                .footer-wrapper {
+                    color: transparent;
+                    opacity: 0;
+                }
+            }
+
+            /* for all width <= 800px make the "verifiing if your connection secure" and deflect branding disappear later since the puzzle board also shrinks to screen dimensions*/
+            @media screen and (max-width: 800px) and (max-height: 1060px) {
+                .footer-title {
+                    color: transparent;
+                    opacity: 0;
+                }
+            }
+
+            @media screen and (max-width: 800px) and (max-height: 960px) {
+                .footer-wrapper {
+                    color: transparent;
+                    opacity: 0;
+                }
+            }
+
+
+
+            /*PUZZLE GRID CONTAINER SECTION*/
+
+
+            .captcha-container {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+                display: grid;
+                grid-template-rows: auto 1fr auto; /* top: Instructions, middle: Puzzle, bottom: submit */
+                justify-content: center;
+                align-items: center;
+                width: 50%;
+                max-width: 500px;
+                min-width: 300px;
+
+
+                /* aspect-ratio: 3 / 1; */
+                /*enforce 3:1 aspect ratio manually cause safari is mean*/
+                height: calc((100% / 3)); 
+                max-height: 860px;
+
+
+                margin: 140px auto 20px;
+                padding: 16px;
+                background-color: white; /* For dev purposes */
+                border-radius: 10px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+                gap: 20px;
+                user-select: none;
+
+
+
+
+                position: relative;
+                z-index: 1;
+            }
+
+
+            /*INSTRUCTIONS & THUMNAIL SECTION*/
+
+            .instructions-and-thumbnail-container {
+                display: grid;
+                grid-template-columns: 75% 25%;
+                align-items: center;
+                width: 100%;
+                padding: 20px;
+                margin: 0;
+                box-sizing: border-box;
+                border-radius: 8px;
+                gap: 10px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+            }
+
+            .instructions-and-thumbnail-container h4 {
+                margin: 0;
+                word-wrap: break-word;
+            }
+
+            /*THUMBNAIL - note the rest of it is in the thumbnail.css*/
+
+            .thumbnail-display-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background-color: rgb(200, 200, 200);
+                padding: 4px;
+                border-radius: 4px;
+            }
+
+            /*PUZZLE SECTION - note the rest of it is in the puzzle-grid.css*/
+
+            .deflect-puzzle-container {
+                background-color: rgb(252, 252, 252);
+                border-radius: 10px;
+                padding: 16px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: fit-content;
+                margin: 20px auto;   
+                width: 80%;
+                aspect-ratio: 1 / 1;
+
+                position: relative;
+                z-index: 2;
+            }
+
+
+            /*SUBMIT SECTION - note the rest of it is in the puzzle-submission.css*/
+
+            .puzzle-submission-container {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                width: 100%;
+                padding: 16px;
+                margin: 0;
+                box-sizing: border-box; 
+                border-radius: 8px;
+                box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.4);
+            }
+
+
+            /*deflect puzzle container is in te container.css file*/
+
+            #deflect-puzzle {
+                display: grid;
+                /* width: 500px; */
+                width:100%;
+                /* height: 500px; */
+                /* height: 100%; */
+                aspect-ratio: 1 / 1;
+                gap: 1.6px;
+                background-color: #e8e8e8;
+
+                position: relative;
+                border-radius: 10px;
+                box-sizing: border-box;
+
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);    
+            }
+
+            /*so that the bottom row doesn't show a gap that looks weird*/
+            #deflect-puzzle::after {
+                content: '';
+                position: absolute;
+                bottom: 0;
+                left: 0;
+                width: 100%;
+                height: 0px;
+                background-color: #eaeaea;
+            }
+
+            .tile {
+                width: 100%;
+                height: 100%;
+                background-repeat: no-repeat;
+                background-position:center;
+                background-size: cover;
+                cursor: pointer;
+                background-color: #eaeaea;
+                border: 0.1px solid #ddd;
+                box-sizing: border-box;
+                background-size: cover;
+
+                border-radius: 4px;
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+            }
+
+            .tile:hover:not(.empty-tile) {
+                transform: translateY(-3.4px);
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.18);
+            }
+
+            .empty-tile {
+                background-color: lightgrey;
+                cursor: default;    
+            }
+
+            /*PUZZLE INSTRUCTIONS*/
+            .detailed-instructions-overlay {
+                display: none; /*note that its hidden by default until the info button is clicked*/
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background-color: rgba(0, 0, 0, 0.8);
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+                animation: fadeIn 0.2s ease-in-out;
+            }
+
+            .detailed-instructions-with-gif {
+                position: relative;
+                background-color: white;
+                padding: 20px;
+                border-radius: 8px;
+                max-width: 640px;
+                width: 100%;
+                height: 70%;
+                overflow-y: auto;
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                animation: zoomIn 0.2s ease-in-out;
+                
+            }
+
+            .puzzle-detailed-intructions {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+                Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
+                sans-serif;
+                padding: 20px;
+                line-height: 1.6;
+            }
+
+            .puzzle-detailed-intructions h2 {
+                font-size: 1.4rem;
+                margin-bottom: 10px;
+            }
+
+            .puzzle-detailed-intructions h3 {
+                font-size: 1rem;
+                margin-top: 20px;
+            }
+
+            .puzzle-detailed-intructions p {
+                margin-left: 10px;
+                margin-bottom: 6px;
+                font-size: 1rem;
+            }
+
+            .detailed-instructions-modal-close {
+                position: absolute;
+                top: 0px;
+                right: 10px;
+                color: black;
+                font-size: 40px;
+                font-weight: bold;
+                cursor: pointer;
+                user-select: none;
+                transition: color 0.2s ease;
+            }
+
+            .detailed-instructions-modal-close:hover {
+                color: #f1f1f1;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
+
+            @keyframes zoomIn {
+                from {
+                    transform: scale(0.8);
+                    opacity: 0;
+                }
+                to {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+            }
+
+
+            .puzzle-example-gif {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+            }
+
+            .puzzle-example-gif img {
+                max-width: 100%;  
+                max-height: 100%; 
+                object-fit: contain; 
+                border-radius: 8px;  
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            }
+
+
+            /*MESSAGE TO USER SECTION*/
+
+            .display-message-to-user {
+                display: none;
+                color: red;
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 5px;
+                background-color: rgba(255, 0, 0, 0.1);
+                text-align: center;
+                font-weight:normal;
+                opacity: 0;
+                transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+                transform: translateY(-10px);
+            }
+
+            /*
+                if we need to communicate something to the user, add the .show class such that message is visible 
+            */
+            .display-message-to-user.show {
+                display: block;
+                opacity: 1;
+                transform: translateY(0);
+            }
+
+            /* 
+                to communicate success to the user, add .success class
+            */
+            .display-message-to-user.success {
+                background-color: rgba(0, 128, 0, 0.1);
+                color: green;
+            }
+
+            /* 
+                to communicate warning to the user, add .warning class
+            */
+            .display-message-to-user.warning {
+                background-color: rgba(255, 165, 0, 0.1);
+                color: orange;
+            }
+
+            /* 
+                to communicate error to the user, add .error class
+            */
+            .display-message-to-user.error {
+                background-color: rgba(255, 0, 0, 0.1);
+                color: red;
+            }
+
+
+
+
+            /*PUZZLE REFRESH SECTION*/
+
+            /*REFRESH is just for what happens when the user literally refreshes the page or when the challenge runs out of time or user exceeds buttons clicks triggering AUTOMATIC REFRESH*/
+            .fade-out {
+                opacity: 0;
+                transform: scale(1.05);
+                filter: blur(5px);
+                transition: opacity 0.5s ease, transform 0.5s ease, filter 0.5s ease;
+            }
+
+
+            /*
+            overlay that can be used to cover any individual part that might be updated during the refresh like the puzzle grid or thumbnail
+            this way we can then add a spinner to each of these and show they are loading
+            */
+            .loading-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(64, 64, 64, 0.6);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 100;
+            }
+
+            /* spinner itself */
+            .loading-spinner {
+                border: 6px solid #f3f3f3;
+                border-top: 6px solid #3498db;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%); 
+                pointer-events: none;
+            }
+
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+
+            /* we need to make sure that the parent is positioned correctly for absolute overlay */
+            .position-relative {
+                position: relative;
+            }
+
+
+
+
+
+            /*PUZZLE SUBMISSION SECTION*/
+
+            /*HELPER BUTTONS ON THE LEFT SIDE OF THE SUBMISSION CONTAINER*/
+            .helper-button-group {
+                display: flex;
+                align-items: center;
+                gap: 20px;
+                font-size:1.6rem;
+                color:rgb(148, 148, 148);
+                flex-wrap: wrap; /* allow wrapping on smaller screens so that as it gets smaller the icons stack up on one another*/
+            }
+
+
+            #detailed-instructions-info-icon:hover {
+                color:black;
+            }
+
+            /*
+            when we add the .enabled class we get the pointer and darker color on hover, 
+            but when we remove the .enabled class, we fallback to the default (unless not-currently-clickable)
+            */
+            .request-different-puzzle-icon.enabled:hover:not(.not-currently-clickable) {
+                color: black;
+                cursor: pointer;
+            }
+
+            /*cursor is default UNLESS .enabled class is added (see above)*/
+            .request-different-puzzle-icon:not(.not-currently-clickable) {
+                cursor: not-allowed;
+                opacity: 0.3;
+            }
+
+            .not-currently-clickable {
+                /* cursor:not-allowed; */
+                pointer-events: none !important; 
+                opacity: 0.3;
+            }
+
+            /* .not-currently-clickable::after {
+                content: "Please wait before requesting a new puzzle.";
+                position: absolute;
+                top: -25px;
+                left: 50%;
+                transform: translateX(-50%);
+                background-color: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 5px 10px;
+                border-radius: 4px;
+                font-size: 0.8rem;
+                white-space: nowrap;
+            } */
+
+
+            /*
+            since the audio functionality is not implemented yet, we keep it opaque
+            and when user hovers on it we show not allowed
+            */
+            #request-audio-puzzle-icon {
+                opacity: 0.3;
+            }
+            #request-audio-puzzle-icon:hover {
+                /* color:black; */
+                cursor: not-allowed;
+            }
+
+
+            /*rotate the fontawesome icon when refreshing the puzzle*/
+            @keyframes rotateIcon {
+                from {
+                    transform: rotate(0deg);
+                }
+                to {
+                    transform: rotate(360deg);
+                }
+            }
+
+            /* we apply this class while waiting on the response to the request for refreshing the puzzle */
+            .rotating-while-waiting-on-new-puzzle-request-response {
+                animation: rotateIcon 1s linear infinite;
+                pointer-events: none; /*to inform user its not clickable while spinning*/
+                opacity: 0.7;
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+            /*SUBMIT BUTTON AND LOGO ON THE RIGHT SIDE OF THE SUBMISSION CONTAINER*/
+
+            .right-button-logo-group {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                /*flex-wrap: wrap;  allow wrapping on smaller screens so that as it gets smaller the logo and submit button stack up on one another*/
+            }
+
+
+
+            #deflect-logo {
+                width: auto;
+                height: auto;
+            }
+
+
+
+
+            .submit-deflect-captcha-solution {
+                padding: 10px 40px;
+                border-radius: 50px;
+                border: 2px solid #5dd39e;
+                background-color: #2c2f33;
+                color: #ffffff;
+                font-size: 18px;
+                /* font-family: 'Arial', sans-serif; */
+                cursor: pointer;
+                outline: none;
+                transition: all 0.4s ease;
+                display: inline-block;
+                text-align: center;
+
+                transition: all 0.4s ease, color 0.4s ease, background-color 0.4s ease;
+                width: 140px;
+            }
+
+
+            .submit-deflect-captcha-solution:hover:not(.disabled):not(.success) {
+                background-color: #3498db; 
+                color: #ffffff;
+                border-color: #3498db;
+                box-shadow: 0 0 15px rgba(52, 152, 219, 0.5); 
+                transition: all 0.4s ease;
+            }
+
+
+            .submit-deflect-captcha-solution.success {
+                background-color: #5dd39e; 
+                border-color: #5dd39e;
+                color: #2c2f33;
+                /* box-shadow: 0 0 15px rgba(93, 211, 158, 0.5);  */ /*no green glow around it*/ 
+                box-shadow: 0 0 20px rgba(46, 204, 113, 0.7); /*green glow around it */
+                transition: all 0.4s ease; 
+                pointer-events: none;
+
+                transition: all 0.4s ease, color 0.4s ease, background-color 0.4s ease;
+            }
+
+
+            /* .submit-deflect-captcha-solution.disabled {
+                cursor: not-allowed;
+                opacity: 0.6;
+                background-color: #444;
+                border-color: #888;
+            } */
+            .submit-deflect-captcha-solution.disabled {
+                opacity: 0.6 !important;
+                background-color: #444 !important;
+                border-color: #888 !important;
+                pointer-events: none !important;
+            }
+
+
+            .submit-deflect-captcha-solution.loading {
+                position: relative;
+                cursor: not-allowed !important;
+                /* pointer-events: none; */
+            }
+
+            .submit-deflect-captcha-solution.loading::after {
+                content: "";
+                border: 3px solid #f3f3f3;
+                border-top: 3px solid #3498db;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                animation: spin 1s linear infinite;
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                transition: opacity 0.3s ease;
+            }
+
+            @keyframes spin {
+                0% { transform: translate(-50%, -50%) rotate(0deg); }
+                100% { transform: translate(-50%, -50%) rotate(360deg); }
+            }
+
+
+
+
+            /*PUZZLE THUMBNAIL SECTION*/
+
+            .thumbnail-wrapper {
+                position: relative;
+                display: grid;
+                width: 100%;
+                height: auto;
+                max-width: 600px;
+                
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+                border-radius: 4px;
+                background-color: white;
+                overflow: hidden;
+            }
+
+            .thumbnail-wrapper img {
+                grid-column: 1 / -1;
+                grid-row: 1 / -1;
+                width: 100%;
+                height: auto;
+                object-fit: contain;
+            }
+
+            #deflect-puzzle-thumbnail {
+                width: 100%;
+                height: auto;
+                border-radius: 2px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                object-fit: contain;
+                border-radius: 4px;
+
+                /*
+                    so that users know they can click on it 
+                    to more closely inspect the image they need to recreate
+                    but note that this can be disabled if the script cannot find
+                    the necessary attachment points
+                */
+                cursor: pointer;
+            }
+
+            /*model for close inspection of target image*/
+            .thumbnail-modal-background {
+                position: relative;
+                background-color: white;
+                padding: 30px;
+                border-radius: 12px;
+                box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+
+                animation: zoomIn 0.2s ease-in-out;
+                max-width: 500px;
+                
+                width: 40vw;
+                aspect-ratio: 1/1;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .thumbnail-modal {
+                display: none;
+                position: fixed;
+                z-index: 1000;
+                left: 0;
+                top: 0;
+                width: 100vw;
+                height: 100vh;
+                background-color: rgba(0, 0, 0, 0.8);
+                justify-content: center;
+                align-items: center;
+                animation: fadeIn 0.2s ease-in-out;
+            }
+
+            .thumbnail-modal-content {
+                width:86%;
+                max-width: 460px;
+                aspect-ratio: 1/1;
+                padding:0px;
+                border-radius: 4px;
+                box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+                
+                user-select: none;
+            }
+
+            @keyframes fadeIn {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
+
+            @keyframes zoomIn {
+                from {
+                    transform: scale(0.8);
+                    opacity: 0;
+                }
+                to {
+                    transform: scale(1);
+                    opacity: 1;
+                }
+            }
+
+
+            .thumbnail-modal-close {
+                position: absolute;
+                top: 0px;
+                right: 10px;
+                color: black;
+                font-size: 40px;
+                font-weight: bold;
+                cursor: pointer;
+                user-select: none;
+                transition: color 0.2s ease;
+            }
+
+            .thumbnail-modal-close:hover {
+                color: #f1f1f1;
+            }
+
+
+
+
+
+
+
+
+
+        </style>
+
+
+
     </head>
 
     <body>

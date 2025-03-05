@@ -23,6 +23,9 @@ export default class ClientCaptchaSolver {
     private submitSolutionButton: HTMLButtonElement
     private isSubmittingSolution:boolean
 
+
+    currentMessageTimeout: number | null = null
+
     private challengeDifficulty:difficulty
 
     private tileElements: HTMLElement[][] = []
@@ -384,13 +387,39 @@ export default class ClientCaptchaSolver {
             this.toggleSubmitButtonLoading(false)
     
             if (solutionRequest.ok) {
-                if (solutionRequest.status === 202) {
-                    const redirectUrl = solutionRequest.headers.get("Location")
-                    this.submitSolutionButton.classList.add("success")
-                    this.submitSolutionButton.textContent = "Verified!"
-                    return this.handleRedirectOnSuccess(redirectUrl)
+                if (solutionRequest.status === 200) {
+                    const successfulSubmissionResponse = (await solutionRequest.text()).trim()
+                    if (successfulSubmissionResponse === "access granted") {
+                        // const redirectUrl = solutionRequest.headers.get("Location")
+                        this.submitSolutionButton.classList.add("success")
+                        this.submitSolutionButton.textContent = "Verified!"
+                        // return this.handleRedirectOnSuccess(redirectUrl)
+                    }
                 }
+                
             } else {
+
+                if (solutionRequest.status === 403) {
+                    const rateLimitResponse = await solutionRequest.text()
+
+                    const match = rateLimitResponse.match(/(\d+)\s+seconds/)
+                    const duration_MS = match ? parseInt(match[1], 10) * 1000 : 60_000;//default to 60 seconds if no match found
+                    
+                    this.toggleRateLimit(true)
+
+                    setTimeout(()=> {
+                        this.toggleRateLimit(false)
+                    }, duration_MS)
+
+                    this.showUserMessage(
+                        rateLimitResponse,
+                        "warning", 
+                        duration_MS, 
+                        true //prioritize this over any other error message
+                    )
+                    return
+                }
+
                 if (solutionRequest.status === 404) {
                     //if there is no cookie and you're sending a solution restart
                     //or if the cookie on our end dne, restart
@@ -405,10 +434,10 @@ export default class ClientCaptchaSolver {
 
             const messageToUser_type:'success' | 'warning' | 'error' = "error"
 
-            this.showUserMessage("Incorrect solution. Please try again", messageToUser_type, 5_000) //5 seconds is enough for them to read it was wrong
-            setTimeout(()=>{
-                this.hideUserMessage(messageToUser_type)
-            }, 5000)
+            this.showUserMessage("Incorrect solution. Please try again", messageToUser_type, 5_000, true) //5 seconds is enough for them to read it was wrong
+            // setTimeout(()=>{
+            //     this.hideUserMessage()
+            // }, 5000)
     
             this.logIfDebug("Invalid solution", "warn")
             //continue timer
@@ -679,27 +708,31 @@ export default class ClientCaptchaSolver {
     }
 
     //NOTE: all messages are display UNDER the grid
-    private showUserMessage(message: string, type: 'success' | 'warning' | 'error' = 'error', duration = 5000) {
-        
+    private showUserMessage(message: string, type: 'success' | 'warning' | 'error' = 'error', duration = 5000, prioritizeMessage: boolean = false) {
         const messageElement = document.querySelector(".display-message-to-user")
+        
         if (messageElement) {
-            messageElement.className = 'display-message-to-user'
-            //just add either ".success", ".warning" or ".error" depending on what you're trying to say to the user
-            messageElement.classList.add('show', type)
+            // If prioritizing, clear any currently displayed message before showing the new one
+            if (prioritizeMessage) {
+                this.hideUserMessage()
+                clearTimeout(this.currentMessageTimeout) // Clear any pending timeout
+            }
+    
+            messageElement.className = 'display-message-to-user' // Reset classes
+            messageElement.classList.add('show', type) // Apply the correct type
             messageElement.textContent = message
     
-            //hide the message after the specified duration
-            setTimeout(() => {
-                this.hideUserMessage(type)
+            // Store the timeout reference so we can clear it if needed
+            this.currentMessageTimeout = setTimeout(() => {
+                this.hideUserMessage()
             }, duration)
         }
     }
-
-    private hideUserMessage(type: 'success' | 'warning' | 'error' = 'error') {
+    
+    private hideUserMessage() {
         const messageElement = document.querySelector(".display-message-to-user")
         if (messageElement) {
-            messageElement.classList.remove('show')
-            messageElement.classList.remove(type)
+            messageElement.classList.remove('show', 'success', 'warning', 'error')
         }
     }
 
@@ -729,6 +762,37 @@ export default class ClientCaptchaSolver {
         }
     }
 
+    //since the rate limit happens in the middle of the submission, we need to stop
+    //the toggleSubmitButtonLoading, and then after the rate limit expired, put that style back on
+    private toggleRateLimit(isRateLimitEnabled: boolean) {
+
+        //also apply to the request puzzle button 
+        const requestPuzzleButton = document.getElementById("request-different-puzzle-icon")
+
+        if (isRateLimitEnabled) {
+            this.toggleSubmitButtonLoading(false)
+
+            setTimeout(() => {
+                this.submitSolutionButton.classList.add("disabled")
+                this.submitSolutionButton.removeAttribute("disabled")
+                
+                requestPuzzleButton.classList.add("not-currently-clickable")
+                requestPuzzleButton.classList.remove("enabled")
+                requestPuzzleButton.style.opacity = "0.3"
+            }, 0)
+
+        } else {
+            this.submitSolutionButton.classList.remove("disabled")
+            this.submitSolutionButton.removeAttribute("disabled")
+
+
+            requestPuzzleButton.classList.remove("not-currently-clickable")
+            // this.requestPuzzleButton.style.cursor = "pointer"
+            requestPuzzleButton.classList.add("enabled")
+            requestPuzzleButton.style.opacity = "1"
+        }
+    }
+    
     private logIfDebug(msg:string, type:"debug"| "info" | "warn"|"error" = "debug") {
         if (this.debug) {
             switch(type) {

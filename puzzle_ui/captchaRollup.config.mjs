@@ -43,14 +43,21 @@ export default {
         }),          
         commonjs(), 
         typescript(), 
-        postcss({
-            // NOTE: You could extract as it would extract css is a seperate file - we dont want that as we want 1 bundle to serve with everything it needs to run so we use inject to inline everything into the bundle
-            //extract: false, 
+        /*
+            NOTE: SINCE WE DECIDED TO INCLUDE THE CSS DIRECTLY INTO THE INDEX.HTML WE 
+            HAVE COMMENTED OUT THE POSTCSS SECTION IN ROLLUP. IF YOU EVER DECIDE YOU WANT TO
+            RE-BUNDLE THE CSS ALONG WITH JS, YOU NEED ONLY UNCOMMENT THE import *.css AT THE 
+            LEVEL OF THE ENTRYPOINT SCRIPT, REMOVE THE CSS STYLE TAGS (AND ALL CSS) FROM INDEX.HTML
+            AND UNCOMMENT THE POSTCSS BELOW
+        */
+        // postcss({
+        //     // NOTE: You could extract as it would extract css is a seperate file - we dont want that as we want 1 bundle to serve with everything it needs to run so we use inject to inline everything into the bundle
+        //     //extract: false, 
 
-            inject: true,  //inlines the css directly into the js bundle
-            minimize: process.env.MINIFY_CSS === 'true',
-            sourceMap: process.env.SOURCE_MAP === 'true'
-        }),
+        //     inject: true,  //inlines the css directly into the js bundle
+        //     minimize: process.env.MINIFY_CSS === 'true',
+        //     sourceMap: process.env.SOURCE_MAP === 'true'
+        // }),
         process.env.OBFUSCATE === "true" &&
             obfuscatorPlugin({
                 compact: true,

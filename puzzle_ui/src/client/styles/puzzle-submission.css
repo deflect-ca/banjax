@@ -30,7 +30,8 @@ but when we remove the .enabled class, we fallback to the default (unless not-cu
 }
 
 .not-currently-clickable {
-    cursor:not-allowed;
+    /* cursor:not-allowed; */
+    pointer-events: none !important; 
     opacity: 0.3;
 }
 
@@ -150,17 +151,24 @@ and when user hovers on it we show not allowed
 }
 
 
-.submit-deflect-captcha-solution.disabled {
+/* .submit-deflect-captcha-solution.disabled {
     cursor: not-allowed;
     opacity: 0.6;
     background-color: #444;
     border-color: #888;
+} */
+.submit-deflect-captcha-solution.disabled {
+    opacity: 0.6 !important;
+    background-color: #444 !important;
+    border-color: #888 !important;
+    pointer-events: none !important;
 }
 
 
 .submit-deflect-captcha-solution.loading {
     position: relative;
-    pointer-events: none;
+    cursor: not-allowed !important;
+    /* pointer-events: none; */
 }
 
 .submit-deflect-captcha-solution.loading::after {

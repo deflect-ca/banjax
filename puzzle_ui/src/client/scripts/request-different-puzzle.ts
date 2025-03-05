@@ -19,6 +19,8 @@ export default class RefreshPuzzle {
     
     clientSideSolver: ClientCaptchaSolver
 
+    currentMessageTimeout:number | null = null
+
     NEW_PUZZLE_ENDPOINT:string
     
     private debug:boolean
@@ -76,7 +78,9 @@ export default class RefreshPuzzle {
         
         const messageToUser_type:'success' | 'warning' | 'error' = "warning"
         if (this.puzzleCount >= this.maxNumberOfNewPuzzles) {
-            this.showCooldownMessage(`Please wait ${this.unitTime / 1000} seconds before requesting a new puzzle.`, messageToUser_type, 60_000) //60 seconds
+            
+            this.showCooldownMessage("You've requested a new puzzle too many times. Please wait before trying again.", messageToUser_type, 60_000, true)
+            // this.showCooldownMessage(`Please wait ${this.unitTime / 1000} seconds before requesting a new puzzle.`, messageToUser_type, 60_000) //60 seconds
             if (this.requestPuzzleButton) {
                 this.requestPuzzleButton.classList.add("not-currently-clickable")
                 this.requestPuzzleButton.classList.remove("enabled")
@@ -102,7 +106,7 @@ export default class RefreshPuzzle {
         if (!this.resetTimeout) {
             this.resetTimeout = setTimeout(() => {
                 this.puzzleCount = 0
-                this.hideCooldownMessage(messageToUser_type)
+                this.hideCooldownMessage()
                 this.resetTimeout = null
             }, this.unitTime)
         }
@@ -189,27 +193,29 @@ export default class RefreshPuzzle {
 
 
     //NOTE: all messages are display UNDER the grid
-    private showCooldownMessage(message: string, type: 'success' | 'warning' | 'error' = 'error', duration = 5000) {
+    private showCooldownMessage(message: string, type: 'success' | 'warning' | 'error' = 'error', duration = 5000, prioritizeMessage: boolean = false) {
         
         if (this.cooldownMessageElement) {
-            // this.cooldownMessageElement.className = 'display-message-to-user'
-            //just add either ".success", ".warning" or ".error" depending on what you're trying to say to the user
+            // If prioritizing, clear any currently displayed message before showing the new one
+            if (prioritizeMessage) {
+                this.hideCooldownMessage()
+                clearTimeout(this.currentMessageTimeout) // Clear any pending timeout
+            }
+    
             this.cooldownMessageElement.classList.add('show', type)
             this.cooldownMessageElement.textContent = message
     
-            //hide the message after the specified duration
-            setTimeout(() => {
-                this.hideCooldownMessage(type)
+            // Store the timeout reference so we can clear it if needed
+            this.currentMessageTimeout = setTimeout(() => {
+                this.hideCooldownMessage()
             }, duration)
         }
     }
-
-    private hideCooldownMessage(type: 'success' | 'warning' | 'error' = 'error') {
+    
+    private hideCooldownMessage() {
         if (this.cooldownMessageElement) {
-            this.cooldownMessageElement.classList.remove('show')
-            this.cooldownMessageElement.classList.remove(type)
+            this.cooldownMessageElement.classList.remove('show', 'success', 'warning', 'error')
         }
-
         if (this.requestPuzzleButton) {
             this.requestPuzzleButton.classList.remove("not-currently-clickable")
             // this.requestPuzzleButton.style.cursor = "pointer"

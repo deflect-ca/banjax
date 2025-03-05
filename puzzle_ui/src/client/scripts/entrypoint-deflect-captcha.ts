@@ -21,24 +21,31 @@ import 'fast-text-encoding' // Polyfill for TextEncoder/TextDecoder
 import 'core-js/es/promise' //for promises
 import 'core-js/stable'
 
-//extra for IE11/Older Browsers
+//extra polyfills for IE11/Older Browsers as needed depending on legacy browsers we need to support
 // import 'core-js/es/object/entries' //Object.entries()
 // import 'core-js/es/object/values' //Object.values()
 // import 'core-js/es/array/includes' //Array.prototype.includes()
 // import 'core-js/es/number/is-nan' //Number.isNaN()
 
 
+/*
+    NOTE: SINCE WE DECIDED TO INCLUDE THE CSS DIRECTLY INTO THE INDEX.HTML
+    WE NEED NOT IMPORT THE FILES HERE FOR THE BUNDLER TO FIND THEM. IF YOU WANT TO
+    START RE-BUNDLING THE CSS ALONG WITH THE JS, YOU NEED ONLY UNCOMMENT THESE LINES
+    AND SUBSEQUENTLY MAKE SURE THAT THE PostCSS() hook in rollup IS ALSO UNCOMMENTED.
 
+    also, you will need to delete the style tags and the css from the index.html
+*/
 //import css such that rolllup will bundle all of the css as its imported in the entrypoint 
 //this allows us to replace multiple requests of assets with 1 request for the bundle
-import '../styles/puzzle-messages-to-user.css'
-import '../styles/puzzle-instructions.css'
-import '../styles/puzzle-submission.css'
-import '../styles/puzzle-container.css'
-import '../styles/puzzle-thumbnail.css'
-import '../styles/puzzle-refresh.css'
-import '../styles/puzzle-grid.css'
-import '../styles/main.css'
+// import '../styles/puzzle-messages-to-user.css'
+// import '../styles/puzzle-instructions.css'
+// import '../styles/puzzle-submission.css'
+// import '../styles/puzzle-container.css'
+// import '../styles/puzzle-thumbnail.css'
+// import '../styles/puzzle-refresh.css'
+// import '../styles/puzzle-grid.css'
+// import '../styles/main.css'
 
 
 import attachFooterHeaderHostname from "./attach-footer-and-header-info"
@@ -75,16 +82,16 @@ const CLIENT_SIDE_RATE_LIMIT_WINDOW = {
 
 const CAPTCHA_COOKIE_NAME = "deflect_challenge4"
 
-const HOSTNAME_FOOTER_HEADER_ERROR_ENDPOINT = "/api/hostname-footer-header-error"
-const REQUEST_NEW_PUZZLE_ERROR_ENDPOINT = "/api/request-different-puzzle-error"
-const DETAILED_INSTRUCTION_ERROR_ENDPOINT = "/api/detail-instruction-error"
-const INSPECT_THUMBNAIL_ERROR_ENDPOINT = "/api/inspect-thumbnail-error"
-const CAPTCHA_INIT_ERROR_ENDPOINT = "/api/captcha-init-error"
-const GENERIC_ERROR_ENDPOINT = "/api/generic-error"
+const HOSTNAME_FOOTER_HEADER_ERROR_ENDPOINT = "/__banjax/error/hostname-footer-header-error"
+const REQUEST_NEW_PUZZLE_ERROR_ENDPOINT = "/__banjax/error/request-different-puzzle-error"
+const DETAILED_INSTRUCTION_ERROR_ENDPOINT = "/__banjax/error/detail-instruction-error"
+const INSPECT_THUMBNAIL_ERROR_ENDPOINT = "/__banjax/error/inspect-thumbnail-error"
+const CAPTCHA_INIT_ERROR_ENDPOINT = "/__banjax/error/captcha-init-error"
+const GENERIC_ERROR_ENDPOINT = "/__banjax/error/generic-error"
 
 
-const VERIFY_SOLUTION_ENDPOINT = "/validate_puzzle_solution"
-const NEW_PUZZLE_ENDPOINT = "/new_puzzle_challenge"
+const VERIFY_SOLUTION_ENDPOINT = "/__banjax/validate_puzzle_solution"
+const NEW_PUZZLE_ENDPOINT = "/__banjax/refresh_puzzle_state"
 
 
 
