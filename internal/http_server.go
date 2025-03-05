@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -35,8 +36,8 @@ const (
 )
 
 const (
-	puzzleGeneratorKey = "puzzleGenerator"
-	puzzleVerifierKey  = "puzzleVerifier"
+	CaptchaGeneratorKey = "CaptchaGenerator"
+	CaptchaVerifierKey  = "CaptchaVerifier"
 )
 
 var USE_PUZZLE_CHALLENGE = true
@@ -51,8 +52,8 @@ func RunHttpServer(
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 
-	puzzleGenerator *captchaUtils.CAPTCHAGenerator,
-	puzzleVerifier *solutionUtils.CAPTCHAVerifier,
+	CaptchaGenerator *captchaUtils.CAPTCHAGenerator,
+	CaptchaVerifier *solutionUtils.CAPTCHAVerifier,
 
 ) {
 	addr := "127.0.0.1:8081" // XXX config
@@ -77,7 +78,7 @@ func RunHttpServer(
 	}
 
 	r := gin.New()
-	r.Use(captchaMiddleware(puzzleGenerator, puzzleVerifier))
+	r.Use(captchaMiddleware(CaptchaGenerator, CaptchaVerifier))
 
 	if ginLogFileName != "" {
 		type LogLine struct {
@@ -195,6 +196,48 @@ func RunHttpServer(
 			banner,
 		),
 	)
+
+	//when users click the "refresh" button, to get a new puzzle state (not the entire challenge with index.html and embedded js just the puzzle itself)
+	//the request will be handled by this endpoint. NOTE this is different from challenge issuance which still goes through the decisionForNginx endpoint
+	r.GET("/refresh_puzzle_state", func(c *gin.Context) {
+		handleRefreshPuzzleCAPTCHAState(
+			config,
+			c,
+			banner,
+			failedChallengeStates,
+			Block, //fail action is a constant
+			staticDecisionLists,
+		)
+	})
+
+	//when users submit their solutions, we receive them on this endpoint
+	r.POST("/validate_puzzle_solution", func(c *gin.Context) {
+		handleVerifyPuzzleCAPTCHAState(
+			config,
+			c,
+			banner,
+			failedChallengeStates,
+			Block, //fail action is a constant
+			staticDecisionLists,
+		)
+	})
+
+	//any non critical errors that do not break gameplay will be reported here by the entrypoint client side script with payloads
+	//such that we create recreate the environment that gave rise to them
+	r.POST("/__banjax/error/:errorType", func(c *gin.Context) {
+
+		errorType := c.Param("errorType")
+		log.Printf("Received error report: %s", errorType)
+
+		handleLoggingPuzzleCAPTCHAErrorReport(
+			config,
+			c,
+			banner,
+			failedChallengeStates,
+			Block, //fail action is a constant
+			staticDecisionLists,
+		)
+	})
 
 	r.GET("/info", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -350,14 +393,14 @@ func RunHttpServer(
 
 func captchaMiddleware(
 
-	puzzleGenerator *captchaUtils.CAPTCHAGenerator,
-	puzzleVerifier *solutionUtils.CAPTCHAVerifier,
+	captchaGeneratorPtr *captchaUtils.CAPTCHAGenerator,
+	captchaVerifierPtr *solutionUtils.CAPTCHAVerifier,
 
 ) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
-		c.Set(puzzleGeneratorKey, puzzleGenerator)
-		c.Set(puzzleVerifierKey, puzzleVerifier)
+		c.Set(CaptchaGeneratorKey, captchaGeneratorPtr)
+		c.Set(CaptchaVerifierKey, captchaVerifierPtr)
 		c.Next()
 	}
 }
@@ -386,6 +429,22 @@ func accessDenied(c *gin.Context, config *Config, decisionListResultString strin
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	sessionCookieEndPoint(c, config)
 	c.String(403, "access denied\n")
+}
+
+func accessThrottled(c *gin.Context, config *Config, decisionListResultString string, throttleDurationSeconds int) {
+
+	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
+	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
+	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
+
+	msg := fmt.Sprintf("Too many failed attempts. Try again in %d seconds.", throttleDurationSeconds)
+
+	c.Header("X-Banjax-Decision", decisionListResultString)
+	c.Header("Cache-Control", "no-cache,no-store")    // XXX think about caching
+	c.Header("X-Accel-Redirect", "@access_throttled") // nginx named location that gives a ban page
+	c.Header("X-Throttle-Message", msg)               //msg to display
+	sessionCookieEndPoint(c, config)
+	c.String(403, msg)
 }
 
 func challenge(
@@ -516,8 +575,10 @@ func tooManyFailedChallenges(
 			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
 			decisionType = NginxBlock
 		}
+
 		// log.Println("IP has failed too many challenges; blocking them")
 		banner.BanOrChallengeIp(config, ip, decisionType, host)
+
 		banner.LogFailedChallengeBan(
 			config,
 			ip,
@@ -627,55 +688,66 @@ func sendOrValidateShaChallenge(
 	return sendOrValidateShaChallengeResult
 }
 
-func sendOrValidatePuzzleChallenge(
+type PuzzleCAPTCHAResult uint
 
-	config *Config,
-	c *gin.Context,
-	banner BannerInterface,
-	rateLimitStates *FailedChallengeRateLimitStates,
-	failAction FailAction,
-	decisionLists *StaticDecisionLists,
+const (
+	_ PuzzleCAPTCHAResult = iota
+	PuzzleCAPTCHAPass
+	PuzzleCAPTCHAFailNoCookie
+	PuzzleCAPTCHAFailBadCookie
+	PuzzleCAPTCHAFailIntegrityCheck         //detected tampering
+	PuzzleCAPTCHAFailPuzzleGeneration       //failed to generate new puzzle
+	PuzzleCAPTCHAFailMissingDependency      //missing generator | validator pointer
+	PuzzleCAPTCHAFailIncorrectSolution      //solution to puzzle is not correct
+	PuzzleCAPTCHAFailMissingSolutionBody    //solution was not sent
+	PuzzleCAPTCHAFailMissingDesiredEndpoint //missing user desired endpoint
+)
 
-) {
+var PuzzleCAPTCHAResultToString = map[PuzzleCAPTCHAResult]string{
+	PuzzleCAPTCHAPass:                       "PuzzleCAPTCHAPass",
+	PuzzleCAPTCHAFailNoCookie:               "PuzzleCAPTCHAFailNoCookie",
+	PuzzleCAPTCHAFailBadCookie:              "PuzzleCAPTCHAFailBadCookie",
+	PuzzleCAPTCHAFailIntegrityCheck:         "PuzzleCAPTCHAFailIntegrityCheck",
+	PuzzleCAPTCHAFailPuzzleGeneration:       "PuzzleCAPTCHAFailPuzzleGeneration",
+	PuzzleCAPTCHAFailMissingDependency:      "PuzzleCAPTCHAFailMissingDependency",
+	PuzzleCAPTCHAFailIncorrectSolution:      "PuzzleCAPTCHAFailIncorrectSolution",
+	PuzzleCAPTCHAFailMissingSolutionBody:    "PuzzleCAPTCHAFailMissingSolutionBody",
+	PuzzleCAPTCHAFailMissingDesiredEndpoint: "PuzzleCAPTCHAFailMissingDesiredEndpoint",
+}
 
-	requestedPath := c.Request.Header.Get("X-Requested-Path")
-
-	switch requestedPath {
-
-	case "/new_puzzle_challenge":
-		handleNewPuzzleChallenge(config, c, banner, rateLimitStates, failAction, decisionLists)
-		return
-
-	case "/validate_puzzle_solution":
-		handleVerifyPuzzleSolution(config, c, banner, rateLimitStates, failAction, decisionLists)
-		return
-
-	case "/api/generic-error",
-		"/api/captcha-init-error",
-		"/api/inspect-thumbnail-error",
-		"/api/detail-instruction-error",
-		"/api/request-different-puzzle-error",
-		"/api/hostname-footer-header-error":
-		handlePuzzleChallengeError(config, c, banner, rateLimitStates, failAction, decisionLists)
-		return
-
-	default:
-		//sends back the index.html along with the bundles assets and injected initial puzzle state
-		issueCAPTCHAPuzzle(config, c, banner, rateLimitStates, failAction, decisionLists)
-		// c.File("./puzzle_ui/dist/index.html")
-		return
+func (pcr PuzzleCAPTCHAResult) String() string {
+	s, ok := PuzzleCAPTCHAResultToString[pcr]
+	if ok {
+		return s
 	}
+	return "Bad! unknown PuzzleCAPTCHAResult"
+}
+func (pcr PuzzleCAPTCHAResult) MarshalJSON() ([]byte, error) {
+	buffer := bytes.NewBufferString(`"`)
+	s, ok := PuzzleCAPTCHAResultToString[pcr]
+	if ok {
+		buffer.WriteString(s)
+	} else {
+		buffer.WriteString("nil")
+	}
+	buffer.WriteString(`"`)
+	return buffer.Bytes(), nil
+}
+
+type SendOrValidatePuzzleCAPTCHAResult struct {
+	PuzzleCaptchaResult           PuzzleCAPTCHAResult
+	TooManyFailedChallengesResult RateLimitResult
 }
 
 /*
-issueCAPTCHAPuzzle sends the index.html (which has also had the css and js bundle injected into it at build) and
+issuePuzzleCAPTCHA sends the index.html (which has also had the css and js bundle injected into it at build) and
 subsequently injects the initial puzzle state such that there are no follow up requests.
 
-This issueCAPTCHAPuzzle function is very different from the newPuzzleChallenge handler as it serves the entire challenge
+This issuePuzzleCAPTCHA function is very different from the newPuzzleChallenge handler as it serves the entire challenge
 including the index.html, css and js whereas the handleNewPuzzleChallenge will ONLY generate the actual puzzle itself
 (ie the state of the challenge).
 */
-func issueCAPTCHAPuzzle(
+func sendPuzzleCAPTCHA(
 
 	config *Config,
 	c *gin.Context,
@@ -684,19 +756,21 @@ func issueCAPTCHAPuzzle(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) {
+) SendOrValidatePuzzleCAPTCHAResult {
+
+	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
 
 	filePath := "./puzzle_ui/dist/index.html"
 	htmlContent, err := os.ReadFile(filePath)
 	if err != nil {
-		c.String(http.StatusInternalServerError, "")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	puzzleGeneratorInterface, exists := c.Get(puzzleGeneratorKey)
+	puzzleGeneratorInterface, exists := c.Get(CaptchaGeneratorKey)
 	if !exists {
-		c.String(http.StatusInternalServerError, "")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	puzzleGenerator := puzzleGeneratorInterface.(*captchaUtils.CAPTCHAGenerator)
@@ -728,15 +802,15 @@ func issueCAPTCHAPuzzle(
 	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(userChallengeCookieValue, userDesiredEndpoint, b64PngImage, targetDifficulty)
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{})
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	serializedGameState, err := json.Marshal(newCaptcha)
 	if err != nil {
 		log.Printf("Error marshalling CAPTCHA: %v", err)
-		c.String(http.StatusInternalServerError, "")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	var escapedGameState bytes.Buffer
@@ -752,16 +826,23 @@ func issueCAPTCHAPuzzle(
 
 	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS/1000, "/", "", true, false)
 	c.Header("Content-Type", "text/html")
-	c.String(http.StatusOK, modifiedHTML)
+	c.String(http.StatusTooManyRequests, modifiedHTML)
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
-handlePuzzleChallengeError handles any error we receive based on the endpoint as well as
+handlePuzzleCAPTCHAErrorReport handles any error we receive based on the endpoint as well as
 the rateLimitStates.
+
+Error reports are generated by the client side when it detects an inability to attach one (or more) of the
+event listeners required. Most errors are non critical and the puzzle will be able to continue to function
+the only errors that matter are sent to critical error endpoint which can be handled accordingly. The rest
+are mostly to give us the capability to getting info about their environment and be able to recreate the issue
+to improve the puzzle later.
 
 For now it will log the error, but later we can take into consideration the other options we have
 */
-func handlePuzzleChallengeError(
+func handleLoggingPuzzleCAPTCHAErrorReport(
 
 	config *Config,
 	c *gin.Context,
@@ -770,7 +851,9 @@ func handlePuzzleChallengeError(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) {
+) SendOrValidatePuzzleCAPTCHAResult {
+
+	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
 
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -789,12 +872,14 @@ func handlePuzzleChallengeError(
 	log.Println("Challenge Cookie: ", challengeCookie)
 	log.Println("Method: ", requestedMethod)
 
+	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+
 	// handleSendPuzzleChallenge(config, c, banner, rateLimitStates, failAction, decisionLists)
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
-handleNewPuzzleChallenge generates a new CAPTCHA challenge for the client. This is only used
+handleRefreshPuzzleCAPTCHAState generates a new CAPTCHA challenge for the client. This is only used
 when the user clicks on the new challenge button as it doesnt require anything other than the challenge payload itself
 
 the issueCAPTCHAPuzzle handles injecting the initial puzzle state and sending it off in one request so there are no subsequent
@@ -841,7 +926,7 @@ NOTE:
 this is not only extremely unlikely because they would have had to not solve it for like 20 minutes and then click new puzzle
 but the puzzle itself triggers a refresh automatically on the client side when it detects it ran out of time preventing this from occuring
 */
-func handleNewPuzzleChallenge(
+func handleRefreshPuzzleCAPTCHAState(
 
 	config *Config,
 	c *gin.Context,
@@ -850,12 +935,14 @@ func handleNewPuzzleChallenge(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) {
+) SendOrValidatePuzzleCAPTCHAResult {
 
-	puzzleGeneratorInterface, exists := c.Get(puzzleGeneratorKey)
+	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
+
+	puzzleGeneratorInterface, exists := c.Get(CaptchaGeneratorKey)
 	if !exists {
-		c.JSON(http.StatusInternalServerError, gin.H{})
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	puzzleGenerator := puzzleGeneratorInterface.(*captchaUtils.CAPTCHAGenerator)
@@ -871,8 +958,8 @@ func handleNewPuzzleChallenge(
 		cachedPayloed, exists := puzzleGenerator.SolutionCache.Get(challengeCookieValue)
 		if !exists {
 			log.Println("Error: user desired endpoint cannot be ''")
-			c.String(http.StatusNotFound, "")
-			return
+			sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDesiredEndpoint
+			return sendOrValidatePuzzleCAPTCHAResult
 		}
 
 		userDesiredEndpoint = cachedPayloed.UserDesiredEndpoint
@@ -885,17 +972,55 @@ func handleNewPuzzleChallenge(
 			challenge and subsequently issue an entirely new challenge to them
 		*/
 		log.Println("Error: user desired endpoint cannot be ''")
-		c.String(http.StatusNotFound, "")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDesiredEndpoint
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	cookieExpiryMS := 600_000 //a default expiry 10 minutes
+	TimeAllowedToSolvePuzzleMs := 600_000 //a default expiry 10 minutes
 	targetDifficultyProfile, exists := puzzleGenerator.DifficultyConfigController.GetTargetProfile()
 	if exists {
-		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
+		TimeAllowedToSolvePuzzleMs = targetDifficultyProfile.TimeToSolveMs
 	}
 
-	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
+	/*
+		Since the objective of this endpoint is to be able to get a new puzzle state, we protect it by assuming each click is a failed entry
+		ie they couldnt solve it. After n failures, we simply prevent them from aaccessing this endpoint for the duration of the current challenge
+		difficulty forcing them to solve this puzzle that they currently have. IE, we allow them to get new puzzle state a handful of times before
+		banning them from doing so again for the duration of this particular puzzles lifetime. We do so just after we know what the difficulty is, but before
+		we actually do the work of calculating a new puzzle for them to solve
+	*/
+
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
+	requestedMethod := c.Request.Method
+
+	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
+	if failAction == Block {
+
+		tooManyFailedChallengesResult := tooManyFailedChallenges(
+			config,
+			clientIp,
+			clientUserAgent,
+			requestedHost,
+			requestedPath,
+			banner,
+			"captcha_puzzle",
+			rateLimitStates,
+			requestedMethod,
+			decisionLists,
+		)
+
+		if tooManyFailedChallengesResult.Exceeded {
+			log.Printf("Throttling users ability to fetch new puzzle for: %d ms", TimeAllowedToSolvePuzzleMs)
+			banner.OverwriteBanWithRateLimit(config, clientIp, TimeAllowedToSolvePuzzleMs)
+			accessThrottled(c, config, "TooManyFailedChallenges", TimeAllowedToSolvePuzzleMs)
+			return sendOrValidatePuzzleCAPTCHAResult
+		}
+	}
+
+	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, TimeAllowedToSolvePuzzleMs, getUserAgentOrIp(c, config))
 
 	/*
 		load either the default image, or use path + a hostname? to identify
@@ -912,16 +1037,17 @@ func handleNewPuzzleChallenge(
 	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(userChallengeCookieValue, userDesiredEndpoint, b64PngImage, targetDifficulty)
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{})
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS/1000, "/", "", true, false)
+	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, TimeAllowedToSolvePuzzleMs/1000, "/", "", true, false)
 	c.JSON(http.StatusOK, newCaptcha)
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
-handleVerifyPuzzleSolution validates the user's submitted solution to the CAPTCHA challenge.
+handleVerifyCAPTCHAPuzzleState validates the user's submitted solution to the CAPTCHA challenge.
 
 Workflow:
 1. Retrieves the puzzle verifier from context
@@ -947,7 +1073,7 @@ NOTE: For now it will always just verify a challenge solution, but we can implem
 response codes to show the user that they are being rate limited and to wait before trying again - (this is built into the UI as based
 based on response codes)
 */
-func handleVerifyPuzzleSolution(
+func handleVerifyPuzzleCAPTCHAState(
 
 	config *Config,
 	c *gin.Context,
@@ -956,13 +1082,15 @@ func handleVerifyPuzzleSolution(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) {
+) SendOrValidatePuzzleCAPTCHAResult {
 
-	puzzleVerifierInterface, exists := c.Get(puzzleVerifierKey)
+	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
+
+	puzzleVerifierInterface, exists := c.Get(CaptchaVerifierKey)
 	if !exists {
 		log.Println("Failed to get dependencies")
-		c.JSON(http.StatusInternalServerError, gin.H{})
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	puzzleVerifier := puzzleVerifierInterface.(*solutionUtils.CAPTCHAVerifier)
@@ -974,9 +1102,9 @@ func handleVerifyPuzzleSolution(
 	*/
 	userChallengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
 	if err != nil {
-		// c.Redirect(http.StatusFound, "/new_puzzle_challenge")
 		log.Println("Unable to verify challenge without cookie")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	/*
@@ -986,42 +1114,92 @@ func handleVerifyPuzzleSolution(
 	err = ValidateShaInvCookie(config.HmacSecret, userChallengeCookieValue, time.Now(), getUserAgentOrIp(c, config), 0)
 	if err != nil {
 		log.Println("Failed cookie validation")
-		// c.Redirect(http.StatusFound, "/new_puzzle_challenge")
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	var userSubmission models.ClientSolutionSubmissionPayload
 	err = c.ShouldBindJSON(&userSubmission)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{})
-		return
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingSolutionBody
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
+
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
+	requestedMethod := c.Request.Method
 
 	err = puzzleVerifier.VerifySolution(userChallengeCookieValue, userSubmission)
 	if err != nil {
-		log.Printf("User solution incorrect for challenge: %s", userChallengeCookieValue)
+		// log.Printf("User solution incorrect for challenge: %s", userChallengeCookieValue)
 		/*
 			they can keep retrying but it should obviously subject to rate limit
 			if they keep spamming, or try to brute force we could also ramp up the
 			difficulty and serve them a new challenge instead?
 		*/
-		c.JSON(http.StatusBadRequest, gin.H{})
-		return
-	}
+		ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
+		if failAction == Block {
 
-	clientIp := c.Request.Header.Get("X-Client-IP")
-	requestedHost := c.Request.Header.Get("X-Requested-Host")
+			tooManyFailedChallengesResult := tooManyFailedChallenges(
+				config,
+				clientIp,
+				clientUserAgent,
+				requestedHost,
+				requestedPath,
+				banner,
+				"captcha_puzzle",
+				rateLimitStates,
+				requestedMethod,
+				decisionLists,
+			)
+
+			sendOrValidatePuzzleCAPTCHAResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
+
+			if tooManyFailedChallengesResult.Exceeded {
+				/*
+					instead of blindly banning, use RateLimitWithBan with incremental timing
+					that being said, we shouldn't use a magic number. Instead, we should lookup how much time they are allotted given the
+					difficulty profile and divide it in 4. This way they can have 4 intervals with rate limits in between. Anything more
+					and the puzzle will run out of time and force a restart.
+				*/
+				throttleTimeSeconds := 60
+				//so that we can apply rate limiting using the existing banning tools
+				banner.OverwriteBanWithRateLimit(config, clientIp, throttleTimeSeconds)
+
+				ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
+				accessThrottled(c, config, "TooManyFailedChallenges", throttleTimeSeconds)
+				return sendOrValidatePuzzleCAPTCHAResult
+			}
+		}
+
+		integrityErrors := []error{
+			solutionUtils.ErrFailedClickChainIntegrity,
+			solutionUtils.ErrFailedCaptchaPropertiesIntegrity,
+			solutionUtils.ErrFailedGameboardIntegrity,
+		}
+		for _, integrityError := range integrityErrors {
+			if errors.Is(err, integrityError) {
+				sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIntegrityCheck
+				return sendOrValidatePuzzleCAPTCHAResult
+			}
+		}
+
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIncorrectSolution
+		return sendOrValidatePuzzleCAPTCHAResult
+	}
 
 	/*
 		Since the solution was valid, we expire the challenge cookie, attach a
 		challenge passed cookie (if needed?) and then invoke the accessGranted
 	*/
-
 	c.SetCookie(PuzzleChallengeCookieName, "", -1, "/", "", false, false)
-	c.Header("Location", userSubmission.CaptchaProperties.IntegrityCheckFields.UserDesiredEndpoint)
-	c.JSON(http.StatusAccepted, gin.H{})
-	accessGranted(c, config, "PuzzleChallengePassed")
+	accessGranted(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAPass])
 	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
+	// log.Println("puzzle captcha challenge passed")
+	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAPass
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 type PasswordChallengeResult uint
@@ -1207,6 +1385,7 @@ type DecisionForNginxResult struct {
 	DecisionListResult            DecisionListResult
 	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
 	ShaChallengeResult            *ShaChallengeResult
+	PuzzleCAPTCHAResult           *PuzzleCAPTCHAResult
 	TooManyFailedChallengesResult *RateLimitResult
 }
 
@@ -1325,7 +1504,7 @@ func decisionForNginx2(
 			// log.Println("challenge from per-site lists")
 
 			if USE_PUZZLE_CHALLENGE {
-				sendOrValidatePuzzleChallenge(
+				puzzleCAPTCHAResult := sendPuzzleCAPTCHA(
 					config,
 					c,
 					banner,
@@ -1333,6 +1512,10 @@ func decisionForNginx2(
 					Block, // FailAction
 					staticDecisionLists,
 				)
+
+				decisionForNginxResult.DecisionListResult = PerSiteChallenge
+				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
 				return
 			}
 
@@ -1368,7 +1551,7 @@ func decisionForNginx2(
 			// log.Println("challenge from global lists")
 
 			if USE_PUZZLE_CHALLENGE {
-				sendOrValidatePuzzleChallenge(
+				puzzleCAPTCHAResult := sendPuzzleCAPTCHA(
 					config,
 					c,
 					banner,
@@ -1376,6 +1559,10 @@ func decisionForNginx2(
 					Block, // FailAction
 					staticDecisionLists,
 				)
+
+				decisionForNginxResult.DecisionListResult = PerSiteChallenge
+				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
 				return
 			}
 
@@ -1416,15 +1603,20 @@ func decisionForNginx2(
 		case Challenge:
 
 			if USE_PUZZLE_CHALLENGE {
-				sendOrValidatePuzzleChallenge(
-					config,
-					c,
-					banner,
-					failedChallengeStates,
-					Block, // FailAction
-					staticDecisionLists,
-				)
-				return
+				log.Println("I need more clarification on this endpoint, I don't really get what its doing... it seems like were meant to check for exceptions?")
+				// puzzleCAPTCHAResult := sendPuzzleCAPTCHA(
+				// 	config,
+				// 	c,
+				// 	banner,
+				// 	failedChallengeStates,
+				// 	Block, // FailAction
+				// 	staticDecisionLists,
+				// )
+
+				// decisionForNginxResult.DecisionListResult = PerSiteChallenge
+				// decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+				// decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
+				// return
 			}
 
 			// apply exception to both challenge from baskerville and regex banner
