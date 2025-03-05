@@ -18,9 +18,8 @@ import dotenv from 'dotenv'
 dotenv.config({path: process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development'})
 
 /*
-    In the index.html, we specify: <script src="./scripts/bundle.js" type="module"></script>
-    This will cause user browser to request the rollup bundle which specifies as its entrypoint the
-    entrypoint-deflect-captcha.ts which is the entrypoint to the captcha.
+    In the index.html, we inject the result of the bundling procedure (bundle.js) into the index.html directly.
+    This will already include the entrypoint-deflect-captcha.ts file which is the entrypoint to the captcha.
 
     This allows us to use bundled dependencies for hmac operations to support legacy browsers which need
     not necessarily admit the subtle.crypto api that modern browsers do. Therefore, it is important
