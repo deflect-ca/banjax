@@ -79,16 +79,17 @@
 A state-space search problem is a computer science task that involves finding a solution by navigating through a set of states
 
 Components of a state-space search problem 
-    - States: A set of possible configurations of a problem
-    - Start state: The initial configuration of the problem
-    - Goal state: The desired configuration of the problem
-    - Actions: The actions that can be taken to move from one state to another
-    - Goal test: A specification of what constitutes a solution
+
+- States: A set of possible configurations of a problem
+- Start state: The initial configuration of the problem
+- Goal state: The desired configuration of the problem
+- Actions: The actions that can be taken to move from one state to another
+- Goal test: A specification of what constitutes a solution
 
 Examples of state-space search 
 
-    - Solving puzzles like the 8-puzzle or Rubik's cube
-    - A robot navigating through a maze
+- Solving puzzles like the 8-puzzle or Rubik's cube
+- A robot navigating through a maze
 
 [For more on State Space Search problems see wiki/State_space_search](https://en.wikipedia.org/wiki/State_space_search)
 
@@ -101,15 +102,17 @@ The motivation behind this is that bots, LLMs, and automated solvers are not par
 The hypothesis is that humans and bots will approach the puzzle in fundamentally different ways, and by analyzing how they play, we may uncover meaningful differences.
 
 #### The High Level Objective
-    - This is not a reverse Turing test—the objective isn’t just to prove whether someone is a bot or not. Instead, the goal is to study how people play compared to automated systems.
-    - In the future, we may develop an API for major LLMs to play, allowing us to collect gameplay data and run comparative analyses.
-    - The ultimate aim is to train an in-house model that uses gameplay behavior as a distinguishing factor, rather than relying solely on conventional CAPTCHA mechanisms.
+
+- This is not a reverse Turing test—the objective isn’t just to prove whether someone is a bot or not. Instead, the goal is to study how people play compared to automated systems.
+- In the future, we may develop an API for major LLMs to play, allowing us to collect gameplay data and run comparative analyses.
+- The ultimate aim is to train an in-house model that uses gameplay behavior as a distinguishing factor, rather than relying solely on conventional CAPTCHA mechanisms.
 
 #### What We Have Achieved & What Comes Next
-    - The puzzle itself is complete: we can cryptographically verify whether a submitted solution is correct or incorrect, with each challenge being unique to the user.
-    - However, correctness alone is only half the solution—the real challenge is distinguishing how the game is played and whether that behavior indicates a human or a bot.
-    - In theory, this could mean that getting the exact right solution may not even be necessary. If we weight behavioral analysis more heavily than correctness, we could allow slightly incorrect solutions as long as the player's interactions strongly indicate human behavior.
-    - The really neat part of the project will be in collecting and analyzing gameplay data, identifying patterns that separate human problem-solving strategies from automated solvers.
+
+- The puzzle itself is complete: we can cryptographically verify whether a submitted solution is correct or incorrect, with each challenge being unique to the user.
+- However, correctness alone is only half the solution—the real challenge is distinguishing how the game is played and whether that behavior indicates a human or a bot.
+- In theory, this could mean that getting the exact right solution may not even be necessary. If we weight behavioral analysis more heavily than correctness, we could allow slightly incorrect solutions as long as the player's interactions strongly indicate human behavior.
+- The really neat part of the project will be in collecting and analyzing gameplay data, identifying patterns that separate human problem-solving strategies from automated solvers.
 
 ---
 
