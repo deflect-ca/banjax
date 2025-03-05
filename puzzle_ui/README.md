@@ -219,9 +219,9 @@
                     timeToSolve_ms: 360_000
             ```
 
-- How This Prevents Bots:
+## How This Prevents Bots:
 
-    The most important reason has to do with **several components working together**: 
+- The most important reason has to do with **several components working together**: 
     
     1) Click-Chain Validation & Uniqueness
 
