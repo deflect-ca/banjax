@@ -50,15 +50,69 @@ func TileMapFromImage(challengeEntropy string, base64PngImage string, nPartition
 		return nil, fmt.Errorf("failed to partition image: %w", err)
 	}
 
-	tileMap := make(TileMap)
+	/*
+		Despite adding noise to the thumbnail so users cannot just partition the thumbnail and recreate the solution
+		on their own by matching the b64 hashes directly, we could still be vulnerable to replays if the user has seen
+		**this** image in particular. Ie if they knew the final order and recorded the b64 of the images, they could just
+		map the b64 of each tile and then just lookup the IDs. So to beat this vector I added noise to the tiles themselves.
+
+		HOWEVER, one really important thing is that some tiles may be blank. Adding noise to blank tiles is not fair to users
+		as they would not know what order to place them. We need to make sure blank tiles are totally interchangebale. Therefore,
+		we ignore blank tiles and instead focus on adding noise to unique tiles. Since blank tiles all have the same b64, they produce
+		the same hash and therefore, it doesn't matter what order they are placed in when calculating the solution. As long as the board
+		is in the correct order, the solution will be the same.
+
+		For example, if a puzzle solution consists of tiles [A, B, A], the hash calculation remains the same whether the first and last tiles are swapped:
+			hash(A, B, A) == hash(A, B, A)
+
+		We do so BEFORE generating the hmac such that the validation procedure still functions as desired.
+
+		This now guarentees that even the tile b64 hashes are unique from puzzle to puzzle ensuring no replay attacks are possible
+		without brute forcing every possible noise hash. Simply rotating images once in a while mitigates against this kind of
+		dedicated attacker
+	*/
+	encodedTileMap := make(map[string]int)
+	tileBase64Map := make(map[int]string) //make sure we keep original indexing
+
 	for i, tile := range tiles {
 		encodedTile, err := encodeImageToBase64(tile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode tile: %w", err)
 		}
+		tileBase64Map[i] = encodedTile
+		//track occurrences so that we know which tiles are blank (blank tiles will appear multiple times that is
+		//why we dont add noise to them to guarentee they are interchangeable) otherwise a user would be told their solution
+		//isnt correct even though from their point of view it is.
+		encodedTileMap[encodedTile]++
+	}
+
+	//here is where we will encode to b64, derive the unique id and in particular, add noise to those tiles
+	//which are unique (ie are not interchangeable with any other tile)
+	tileMap := make(TileMap)
+	for i, encodedTile := range tileBase64Map {
+		if encodedTileMap[encodedTile] == 1 { //only add noise if tile is unique
+			noisyTile, err := addNoise(convertToRGBA(tiles[i]), challengeEntropy)
+			if err != nil {
+				return nil, fmt.Errorf("failed to add noise to tile: %w", err)
+			}
+			encodedTile, err = encodeImageToBase64(noisyTile)
+			if err != nil {
+				return nil, fmt.Errorf("failed to encode noisy tile: %w", err)
+			}
+		}
 		hash := GenerateHMACFromString(encodedTile, challengeEntropy)
 		tileMap[i] = Tile{Base64Image: encodedTile, TileGridID: hash}
 	}
+
+	// tileMap := make(TileMap)
+	// for i, tile := range tiles {
+	// 	encodedTile, err := encodeImageToBase64(tile)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("failed to encode tile: %w", err)
+	// 	}
+	// 	hash := GenerateHMACFromString(encodedTile, challengeEntropy)
+	// 	tileMap[i] = Tile{Base64Image: encodedTile, TileGridID: hash}
+	// }
 
 	return tileMap, nil
 }
@@ -247,8 +301,8 @@ func addNoise(img *image.RGBA, entropy string) (*image.RGBA, error) {
 
 	//anything from [20, 36] results in solid noise, doesn't disturb peoples ability to see
 	//the image, makes it different per puzzle and doesn't generate an overwhelmingly large filesize
-	minNoise := 16
-	maxNoise := 24
+	minNoise := 12
+	maxNoise := 26
 	noiseLevel := r.Intn(maxNoise-minNoise+1) + minNoise
 
 	for y := 0; y < img.Bounds().Dy(); y++ {

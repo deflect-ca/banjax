@@ -19,7 +19,7 @@ profiles:
 
   medium_hard:
     nPartitions: 25 #5x5
-    nShuffles: [5, 8]
+    nShuffles: [3, 6]
     maxNumberOfMovesAllowed: 200
     removeTileIndex: 12
     timeToSolve_ms: 900_000 #15 mins

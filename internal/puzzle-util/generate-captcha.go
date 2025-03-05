@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"strings"
+	"time"
 )
 
 type RowCol struct {
@@ -40,6 +41,7 @@ var (
 
 type CAPTCHAGenerator struct {
 	PuzzleSecret               string
+	ThumbnailSecret            string //ensures no correlation between the noise added to thumbnail and noise added to user puzzle tiles
 	ClickChainUtils            *ClickChainController
 	DifficultyConfigController *DifficultyProfileConfig
 	SolutionCache              *CAPTCHASolutionCache
@@ -49,6 +51,7 @@ type CAPTCHAGenerator struct {
 /*CAPTCHAGenerator generates puzzles that are coded to each user such that each puzzle is unique*/
 func NewCAPTCHAGenerator(
 	puzzleSecret string,
+	thumbnailSecret string,
 	solutionCache *CAPTCHASolutionCache,
 	clickChainUtls *ClickChainController,
 	difficultyConfigController *DifficultyProfileConfig,
@@ -58,6 +61,7 @@ func NewCAPTCHAGenerator(
 ) *CAPTCHAGenerator {
 	return &CAPTCHAGenerator{
 		PuzzleSecret:               puzzleSecret,
+		ThumbnailSecret:            thumbnailSecret,
 		ClickChainUtils:            clickChainUtls,
 		DifficultyConfigController: difficultyConfigController,
 		SolutionCache:              solutionCache,
@@ -104,7 +108,8 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 	}
 
 	row, col := targetDifficulty.RemovedTileIndexToRowCol()
-	thumbnailAsB64, err := ThumbnailFromImageWithTransparentTile(challengeEntropy, b64PngImage, targetDifficulty.NPartitions, row, col)
+	thumbnailEntropy := GenerateHMACFromString(fmt.Sprintf("%d", time.Now().UnixNano()), generateCaptcha.ThumbnailSecret)
+	thumbnailAsB64, err := ThumbnailFromImageWithTransparentTile(thumbnailEntropy, b64PngImage, targetDifficulty.NPartitions, row, col)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedThumbnailCreation, err)
 	}
