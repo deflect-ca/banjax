@@ -549,10 +549,7 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 
 - Step 2) Install dependencies
 
-    - The UI is built using Node.js and Rollup. 
-    - Ensure you have Node.js installed (v18 or later). 
-    - Then, install the required dependencies:
-    
+    ### The UI is built using Node.js and Rollup. Ensure you have Node.js installed (v18 or later). Then, install the required dependencies:
     ```
     cd puzzle_ui
     npm install
