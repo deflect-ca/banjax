@@ -221,10 +221,34 @@
 
 - How This Prevents Bots:
 
-    1) Exponential increase in complexity makes brute-force infeasible.
-    2) Maximum move limits prevent infinite search-based solvers.
-    3) Hard time limits ensure bots cannot iterate endlessly.
-    4) Adaptability: If we detect bot-like behavior, we increase difficulty dynamically.
+    The most important reason has to do with **several components working together**: 
+    
+    1) Click-Chain Validation & Uniqueness
+
+        - A click-chain blockchain cryptographically proves that the user performed a valid sequence of moves leading to the final board state.
+        - Each puzzle board is unique per user, preventing replay attacks.
+        - Rate limiting ensures only a few submissions within the allotted time, making brute-force infeasible—getting rate-limited 3-4 times can drain the available time, forcing a restart.
+
+    2) Dynamic Puzzle Adjustments
+
+        - The system dynamically modifies puzzles by:
+            - Changing the missing tile position.
+            - Altering the image, time limit, and max moves.
+            - Adjusting the grid size (number of partitions) and shuffle complexity.
+        
+        These parameters scale difficulty based on behavior, making automated solving exponentially harder.
+
+    3) Built-in Anti-Cheat Mechanisms
+
+        - Noise is deliberately added to the thumbnail image to prevent trivial reconstruction.
+        - Even if an attacker partitions the thumbnail, the Base64-encoded pieces won’t match due to injected noise, preventing automated board reconstruction.
+
+    4) Machine Learning (behaviour analysis) - NOT YET DONE
+
+        - Once the data collection is complete, we wiil be able to collect data about gameplay and use it to make predictions about whether a human or bot was playing the game
+        - A combination of the correct solution and human-like behaviour while playing will be used to produce the final decision
+
+    This layered approach ensures that bots cannot brute-force, replay, or reconstruct the puzzle while keeping it solvable for real users.
 
 ### Rate Limiting
 
