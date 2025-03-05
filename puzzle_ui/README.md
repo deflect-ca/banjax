@@ -76,9 +76,9 @@
 
 ## State-Space Search Problem
 
-A state-space search problem is a computer science task that involves finding a solution by navigating through a set of states
+- A state-space search problem is a computer science task that involves finding a solution by navigating through a set of states
 
-Components of a state-space search problem 
+#### Components of a state-space search problem 
 
 - States: A set of possible configurations of a problem
 - Start state: The initial configuration of the problem
@@ -86,20 +86,18 @@ Components of a state-space search problem
 - Actions: The actions that can be taken to move from one state to another
 - Goal test: A specification of what constitutes a solution
 
-Examples of state-space search 
+- Examples of state-space search:
 
-- Solving puzzles like the 8-puzzle or Rubik's cube
-- A robot navigating through a maze
+    - Solving puzzles like the 8-puzzle or Rubik's cube
+    - A robot navigating through a maze
 
 [For more on State Space Search problems see wiki/State_space_search](https://en.wikipedia.org/wiki/State_space_search)
 
 ### Why State-Space Search?
 
-This puzzle was designed as an experiment—it is intentionally built as a state-space search problem.
-
-The motivation behind this is that bots, LLMs, and automated solvers are not particularly strong at this class of problem, but humans also struggle with it—just in different ways.
-
-The hypothesis is that humans and bots will approach the puzzle in fundamentally different ways, and by analyzing how they play, we may uncover meaningful differences.
+- This puzzle was designed as an experiment—it is intentionally built as a state-space search problem.
+- The motivation behind this is that bots, LLMs, and automated solvers are not particularly strong at this class of problem, but humans also struggle with it—just in different ways.
+- The hypothesis is that humans and bots will approach the puzzle in fundamentally different ways, and by analyzing how they play, we may uncover meaningful differences.
 
 #### The High Level Objective
 
@@ -122,7 +120,7 @@ The hypothesis is that humans and bots will approach the puzzle in fundamentally
 
 ## How the Client Side Works
 
-    - The Deflect CAPTCHA client operates as a self-contained, pre-bundled system delivered to the user's browser in a single request. This ensures a seamless experience without requiring additional external dependencies or network requests beyond the initial page load.
+- The Deflect CAPTCHA client operates as a self-contained, pre-bundled system delivered to the user's browser in a single request. This ensures a seamless experience without requiring additional external dependencies or network requests beyond the initial page load.
 
 ## User Interaction Flow
 
@@ -164,11 +162,11 @@ The hypothesis is that humans and bots will approach the puzzle in fundamentally
         TileGridID  string `json:"tile_grid_id"`
     }
     ```
-        Where:
-            - Base64Image: Encoded PNG of the puzzle segment.
-            - TileGridID: A hashed identifier derived from:
-                - Hmac(The tile's base64 image + The user's challenge cookie + A server-side secret)
-            - The TileGridID ensures that each puzzle instance is unique and prevents replay attacks.
+- Where:
+    - Base64Image: Encoded PNG of the puzzle segment.
+    - TileGridID: A hashed identifier derived from:
+        - Hmac(The tile's base64 image + The user's challenge cookie + A server-side secret)
+    - The TileGridID ensures that each puzzle instance is unique and prevents replay attacks.
 
 - When the user clicks Solve, the system:
     1) Extracts the TileGridID of each tile in order.
@@ -384,10 +382,10 @@ For more on how this works, see [Server-Side Documentation](../internal/puzzle-u
 - For legacy browsers that do not support native ES6+ features, rollup bundles all the polyfills needed
 
 - At the top of the entrypoint-deflect-captcha.ts file, the necessary polyfills are explicitly imported:
-```
-import 'core-js/stable'
-import 'regenerator-runtime/runtime'
-```
+    ```
+    import 'core-js/stable'
+    import 'regenerator-runtime/runtime'
+    ```
 
 - Each polyfill serves a different purpose, for example:
     
@@ -399,7 +397,7 @@ import 'regenerator-runtime/runtime'
 
 ```
     .
-    ├── README.md                                           **<- You are here**
+    ├── README.md                        <- You are here
     ├── captchaRollup.config.mjs                            <- Rollup config for bundling
     ├── dist                                                <- Production-ready build output
     │   ├── client
@@ -473,8 +471,8 @@ import 'regenerator-runtime/runtime'
 - These are utilities that are prebundled with the dependencies required for legacy browsers to function. 
     - For example, not all browsers admit crypto.subtle API. Therefore, we provide `hmac-utils.ts` such that all browsers can either use their `crypto.subtle` API should they have it, or fallback to the pre bundled depdency (`crypto-js`)
 
-`cookie-utils.ts`: Handles cookies for authentication and state management.
-`hmac-utils.ts`: Cryptographic helper functions.
+- `cookie-utils.ts`: Handles cookies for authentication and state management.
+- `hmac-utils.ts`: Cryptographic helper functions.
 
 ##### src/client/styles
 
@@ -485,30 +483,30 @@ import 'regenerator-runtime/runtime'
 - If you prefer to bundle CSS with JS, you must:
     1) Enable the postcss Rollup hook.
     2) Uncomment the import statements in `entrypoint-deflect-captcha.ts`.
-    3) Remove the <style> tags from `src/index.html`.
+    3) Remove the <style></style> tags from `src/index.html`.
 
 ### dist (`puzzle_ui/dist`)
 
-Contains the production-ready assets.
+- Contains the production-ready assets.
 
-Key files:
+- Key files:
     - `dist/index.html`: The final, self-contained page (fully bundled).
     - `dist/client/scripts/bundle.js`: The compiled JavaScript bundle.
 
-**Note:**
+- **Note:**
     - The `index.html` already includes all required `scripts/styles`.
     - *Only* `index.html` and the user's cookie are needed for deployment.
 
 ### root (`puzzle_ui/`)
 
-houses `injectBundleJSToIndexHTML.js`
+- houses `injectBundleJSToIndexHTML.js`
     
-    - This is a custom Rollup hook that modifies index.html after bundling.
-    
-    - Automatically injects bundle.js into index.html, ensuring that:
+- This is a custom Rollup hook that modifies index.html after bundling.
 
-        1) All assets are inline (to be served in a single request).
-        2) The Deflect CAPTCHA system remains self-contained.
+- Automatically injects bundle.js into index.html, ensuring that:
+
+    1) All assets are inline (to be served in a single request).
+    2) The Deflect CAPTCHA system remains self-contained.
 
 ## Deployment Guide
 
@@ -540,22 +538,20 @@ houses `injectBundleJSToIndexHTML.js`
 
 - To properly issue a unique challenge per user, the **server** can follow one of two procedures:
 
-**1) Recommended Approach (Production Best Practice):**inject the initial state into index.html
+- **1) Recommended Approach (Production Best Practice):**inject the initial state into index.html
     - The server reads index.html before serving it.
     - The server injects a dynamically generated initial state (per user).
     - The user receives index.html with the puzzle state already embedded.
     - This is how Deflect works in production and ensures a seamless, efficient challenge issuance.
     
 
-**2) Alternative Approach:** do not inject the initial state into index.html, but have an endpoint prepared to handle a request for the puzzle state
+- **2) Alternative Approach:** do not inject the initial state into index.html, but have an endpoint prepared to handle a request for the puzzle state
     - If the initial state is not injected, the puzzle will immediately phone home requesting it from the server.
     - In this case, the server must provide an endpoint to handle these state requests dynamically.
     - This approach may be useful for development but is not recommended for production.
     
 
-**Note:** You *will* need to have the endpoint to serve a puzzle state on request regardless of what option you choose as the puzzle includes a rate limited "refresh" button
-that requets a new puzzle state and updates the current state. This was included to provide the user the option of trying a different one if they deem the current board too difficult.
-However, it is still recommended to inject the initial state into `index.html` as this is a requirement for how Deflect works.
+- **Note:** You *will* need to have the endpoint to serve a puzzle state on request regardless of what option you choose as the puzzle includes a rate limited "refresh" button that requets a new puzzle state and updates the current state. This was included to provide the user the option of trying a different one if they deem the current board too difficult. However, it is still recommended to inject the initial state into `index.html` as this is a requirement for how Deflect works.
 
 - For details on how the server should inject the initial state, refer to the [Server-Side Documentation](../internal/puzzle-util/README.md).
 
@@ -614,31 +610,30 @@ However, it is still recommended to inject the initial state into `index.html` a
 
 #### Typical Development Workflow
 
-Either run:
+- Either run:
     ```
     1) npm run clean
     2) npm run build
     ```
-Or:
+- Or:
     ```
     1) npm run dev
     ```
 
-The only difference is that the npm run dev will continue monitoring for changes
-such that when you make a change, it will automatically clean and build such that
-your server serves the most recent one
+- The only difference is that the npm run dev will continue monitoring for changes such that when you make a change, it will automatically clean and build such that your server serves the most recent one
 
-In both cases, you can serve from dist/index.html
+- **In both cases**, you must serve from **`dist/index.html`**
 
 - This will not only include the html, but also the css as well as the js and all dependencies and polyfills
 - The only thing that remains to do when serving it is to inject the initial state at runtime. Since each puzzle is unique to the user, the initial state cannot be precomputed and must be dynamically generated. The server handles this by issuing a state-specific challenge upon request. This is injected directly into the `index.html` as per Deflect requirements. For more details, check the [Server-Side Documentation](../internal/puzzle-util/README.md).
     - **Note:** If the initial state is **not injected** at runtime, the puzzle **will automatically request it** from the server. In this case, you **must have an endpoint** to handle this request and provide the state dynamically.
 
 #### Typical Production Workflow
+ - run: 
     ```
-    npm run prod
+        npm run prod
     ```
-- You can now serve the CAPTCHA directly from dist/index.html
+- You can now serve the CAPTCHA directly from `dist/index.html`
     - This will contain the HTML, CSS, JS, Polyfills & all dependencies (such as for calculating HMAC)
     - It is also obfuscated via rollup
     - The only thing that remains to do when serving it is to inject the initial state at runtime. Since each puzzle is unique to the user, the initial state cannot be precomputed and must be dynamically generated. The server handles this by issuing a state-specific challenge upon request. This is injected directly into the `index.html` as per Deflect requirements. For more details, check the [Server-Side Documentation](../internal/puzzle-util/README.md).
