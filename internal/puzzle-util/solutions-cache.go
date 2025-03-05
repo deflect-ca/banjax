@@ -1,15 +1,13 @@
-package verificationutils
+package puzzleutil
 
 import (
 	"sync"
 	"time"
-
-	imageUtils "github.com/deflect-ca/banjax/internal/image-utils"
 )
 
 type CAPTCHASolution struct {
-	UnshuffledGameBoard [][]*imageUtils.TileWithoutImage
-	ShuffledGameBoard   [][]*imageUtils.TileWithoutImage
+	UnshuffledGameBoard [][]*TileWithoutImage
+	ShuffledGameBoard   [][]*TileWithoutImage
 	PrecomputedSolution string
 	UserDesiredEndpoint string
 }
@@ -66,15 +64,15 @@ func (cache *CAPTCHASolutionCache) Delete(userChallengeCookie string) {
 	cache.solutions.Delete(userChallengeCookie)
 }
 
-func deepCopyBoardWithoutImage(original [][]*imageUtils.TileWithoutImage) [][]*imageUtils.TileWithoutImage {
-	copyBoard := make([][]*imageUtils.TileWithoutImage, len(original))
+func deepCopyBoardWithoutImage(original [][]*TileWithoutImage) [][]*TileWithoutImage {
+	copyBoard := make([][]*TileWithoutImage, len(original))
 
 	for i := range original {
-		copyBoard[i] = make([]*imageUtils.TileWithoutImage, len(original[i]))
+		copyBoard[i] = make([]*TileWithoutImage, len(original[i]))
 
 		for j, tile := range original[i] {
 			if tile != nil {
-				copyBoard[i][j] = &imageUtils.TileWithoutImage{TileGridID: tile.TileGridID}
+				copyBoard[i][j] = &TileWithoutImage{TileGridID: tile.TileGridID}
 			} else {
 				copyBoard[i][j] = nil
 			}

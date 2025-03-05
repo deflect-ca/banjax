@@ -20,13 +20,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/deflect-ca/banjax/pkg/models"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 
-	captchaUtils "github.com/deflect-ca/banjax/internal/captcha-utils"
-	solutionUtils "github.com/deflect-ca/banjax/internal/verification-utils"
-	sharedUtils "github.com/deflect-ca/banjax/pkg/shared-utils"
+	puzzleCAPTCHA "github.com/deflect-ca/banjax/internal/puzzle-util"
 )
 
 const (
@@ -52,8 +49,8 @@ func RunHttpServer(
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 
-	CaptchaGenerator *captchaUtils.CAPTCHAGenerator,
-	CaptchaVerifier *solutionUtils.CAPTCHAVerifier,
+	CaptchaGenerator *puzzleCAPTCHA.CAPTCHAGenerator,
+	CaptchaVerifier *puzzleCAPTCHA.CAPTCHAVerifier,
 
 ) {
 	addr := "127.0.0.1:8081" // XXX config
@@ -393,8 +390,8 @@ func RunHttpServer(
 
 func captchaMiddleware(
 
-	captchaGeneratorPtr *captchaUtils.CAPTCHAGenerator,
-	captchaVerifierPtr *solutionUtils.CAPTCHAVerifier,
+	captchaGeneratorPtr *puzzleCAPTCHA.CAPTCHAGenerator,
+	captchaVerifierPtr *puzzleCAPTCHA.CAPTCHAVerifier,
 
 ) gin.HandlerFunc {
 
@@ -768,7 +765,7 @@ func sendPuzzleCAPTCHA(
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	puzzleGenerator := puzzleGeneratorInterface.(*captchaUtils.CAPTCHAGenerator)
+	puzzleGenerator := puzzleGeneratorInterface.(*puzzleCAPTCHA.CAPTCHAGenerator)
 
 	challengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
 	if err == nil {
@@ -785,7 +782,7 @@ func sendPuzzleCAPTCHA(
 
 	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
 
-	b64PngImage := sharedUtils.LoadDefaultImageBase64()
+	b64PngImage := puzzleCAPTCHA.LoadDefaultImageBase64()
 
 	//captcha challenger and client side expect a "userDesiredEndpoint" that is parsable as a URL
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
@@ -940,7 +937,7 @@ func handleRefreshPuzzleCAPTCHAState(
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	puzzleGenerator := puzzleGeneratorInterface.(*captchaUtils.CAPTCHAGenerator)
+	puzzleGenerator := puzzleGeneratorInterface.(*puzzleCAPTCHA.CAPTCHAGenerator)
 
 	userDesiredEndpoint := ""
 
@@ -1021,7 +1018,7 @@ func handleRefreshPuzzleCAPTCHAState(
 		load either the default image, or use path + a hostname? to identify
 		the logo of a company, then load that b64 png logo and it will work
 	*/
-	b64PngImage := sharedUtils.LoadDefaultImageBase64()
+	b64PngImage := puzzleCAPTCHA.LoadDefaultImageBase64()
 
 	/*
 		make a decision on difficulty by implementing something on this, you can also make a dynamic decision
@@ -1085,10 +1082,11 @@ func handleVerifyPuzzleCAPTCHAState(
 	if !exists {
 		log.Println("Failed to get dependencies")
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailMissingDependency])
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	puzzleVerifier := puzzleVerifierInterface.(*solutionUtils.CAPTCHAVerifier)
+	puzzleVerifier := puzzleVerifierInterface.(*puzzleCAPTCHA.CAPTCHAVerifier)
 
 	/*
 		if the cookie dne on verification, we need to issue a new puzzle since their
@@ -1099,6 +1097,7 @@ func handleVerifyPuzzleCAPTCHAState(
 	if err != nil {
 		log.Println("Unable to verify challenge without cookie")
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
@@ -1110,10 +1109,11 @@ func handleVerifyPuzzleCAPTCHAState(
 	if err != nil {
 		log.Println("Failed cookie validation")
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailBadCookie])
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	var userSubmission models.ClientSolutionSubmissionPayload
+	var userSubmission puzzleCAPTCHA.ClientSolutionSubmissionPayload
 	err = c.ShouldBindJSON(&userSubmission)
 	if err != nil {
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingSolutionBody
@@ -1162,7 +1162,6 @@ func handleVerifyPuzzleCAPTCHAState(
 				throttleTimeSeconds := 60
 				//so that we can apply rate limiting using the existing banning tools
 				banner.OverwriteBanWithRateLimit(config, clientIp, throttleTimeSeconds)
-
 				ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
 				accessThrottled(c, config, "TooManyFailedChallenges", throttleTimeSeconds)
 				return sendOrValidatePuzzleCAPTCHAResult
@@ -1170,17 +1169,19 @@ func handleVerifyPuzzleCAPTCHAState(
 		}
 
 		integrityErrors := []error{
-			solutionUtils.ErrFailedClickChainIntegrity,
-			solutionUtils.ErrFailedCaptchaPropertiesIntegrity,
-			solutionUtils.ErrFailedGameboardIntegrity,
+			puzzleCAPTCHA.ErrFailedClickChainIntegrity,
+			puzzleCAPTCHA.ErrFailedCaptchaPropertiesIntegrity,
+			puzzleCAPTCHA.ErrFailedGameboardIntegrity,
 		}
 		for _, integrityError := range integrityErrors {
 			if errors.Is(err, integrityError) {
 				sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIntegrityCheck
+				accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailIntegrityCheck])
 				return sendOrValidatePuzzleCAPTCHAResult
 			}
 		}
 
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailIncorrectSolution])
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIncorrectSolution
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
@@ -1189,6 +1190,7 @@ func handleVerifyPuzzleCAPTCHAState(
 		Since the solution was valid, we expire the challenge cookie, attach a
 		challenge passed cookie (if needed?) and then invoke the accessGranted
 	*/
+
 	c.SetCookie(PuzzleChallengeCookieName, "", -1, "/", "", false, false)
 	accessGranted(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAPass])
 	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)

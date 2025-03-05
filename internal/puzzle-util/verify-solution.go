@@ -1,4 +1,4 @@
-package verificationutils
+package puzzleutil
 
 import (
 	"crypto/subtle"
@@ -7,12 +7,6 @@ import (
 	"log"
 	"strings"
 	"time"
-
-	cacheUtils "github.com/deflect-ca/banjax/internal/cache-utils"
-	captchaUtils "github.com/deflect-ca/banjax/internal/captcha-utils"
-	imageutils "github.com/deflect-ca/banjax/internal/image-utils"
-	models "github.com/deflect-ca/banjax/pkg/models"
-	cryptoUtils "github.com/deflect-ca/banjax/pkg/shared-utils"
 )
 
 var (
@@ -28,13 +22,13 @@ var (
 
 type CAPTCHAVerifier struct {
 	PuzzleSecret               string
-	SolutionCache              *cacheUtils.CAPTCHASolutionCache
-	ClickChainUtils            *captchaUtils.ClickChainController
-	difficultyConfigController *captchaUtils.DifficultyProfileConfig
+	SolutionCache              *CAPTCHASolutionCache
+	ClickChainUtils            *ClickChainController
+	difficultyConfigController *DifficultyProfileConfig
 }
 
 /*CAPTCHAVerifier verifies the solution payload submitted by the user.*/
-func NewCAPTCHAVerifier(puzzleSecret string, cache *cacheUtils.CAPTCHASolutionCache, clickChainController *captchaUtils.ClickChainController, difficultyConfigController *captchaUtils.DifficultyProfileConfig) *CAPTCHAVerifier {
+func NewCAPTCHAVerifier(puzzleSecret string, cache *CAPTCHASolutionCache, clickChainController *ClickChainController, difficultyConfigController *DifficultyProfileConfig) *CAPTCHAVerifier {
 	return &CAPTCHAVerifier{PuzzleSecret: puzzleSecret, SolutionCache: cache, ClickChainUtils: clickChainController, difficultyConfigController: difficultyConfigController}
 }
 
@@ -49,7 +43,7 @@ game was played and make a prediction about bot or not as the hypothesis behind 
 puzzle was that bots and people would play the game differently. Regardless, we need to make sure that the solution
 itself is indeed correct and we do so with a call to VerifySolution
 */
-func (captchaVerifier *CAPTCHAVerifier) VerifySolution(userChallengeCookieString string, userCaptchaSolution models.ClientSolutionSubmissionPayload) error {
+func (captchaVerifier *CAPTCHAVerifier) VerifySolution(userChallengeCookieString string, userCaptchaSolution ClientSolutionSubmissionPayload) error {
 
 	//get expected solution
 	locallyStoredSolution, exists := captchaVerifier.SolutionCache.Get(userChallengeCookieString)
@@ -111,9 +105,9 @@ func (captchaVerifier *CAPTCHAVerifier) VerifySolution(userChallengeCookieString
 /*
 integrityCheckCaptchaProperties verifies the integrity of the properties we initially sent to the user when we created the puzzle
 */
-func (captchaVerifier *CAPTCHAVerifier) integrityCheckCaptchaProperties(userChallengeCookieString string, submittedCaptchaProperties models.PayloadVerificationAndIntegrity) error {
+func (captchaVerifier *CAPTCHAVerifier) integrityCheckCaptchaProperties(userChallengeCookieString string, submittedCaptchaProperties PayloadVerificationAndIntegrity) error {
 
-	hmacPayload := captchaUtils.IntegrityCheckCAPTCHAChallenge{
+	hmacPayload := IntegrityCheckCAPTCHAChallenge{
 		UserDesiredEndpoint:   submittedCaptchaProperties.IntegrityCheckFields.UserDesiredEndpoint,
 		MaxAllowedMoves:       submittedCaptchaProperties.IntegrityCheckFields.MaxAllowedMoves,
 		TimeToSolveMS:         submittedCaptchaProperties.IntegrityCheckFields.TimeToSolveMS,
@@ -133,7 +127,7 @@ func (captchaVerifier *CAPTCHAVerifier) integrityCheckCaptchaProperties(userChal
 
 	challengeEntropy := fmt.Sprintf("%s%s", userChallengeCookieString, captchaVerifier.PuzzleSecret)
 
-	expectedHmac := cryptoUtils.GenerateHMACFromString(hmacBytesPayloadAsString, challengeEntropy)
+	expectedHmac := GenerateHMACFromString(hmacBytesPayloadAsString, challengeEntropy)
 
 	if expectedHmac != hmacFromUser {
 		return fmt.Errorf("ErrHmacMismatch: Expected %s, got %s", expectedHmac, hmacFromUser)
@@ -147,7 +141,7 @@ integrityCheckGameboard checks the integrity of the board as well as the solutio
 This is done by recreating the gameboards tile ids which are unique to the user as they are generated using their challenge cookie string value and a secret only we know
 We then re-create the solution from the gameboard sent back to make sure that they calculated their solution using the method we provided.
 */
-func (captchaVerifier *CAPTCHAVerifier) integrityCheckGameboard(userChallengeCookieString string, userSubmittedCaptchaSolution models.ClientSolutionSubmissionPayload) error {
+func (captchaVerifier *CAPTCHAVerifier) integrityCheckGameboard(userChallengeCookieString string, userSubmittedCaptchaSolution ClientSolutionSubmissionPayload) error {
 
 	challengeEntropy := fmt.Sprintf("%s%s", userChallengeCookieString, captchaVerifier.PuzzleSecret)
 
@@ -158,7 +152,7 @@ func (captchaVerifier *CAPTCHAVerifier) integrityCheckGameboard(userChallengeCoo
 		for colIndex := 0; colIndex < len(rowOfTiles); colIndex++ {
 			tile := rowOfTiles[colIndex]
 			if tile != nil {
-				expectedID := cryptoUtils.GenerateHMACFromString(tile.Base64Image, challengeEntropy)
+				expectedID := GenerateHMACFromString(tile.Base64Image, challengeEntropy)
 				if expectedID != tile.TileGridID {
 					log.Printf("ErrTamperedTile: Gameboard tile ID does not match expected HMAC. Expected row:%d col:%d id to be: %s, got: %s", rowIndex, colIndex, expectedID, tile.TileGridID)
 					return fmt.Errorf("ErrTamperedTile: Gameboard tile ID does not match expected HMAC. Expected row:%d col:%d id to be: %s, got: %s", rowIndex, colIndex, expectedID, tile.TileGridID)
@@ -182,7 +176,7 @@ func (captchaVerifier *CAPTCHAVerifier) integrityCheckGameboard(userChallengeCoo
 	//the `expectedSolutionDerivedFromGrid` should match the users submitted hash. NOTE this is NOT the same thing as checking their answer. All this does is check that
 	//the solution they submitted was actually derived from the board they submitted. The userSubmittedSolution.solution CAN be wrong. That is why we still need
 	//to compare their userSubmittedSolution.solution to the actual pre-computed result we stored in the map
-	expectedSolutionDerivedFromGrid := cryptoUtils.GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookieString)
+	expectedSolutionDerivedFromGrid := GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookieString)
 
 	if expectedSolutionDerivedFromGrid != userSubmittedCaptchaSolution.Solution {
 		log.Println("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")
@@ -203,7 +197,7 @@ We need the captcha properties integrity check since that is how we tie this cur
 The function compare the date of the properties with the date of the captcha to ensure that they are the same (as when issuing the challenge we use the genesis blocks date as the start time)
 From there, we lookup the amount of time allowed by using the difficulty (which was also part of the integrity check properties) to see if nowTime exceeds startTime + max time allowed as by difficulty
 */
-func (captchaVerifier *CAPTCHAVerifier) verifyTimeLimit(submittedCaptchaProperties models.PayloadVerificationAndIntegrity, submittedClickProperties models.ClickVerificationAndIntegrity) error {
+func (captchaVerifier *CAPTCHAVerifier) verifyTimeLimit(submittedCaptchaProperties PayloadVerificationAndIntegrity, submittedClickProperties ClickVerificationAndIntegrity) error {
 
 	dateOfIssuanceByProperties, err := captchaVerifier.isValidISOString(submittedCaptchaProperties.IntegrityCheckFields.ChallengeIssuedAtDate)
 	if err != nil {
@@ -256,7 +250,7 @@ verifyClickLimit is to be called only AFTER having completed ALL of the followin
 
 Together, all of these checks ensure that the number of clicks used did not exceed the preset maximum as well as actually returned a valid result
 */
-func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(submittedCaptchaProperties models.PayloadVerificationAndIntegrity, submittedClickProperties models.ClickVerificationAndIntegrity) error {
+func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(submittedCaptchaProperties PayloadVerificationAndIntegrity, submittedClickProperties ClickVerificationAndIntegrity) error {
 
 	nClicksMade := submittedClickProperties.NClicksMade
 	clickChain := submittedClickProperties.ClickChain
@@ -276,7 +270,7 @@ func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(submittedCaptchaPropert
 verifyBoardTiles takes the original board we created as the captcha (and stored server side in cache) BEFORE it was shuffled, and compare it to the board
 submitted by the user to confirm that their board is indeed unshuffled as desired
 */
-func (captchaVerifier *CAPTCHAVerifier) verifyBoardTiles(userSubmittedGameboard [][]*imageutils.Tile, locallyStoredUnshuffledGameBoard [][]*imageutils.TileWithoutImage) error {
+func (captchaVerifier *CAPTCHAVerifier) verifyBoardTiles(userSubmittedGameboard [][]*Tile, locallyStoredUnshuffledGameBoard [][]*TileWithoutImage) error {
 
 	if len(userSubmittedGameboard) == 0 || len(locallyStoredUnshuffledGameBoard) == 0 {
 		log.Println("ErrInvalidGameboard: One or both gameboards are empty")

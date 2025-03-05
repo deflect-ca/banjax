@@ -21,9 +21,7 @@ import (
 	"github.com/deflect-ca/banjax/internal"
 	"github.com/gonetx/ipset"
 
-	cacheUtils "github.com/deflect-ca/banjax/internal/cache-utils"
-	captchaUtils "github.com/deflect-ca/banjax/internal/captcha-utils"
-	solutionUtils "github.com/deflect-ca/banjax/internal/verification-utils"
+	puzzleCAPTCHA "github.com/deflect-ca/banjax/internal/puzzle-util"
 )
 
 const (
@@ -157,7 +155,7 @@ func main() {
 	enabledDataCollection := false
 	puzzleConfigPath := "config/difficulty-config.yaml"
 
-	captchaDifficultyProfileConfigs := captchaUtils.DifficultyProfileConfig{}
+	captchaDifficultyProfileConfigs := puzzleCAPTCHA.DifficultyProfileConfig{}
 	err = captchaDifficultyProfileConfigs.LoadDifficultyConfig(puzzleConfigPath)
 	if err != nil {
 		log.Fatalf("Initial config load failed: %v", err)
@@ -165,11 +163,11 @@ func main() {
 
 	go captchaDifficultyProfileConfigs.WatchConfigFile(ctx, puzzleConfigPath)
 
-	clickChainController := captchaUtils.NewClickChainController(clickChainSecret)
-	cache := cacheUtils.NewCAPTCHASolutionCache()
+	clickChainController := puzzleCAPTCHA.NewClickChainController(clickChainSecret)
+	cache := puzzleCAPTCHA.NewCAPTCHASolutionCache()
 
-	puzzleGenerator := captchaUtils.NewCAPTCHAGenerator(puzzleSecret, cache, clickChainController, &captchaDifficultyProfileConfigs, enabledDataCollection)
-	puzzleVerifier := solutionUtils.NewCAPTCHAVerifier(puzzleSecret, cache, clickChainController, &captchaDifficultyProfileConfigs)
+	puzzleGenerator := puzzleCAPTCHA.NewCAPTCHAGenerator(puzzleSecret, cache, clickChainController, &captchaDifficultyProfileConfigs, enabledDataCollection)
+	puzzleVerifier := puzzleCAPTCHA.NewCAPTCHAVerifier(puzzleSecret, cache, clickChainController, &captchaDifficultyProfileConfigs)
 
 	go internal.RunHttpServer(
 		ctx,

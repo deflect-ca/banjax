@@ -388,46 +388,45 @@ export default class ClientCaptchaSolver {
     
             if (solutionRequest.ok) {
                 if (solutionRequest.status === 200) {
-                    const successfulSubmissionResponse = (await solutionRequest.text()).trim()
-                    if (successfulSubmissionResponse === "access granted") {
-                        // const redirectUrl = solutionRequest.headers.get("Location")
-                        this.submitSolutionButton.classList.add("success")
-                        this.submitSolutionButton.textContent = "Verified!"
-                        // return this.handleRedirectOnSuccess(redirectUrl)
-                    }
+                    this.handleRedirect()
                 }
                 
             } else {
 
                 if (solutionRequest.status === 403) {
-                    const rateLimitResponse = await solutionRequest.text()
+                    const response = await solutionRequest.text()
 
-                    const match = rateLimitResponse.match(/(\d+)\s+seconds/)
-                    const duration_MS = match ? parseInt(match[1], 10) * 1000 : 60_000;//default to 60 seconds if no match found
-                    
-                    this.toggleRateLimit(true)
+                    if (response.trim() === "access denied") {
+                        
+                        //goto error handling section outside of the else 
+                        //ie continue from const messageToUser_type:'success' | 'warning' | 'error' = "error"
 
-                    setTimeout(()=> {
-                        this.toggleRateLimit(false)
-                    }, duration_MS)
+                    } else {
 
-                    this.showUserMessage(
-                        rateLimitResponse,
-                        "warning", 
-                        duration_MS, 
-                        true //prioritize this over any other error message
-                    )
-                    return
-                }
+                        const rateLimitResponse = response
 
-                if (solutionRequest.status === 404) {
+                        const match = rateLimitResponse.match(/(\d+)\s+seconds/)
+                        const duration_MS = match ? parseInt(match[1], 10) * 1000 : 60_000;//default to 60 seconds if no match found
+                        
+                        this.toggleRateLimit(true)
+    
+                        setTimeout(()=> {
+                            this.toggleRateLimit(false)
+                        }, duration_MS)
+    
+                        this.showUserMessage(
+                            rateLimitResponse,
+                            "warning", 
+                            duration_MS, 
+                            true //prioritize this over any other error message
+                        )
+                        return
+                    }
+                
+                } else if (solutionRequest.status === 404) {
                     //if there is no cookie and you're sending a solution restart
                     //or if the cookie on our end dne, restart
-                    this.showUserMessage("We are not able to process this solution. Restarting...", "error", 5_000) 
-                    setTimeout(()=> {
-                        document.body.classList.add('fade-out')
-                        setTimeout(() => window.location.reload(), 500)
-                    }, 2500)
+                    this.handleRedirect()
                     return
                 }
             }
@@ -435,10 +434,7 @@ export default class ClientCaptchaSolver {
             const messageToUser_type:'success' | 'warning' | 'error' = "error"
 
             this.showUserMessage("Incorrect solution. Please try again", messageToUser_type, 5_000, true) //5 seconds is enough for them to read it was wrong
-            // setTimeout(()=>{
-            //     this.hideUserMessage()
-            // }, 5000)
-    
+
             this.logIfDebug("Invalid solution", "warn")
             //continue timer
             this.totalTimeAllowed -= elapsedTime //update the total time to what remains in aggregate
@@ -462,22 +458,13 @@ export default class ClientCaptchaSolver {
     }
 
 
-
-
-
-    private handleRedirectOnSuccess(redirectUrl:string | null):void {
-        if (redirectUrl) {
-            // this.showUserMessage("You are human! Redirecting...", "success")
-            this.logIfDebug(`Redirecting to: ${redirectUrl}`, "info")
-            this.cleanup() //also resets this.isSubmittingSolution to false
+    private handleRedirect():void {
+        this.submitSolutionButton.classList.add("success")
+        this.submitSolutionButton.textContent = "Verified!"
+        setTimeout(()=> {
             document.body.classList.add('fade-out')
-            window.location.href = redirectUrl
-            return
-        } else {
-            //throwing will be caught by the submitSolution (the calling function) which will then throw 
-            //after wrapping it in its own error which will be caught by the entrypoint
-            throw new Error(`ErrMissingRequirement: expected redirectUrl, got: ${redirectUrl}`)
-        }
+            setTimeout(() => window.location.reload(), 500)
+        }, 200)
     }
 
     //moveTile is what is called when a click occurs. We only consider "valid" clicks (ie on a tile)

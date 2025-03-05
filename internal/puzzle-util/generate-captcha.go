@@ -1,4 +1,4 @@
-package captchautils
+package puzzleutil
 
 import (
 	"errors"
@@ -6,10 +6,6 @@ import (
 	"log"
 	"math"
 	"strings"
-
-	cacheUtils "github.com/deflect-ca/banjax/internal/cache-utils"
-	imageUtils "github.com/deflect-ca/banjax/internal/image-utils"
-	cryptoUtils "github.com/deflect-ca/banjax/pkg/shared-utils"
 )
 
 type RowCol struct {
@@ -18,17 +14,17 @@ type RowCol struct {
 }
 
 type CAPTCHAChallenge struct {
-	GameBoard             [][]*imageUtils.Tile `json:"gameBoard"`
-	ThumbnailBase64       string               `json:"thumbnail_base64"`
-	MaxAllowedMoves       int                  `json:"maxNumberOfMovesAllowed"`
-	TimeToSolveMS         int                  `json:"timeToSolve_ms"`
-	ShowCountdownTimer    bool                 `json:"showCountdownTimer"`
-	IntegrityCheckHash    string               `json:"integrity_check"`
-	CollectDataEnabled    bool                 `json:"collect_data"`
-	UserDesiredEndpoint   string               `json:"users_intended_endpoint"`
-	ChallengeIssuedAtDate string               `json:"challenge_issued_date"`
-	ClickChain            []ClickChainEntry    `json:"click_chain"`
-	ChallengeDifficulty   string               `json:"challenge_difficulty"`
+	GameBoard             [][]*Tile         `json:"gameBoard"`
+	ThumbnailBase64       string            `json:"thumbnail_base64"`
+	MaxAllowedMoves       int               `json:"maxNumberOfMovesAllowed"`
+	TimeToSolveMS         int               `json:"timeToSolve_ms"`
+	ShowCountdownTimer    bool              `json:"showCountdownTimer"`
+	IntegrityCheckHash    string            `json:"integrity_check"`
+	CollectDataEnabled    bool              `json:"collect_data"`
+	UserDesiredEndpoint   string            `json:"users_intended_endpoint"`
+	ChallengeIssuedAtDate string            `json:"challenge_issued_date"`
+	ClickChain            []ClickChainEntry `json:"click_chain"`
+	ChallengeDifficulty   string            `json:"challenge_difficulty"`
 }
 
 var (
@@ -46,14 +42,14 @@ type CAPTCHAGenerator struct {
 	PuzzleSecret               string
 	ClickChainUtils            *ClickChainController
 	DifficultyConfigController *DifficultyProfileConfig
-	SolutionCache              *cacheUtils.CAPTCHASolutionCache
+	SolutionCache              *CAPTCHASolutionCache
 	EnabledDataCollection      bool
 }
 
 /*CAPTCHAGenerator generates puzzles that are coded to each user such that each puzzle is unique*/
 func NewCAPTCHAGenerator(
 	puzzleSecret string,
-	solutionCache *cacheUtils.CAPTCHASolutionCache,
+	solutionCache *CAPTCHASolutionCache,
 	clickChainUtls *ClickChainController,
 	difficultyConfigController *DifficultyProfileConfig,
 
@@ -78,7 +74,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 		return nil, ErrTargetDifficultyDoesNotExist
 	}
 
-	tileMap, err := imageUtils.TileMapFromImage(challengeEntropy, b64PngImage, targetDifficulty.NPartitions)
+	tileMap, err := TileMapFromImage(challengeEntropy, b64PngImage, targetDifficulty.NPartitions)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
 	}
@@ -108,7 +104,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 	}
 
 	row, col := targetDifficulty.RemovedTileIndexToRowCol()
-	thumbnailAsB64, err := imageUtils.ThumbnailFromImageWithTransparentTile(challengeEntropy, b64PngImage, targetDifficulty.NPartitions, row, col)
+	thumbnailAsB64, err := ThumbnailFromImageWithTransparentTile(challengeEntropy, b64PngImage, targetDifficulty.NPartitions, row, col)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedThumbnailCreation, err)
 	}
@@ -151,7 +147,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 		return nil, err
 	}
 
-	hmacForIntegrity := cryptoUtils.GenerateHMACFromString(hmacPayload.JSONBytesToString(marshaledIntegrityPayloadBytes), challengeEntropy)
+	hmacForIntegrity := GenerateHMACFromString(hmacPayload.JSONBytesToString(marshaledIntegrityPayloadBytes), challengeEntropy)
 
 	captchaToIssueToUser := &CAPTCHAChallenge{
 		GameBoard:             gameBoard,
@@ -167,7 +163,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 		ChallengeDifficulty:   difficulty,
 	}
 
-	cacheValue := cacheUtils.CAPTCHASolution{
+	cacheValue := CAPTCHASolution{
 		UnshuffledGameBoard: sol_deepCopyOfUnshuffledBoardWithoutImage,
 		ShuffledGameBoard:   sol_deepCopyOfShuffledBoardWithoutImage,
 		PrecomputedSolution: sol_ExpectedCorrectSolutionHash,
@@ -180,13 +176,13 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(userChallengeCookie
 	return captchaToIssueToUser, nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) newCAPTCHABoard(tileMap imageUtils.TileMap, difficultyProfile DifficultyProfile) ([][]*imageUtils.Tile, error) {
+func (generateCaptcha *CAPTCHAGenerator) newCAPTCHABoard(tileMap TileMap, difficultyProfile DifficultyProfile) ([][]*Tile, error) {
 	nTiles := len(tileMap)
 	size := int(math.Sqrt(float64(nTiles)))
 
-	gameBoard := make([][]*imageUtils.Tile, size)
+	gameBoard := make([][]*Tile, size)
 	for i := range gameBoard {
-		gameBoard[i] = make([]*imageUtils.Tile, size)
+		gameBoard[i] = make([]*Tile, size)
 	}
 	//iterate over them in order as maps don't preserve order but we need them to initially be placed in order
 	for i := 0; i < nTiles; i++ {
@@ -202,23 +198,23 @@ func (generateCaptcha *CAPTCHAGenerator) newCAPTCHABoard(tileMap imageUtils.Tile
 }
 
 /*to save memory, we store only the tileIDs without the base64 when storing the copy of the original for verification*/
-func (generateCaptcha *CAPTCHAGenerator) newLocalGameboard(original [][]*imageUtils.Tile) ([][]*imageUtils.TileWithoutImage, error) {
+func (generateCaptcha *CAPTCHAGenerator) newLocalGameboard(original [][]*Tile) ([][]*TileWithoutImage, error) {
 	if len(original) == 0 || len(original[0]) == 0 {
 		return nil, errors.New("deepCopyBoard: original board is empty or nil")
 	}
 
-	deepCopyGameBoard := make([][]*imageUtils.TileWithoutImage, len(original))
+	deepCopyGameBoard := make([][]*TileWithoutImage, len(original))
 
 	for i := range original {
 		if len(original[i]) != len(original[0]) {
 			return nil, errors.New("deepCopyBoard: inconsistent row lengths in original board")
 		}
-		deepCopyGameBoard[i] = make([]*imageUtils.TileWithoutImage, len(original[i]))
+		deepCopyGameBoard[i] = make([]*TileWithoutImage, len(original[i]))
 
 		for j, tile := range original[i] {
 			if tile != nil { //protect against nil ptr deref
 				newTile := *tile //copy value
-				deepCopyGameBoard[i][j] = &imageUtils.TileWithoutImage{TileGridID: newTile.TileGridID}
+				deepCopyGameBoard[i][j] = &TileWithoutImage{TileGridID: newTile.TileGridID}
 			} else {
 				deepCopyGameBoard[i][j] = nil //keeps `nil` for missing tiles
 			}
@@ -228,18 +224,18 @@ func (generateCaptcha *CAPTCHAGenerator) newLocalGameboard(original [][]*imageUt
 	return deepCopyGameBoard, nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) deepCopyBoard(original [][]*imageUtils.Tile) ([][]*imageUtils.Tile, error) {
+func (generateCaptcha *CAPTCHAGenerator) deepCopyBoard(original [][]*Tile) ([][]*Tile, error) {
 	if len(original) == 0 || len(original[0]) == 0 {
 		return nil, errors.New("deepCopyBoard: original board is empty or nil")
 	}
 
-	deepCopyGameBoard := make([][]*imageUtils.Tile, len(original))
+	deepCopyGameBoard := make([][]*Tile, len(original))
 
 	for i := range original {
 		if len(original[i]) != len(original[0]) {
 			return nil, errors.New("deepCopyBoard: inconsistent row lengths in original board")
 		}
-		deepCopyGameBoard[i] = make([]*imageUtils.Tile, len(original[i]))
+		deepCopyGameBoard[i] = make([]*Tile, len(original[i]))
 
 		for j, tile := range original[i] {
 			if tile != nil { //protect against nil ptr deref
@@ -254,13 +250,13 @@ func (generateCaptcha *CAPTCHAGenerator) deepCopyBoard(original [][]*imageUtils.
 	return deepCopyGameBoard, nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) removeTileFromBoard(boardRef [][]*imageUtils.Tile, targetDifficulty DifficultyProfile) error {
+func (generateCaptcha *CAPTCHAGenerator) removeTileFromBoard(boardRef [][]*Tile, targetDifficulty DifficultyProfile) error {
 	row, col := targetDifficulty.RemovedTileIndexToRowCol()
 	boardRef[row][col] = nil //JSON will serialize this as `null`
 	return nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) shuffleBoard(boardRef [][]*imageUtils.Tile, boardCopy [][]*imageUtils.Tile, targetDifficulty DifficultyProfile, nReShuffles int) error {
+func (generateCaptcha *CAPTCHAGenerator) shuffleBoard(boardRef [][]*Tile, boardCopy [][]*Tile, targetDifficulty DifficultyProfile, nReShuffles int) error {
 
 	MAX_RESHUFFLES := 5
 
@@ -322,7 +318,7 @@ func (generateCaptcha *CAPTCHAGenerator) shuffleBoard(boardRef [][]*imageUtils.T
 	return nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) getNextValidShuffleMove(boardRef [][]*imageUtils.Tile, rowNil, colNil, lastRow, lastCol int) (RowCol, error) {
+func (generateCaptcha *CAPTCHAGenerator) getNextValidShuffleMove(boardRef [][]*Tile, rowNil, colNil, lastRow, lastCol int) (RowCol, error) {
 	valid_X_Moves := []int{1, -1, 0, 0}
 	valid_Y_Moves := []int{0, 0, 1, -1}
 	var possible_valid_moves []RowCol //starts empty
@@ -344,14 +340,14 @@ func (generateCaptcha *CAPTCHAGenerator) getNextValidShuffleMove(boardRef [][]*i
 	return possible_valid_moves[randomChoice], nil
 }
 
-func (generateCaptcha *CAPTCHAGenerator) swap(boardRef [][]*imageUtils.Tile, rowNil, colNil, row2, col2 int) {
+func (generateCaptcha *CAPTCHAGenerator) swap(boardRef [][]*Tile, rowNil, colNil, row2, col2 int) {
 	nilValue := boardRef[rowNil][colNil]
 	boardRef[rowNil][colNil] = boardRef[row2][col2]
 	boardRef[row2][col2] = nilValue
 }
 
 /*returns "not identical" (ie false) if theres at least one difference between the two boards*/
-func (generateCaptcha *CAPTCHAGenerator) isBoardIdentical(boardRef, copyOfBoard [][]*imageUtils.Tile) bool {
+func (generateCaptcha *CAPTCHAGenerator) isBoardIdentical(boardRef, copyOfBoard [][]*Tile) bool {
 	for row := 0; row < len(boardRef); row++ {
 		for col := 0; col < len(boardRef[row]); col++ {
 			if (boardRef[row][col] == nil) != (copyOfBoard[row][col] == nil) { // Nil mismatch check
@@ -365,7 +361,7 @@ func (generateCaptcha *CAPTCHAGenerator) isBoardIdentical(boardRef, copyOfBoard 
 	return true
 }
 
-func (generateCaptcha *CAPTCHAGenerator) calculateExpectedSolutionHash(boardRef [][]*imageUtils.Tile, userChallengeCookie string) string {
+func (generateCaptcha *CAPTCHAGenerator) calculateExpectedSolutionHash(boardRef [][]*Tile, userChallengeCookie string) string {
 	//when the users computes THEIR solution, they will do so using the challenge cookie value as the key against which they calculate their hmac
 	//so, we recreate this procedure in order to recreate the solution that they will make:
 
@@ -380,14 +376,14 @@ func (generateCaptcha *CAPTCHAGenerator) calculateExpectedSolutionHash(boardRef 
 		}
 	}
 
-	userCorrectSolution := cryptoUtils.GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookie)
+	userCorrectSolution := GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookie)
 
 	//so at this point if the user arranges the baord and submits their solution, they would send us the hash we currently have in: userCorrectSolution
 	//so we store this in a map locally using their challenge cookie as the key and the value being the solution. Then on submit we compare them!
 	return userCorrectSolution
 }
 
-func LogGameBoard(gameBoard [][]*imageUtils.Tile) {
+func LogGameBoard(gameBoard [][]*Tile) {
 	log.Println("=== GAMEBOARD ===")
 	for i, row := range gameBoard {
 		rowStr := fmt.Sprintf("Row %d: ", i)

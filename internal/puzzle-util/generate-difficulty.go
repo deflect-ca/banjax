@@ -1,4 +1,4 @@
-package captchautils
+package puzzleutil
 
 import (
 	"context"

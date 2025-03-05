@@ -1,13 +1,10 @@
-package captchautils
+package puzzleutil
 
 import (
 	"errors"
 	"fmt"
 	"log"
 	"time"
-
-	imageutils "github.com/deflect-ca/banjax/internal/image-utils"
-	cryptoUtils "github.com/deflect-ca/banjax/pkg/shared-utils"
 )
 
 type ClickChainController struct {
@@ -50,7 +47,7 @@ func (cc *ClickChainController) NewClickChain(userChallengeCookieString string) 
 	}
 
 	challengeEntroy := fmt.Sprintf("%s%s", cc.InitVector, userChallengeCookieString)
-	genesis.Hash = cryptoUtils.GenerateHMACFromString(genesis.JSONBytesToString(genesisChainEntryAsBytes), challengeEntroy)
+	genesis.Hash = GenerateHMACFromString(genesis.JSONBytesToString(genesisChainEntryAsBytes), challengeEntroy)
 	clickChain = append(clickChain, genesis)
 
 	return clickChain, nil
@@ -67,7 +64,7 @@ finally, we recreate their submitted board using the steps they took to see that
 
 NOTE: This does NOT prove their answer was right. ONLY that given the initial board they started with it was THIS series of steps in particular that got them to the final result they submitted.
 */
-func (cc *ClickChainController) IntegrityCheckClickChain(userChallengeCookieString string, userSubmittedClickChain []ClickChainEntry, userSubmittedGamboard [][]*imageutils.Tile, locallyStoredShuffledGameBoard [][]*imageutils.TileWithoutImage) error {
+func (cc *ClickChainController) IntegrityCheckClickChain(userChallengeCookieString string, userSubmittedClickChain []ClickChainEntry, userSubmittedGamboard [][]*Tile, locallyStoredShuffledGameBoard [][]*TileWithoutImage) error {
 
 	err := cc.verifyClickChainIntegrity(userChallengeCookieString, userSubmittedClickChain)
 	if err != nil {
@@ -151,7 +148,7 @@ func (cc *ClickChainController) verifyGenesis(userChallengeCookieString string, 
 		return false, err
 	}
 
-	expectedHash := cryptoUtils.GenerateHMACFromString(userGenesisEntry.JSONBytesToString(genesisBytes), challengeEntropy)
+	expectedHash := GenerateHMACFromString(userGenesisEntry.JSONBytesToString(genesisBytes), challengeEntropy)
 	userGenesisEntry.Hash = submittedHash //reset to be able to use it for verifying the next
 
 	return expectedHash == submittedHash, nil
@@ -176,7 +173,7 @@ func (cc *ClickChainController) verifyClickChainEntry(userChallengeCookieString 
 	}
 
 	marshaledBytesAsString := recreatedEntry.JSONBytesToString(asBytes)
-	expectedHash := cryptoUtils.GenerateHMACFromString(marshaledBytesAsString, userChallengeCookieString)
+	expectedHash := GenerateHMACFromString(marshaledBytesAsString, userChallengeCookieString)
 
 	if expectedHash != userSubmittedChainEntry.Hash {
 		log.Println("expected hash versus submitted hash mismatch!")
@@ -242,7 +239,7 @@ func (cc *ClickChainController) isValidMove(tileClicked, tileSwappedWith ChainTi
 	return isValidMove
 }
 
-func (cc *ClickChainController) recreateAndMatchFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, userSubmittedGamboard [][]*imageutils.Tile, locallyStoredShuffledGameBoard [][]*imageutils.TileWithoutImage) error {
+func (cc *ClickChainController) recreateAndMatchFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, userSubmittedGamboard [][]*Tile, locallyStoredShuffledGameBoard [][]*TileWithoutImage) error {
 
 	if len(userSubmittedGamboard) == 0 || len(locallyStoredShuffledGameBoard) == 0 {
 		log.Printf("ErrInvalidGameboard: One or both gameboards are empty")
@@ -339,7 +336,7 @@ func (cc *ClickChainController) recreateAndMatchFinalBoardFromClickChain(userCli
 	return nil
 }
 
-func (cc *ClickChainController) swap(locallyStoredShuffledGameBoard [][]*imageutils.TileWithoutImage, currentTileThatWasClickedRow, currentTileThatWasClickedCol, tileSwappedWithRow, tileSwappedWithCol int) {
+func (cc *ClickChainController) swap(locallyStoredShuffledGameBoard [][]*TileWithoutImage, currentTileThatWasClickedRow, currentTileThatWasClickedCol, tileSwappedWithRow, tileSwappedWithCol int) {
 	temp := locallyStoredShuffledGameBoard[currentTileThatWasClickedRow][currentTileThatWasClickedCol]
 	locallyStoredShuffledGameBoard[currentTileThatWasClickedRow][currentTileThatWasClickedCol] = locallyStoredShuffledGameBoard[tileSwappedWithRow][tileSwappedWithCol]
 	locallyStoredShuffledGameBoard[tileSwappedWithRow][tileSwappedWithCol] = temp

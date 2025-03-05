@@ -1,4 +1,4 @@
-package sharedutils
+package puzzleutil
 
 import (
 	"crypto/hmac"

@@ -1,4 +1,4 @@
-package imageutils
+package puzzleutil
 
 import (
 	"bytes"
@@ -12,8 +12,6 @@ import (
 	"image/png"
 	"math"
 	"math/rand"
-
-	cryptoUtils "github.com/deflect-ca/banjax/pkg/shared-utils"
 )
 
 /*to save memory, we store only the tileIDs without the base64 when storing the copy of the original for verification*/
@@ -58,7 +56,7 @@ func TileMapFromImage(challengeEntropy string, base64PngImage string, nPartition
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode tile: %w", err)
 		}
-		hash := cryptoUtils.GenerateHMACFromString(encodedTile, challengeEntropy)
+		hash := GenerateHMACFromString(encodedTile, challengeEntropy)
 		tileMap[i] = Tile{Base64Image: encodedTile, TileGridID: hash}
 	}
 
