@@ -432,11 +432,6 @@ func accessDenied(c *gin.Context, config *Config, decisionListResultString strin
 }
 
 func accessThrottled(c *gin.Context, config *Config, decisionListResultString string, throttleDurationSeconds int) {
-
-	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
-	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
-	log.Printf("accessThrottled CALLED for IP: %s, Duration: %d seconds", c.ClientIP(), throttleDurationSeconds)
-
 	msg := fmt.Sprintf("Too many failed attempts. Try again in %d seconds.", throttleDurationSeconds)
 
 	c.Header("X-Banjax-Decision", decisionListResultString)

@@ -297,9 +297,6 @@ func (b Banner) BanOrChallengeIp(
 }
 
 func (b Banner) IPSetAdd(config *Config, ip string) error {
-
-	log.Printf("\n\nBANNING IP: %s FOR %d SECONDS", ip, time.Duration(config.IptablesBanSeconds)*time.Second)
-
 	return b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(config.IptablesBanSeconds)*time.Second))
 }
 
@@ -317,7 +314,9 @@ func (b Banner) IPSetDel(ip string) error {
 }
 
 func banIp(config *Config, ip string, banner BannerInterface) {
+
 	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
+
 	if ip == "127.0.0.1" {
 		log.Println("banIp: Not going to block localhost")
 		return
@@ -355,7 +354,8 @@ func (b Banner) OverwriteBanWithRateLimit(config *Config, ip string, banTimeSeco
 		}
 	}
 
-	log.Printf("RateLimitWithBan: Banning IP: %s for %d seconds", ip, banTimeSeconds)
+	// log.Printf("RateLimitWithBan: Banning IP: %s for %d seconds", ip, banTimeSeconds)
+
 	banErr := b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(banTimeSeconds)*time.Second))
 	if banErr != nil {
 		log.Printf("RateLimitWithBan: Failed to ban %s: %v", ip, banErr)
