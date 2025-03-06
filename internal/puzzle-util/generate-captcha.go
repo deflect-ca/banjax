@@ -40,8 +40,8 @@ var (
 )
 
 type CAPTCHAGenerator struct {
-	PuzzleSecret               string
 	ThumbnailSecret            string //ensures no correlation between the noise added to thumbnail and noise added to user puzzle tiles
+	PuzzleSecret               string
 	ClickChainUtils            *ClickChainController
 	DifficultyConfigController *DifficultyProfileConfig
 	SolutionCache              *CAPTCHASolutionCache
@@ -50,8 +50,9 @@ type CAPTCHAGenerator struct {
 
 /*CAPTCHAGenerator generates puzzles that are coded to each user such that each puzzle is unique*/
 func NewCAPTCHAGenerator(
-	puzzleSecret string,
+
 	thumbnailSecret string,
+	puzzleSecret string,
 	solutionCache *CAPTCHASolutionCache,
 	clickChainUtls *ClickChainController,
 	difficultyConfigController *DifficultyProfileConfig,
@@ -60,8 +61,8 @@ func NewCAPTCHAGenerator(
 
 ) *CAPTCHAGenerator {
 	return &CAPTCHAGenerator{
-		PuzzleSecret:               puzzleSecret,
 		ThumbnailSecret:            thumbnailSecret,
+		PuzzleSecret:               puzzleSecret,
 		ClickChainUtils:            clickChainUtls,
 		DifficultyConfigController: difficultyConfigController,
 		SolutionCache:              solutionCache,
