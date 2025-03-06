@@ -25,11 +25,28 @@ type CAPTCHAVerifier struct {
 	SolutionCache              *CAPTCHASolutionCache
 	ClickChainUtils            *ClickChainController
 	difficultyConfigController *DifficultyProfileConfig
+	EnabledDataCollection      bool //if it was enabled, we can verify we received the payload when validating and pass it to the prediction part
 }
 
 /*CAPTCHAVerifier verifies the solution payload submitted by the user.*/
-func NewCAPTCHAVerifier(puzzleSecret string, cache *CAPTCHASolutionCache, clickChainController *ClickChainController, difficultyConfigController *DifficultyProfileConfig) *CAPTCHAVerifier {
-	return &CAPTCHAVerifier{PuzzleSecret: puzzleSecret, SolutionCache: cache, ClickChainUtils: clickChainController, difficultyConfigController: difficultyConfigController}
+func NewCAPTCHAVerifier(
+
+	puzzleSecret string,
+	cache *CAPTCHASolutionCache,
+	clickChainController *ClickChainController,
+	difficultyConfigController *DifficultyProfileConfig,
+
+	enabledDataCollection bool,
+
+) *CAPTCHAVerifier {
+
+	return &CAPTCHAVerifier{
+		PuzzleSecret:               puzzleSecret,
+		SolutionCache:              cache,
+		ClickChainUtils:            clickChainController,
+		difficultyConfigController: difficultyConfigController,
+		EnabledDataCollection:      enabledDataCollection,
+	}
 }
 
 /*

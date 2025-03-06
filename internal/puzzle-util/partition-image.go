@@ -275,10 +275,10 @@ func addNoise(img *image.RGBA, entropy string) (*image.RGBA, error) {
 	seed := stringToSeed(entropy)
 	r := rand.New(rand.NewSource(seed))
 
-	//anything from [20, 36] results in solid noise, doesn't disturb peoples ability to see
+	//anything from [16, 26] results in solid noise, doesn't disturb peoples ability to see
 	//the image, makes it different per puzzle and doesn't generate an overwhelmingly large filesize
-	minNoise := 14
-	maxNoise := 28
+	minNoise := 16
+	maxNoise := 26
 	noiseLevel := r.Intn(maxNoise-minNoise+1) + minNoise
 
 	for y := 0; y < img.Bounds().Dy(); y++ {

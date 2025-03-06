@@ -1557,7 +1557,7 @@ func decisionForNginx2(
 					staticDecisionLists,
 				)
 
-				decisionForNginxResult.DecisionListResult = PerSiteChallenge
+				decisionForNginxResult.DecisionListResult = GlobalChallenge
 				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
 				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
 				return

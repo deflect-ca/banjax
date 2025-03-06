@@ -150,8 +150,8 @@ func main() {
 	defer stop()
 
 	//the puzzle secret, clickChain secret, data collect flag as well as the path to the puzzle's .yaml configs would need to be integrated into the existing config object
+	thumbnailSecret := "thumbnailSecret"
 	puzzleSecret := "puzzleSecret"
-	thumbnailGenerationSecret := "thumbnailSecret"
 	clickChainSecret := "clickChainSecret"
 	enabledDataCollection := false
 	puzzleConfigPath := "config/difficulty-config.yaml"
@@ -167,8 +167,22 @@ func main() {
 	clickChainController := puzzleCAPTCHA.NewClickChainController(clickChainSecret)
 	cache := puzzleCAPTCHA.NewCAPTCHASolutionCache()
 
-	puzzleGenerator := puzzleCAPTCHA.NewCAPTCHAGenerator(puzzleSecret, thumbnailGenerationSecret, cache, clickChainController, &captchaDifficultyProfileConfigs, enabledDataCollection)
-	puzzleVerifier := puzzleCAPTCHA.NewCAPTCHAVerifier(puzzleSecret, cache, clickChainController, &captchaDifficultyProfileConfigs)
+	puzzleGenerator := puzzleCAPTCHA.NewCAPTCHAGenerator(
+		thumbnailSecret,
+		puzzleSecret,
+		cache,
+		clickChainController,
+		&captchaDifficultyProfileConfigs,
+		enabledDataCollection,
+	)
+
+	puzzleVerifier := puzzleCAPTCHA.NewCAPTCHAVerifier(
+		puzzleSecret,
+		cache,
+		clickChainController,
+		&captchaDifficultyProfileConfigs,
+		enabledDataCollection,
+	)
 
 	go internal.RunHttpServer(
 		ctx,
