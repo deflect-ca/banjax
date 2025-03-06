@@ -242,6 +242,19 @@
 
         - Noise is deliberately added to the thumbnail image to prevent trivial reconstruction.
         - Even if an attacker partitions the thumbnail, the Base64-encoded pieces won’t match due to injected noise, preventing automated board reconstruction.
+        - Each tile is also encoded with its own noise using different entropy from that which was applied to the thumbnail ensuring there is no correlation between the two
+        - Each puzzle tile base64 encoded PNG is guarenteed to be unique per challenge per user
+        - Each thumbnail is guarenteed to be unique per challenge per user
+        - Each thumbnail is guarenteed to be different from the puzzle grid tile base64 images even when partitioned
+        - This ensures even replay attacks are not possible as even if you record the base64 images you put into order in one puzzle, the next time you receive it,
+        the base64 PNG will not be the same as they have different noise applied to them. Since the TileID's are derived from the base64 PNGs which as mentioned are unique
+        we can guarentee that the solution that is derived from placing them in order is guarenteed to be unique as well.
+        - Finally, for any given challenge, if there are tiles on the board that are the same, for example if there are blank tiles which have the same b64 data, then after adding noise
+        they will continue to be the same ensuring they remain interchangeable! Between different challenges, these blank tiles, as with all other tiles are guarenteed to be different from one another!
+        - Integrity checking and click-chain solution guarentee that no replay or forgery attacks can occur.
+        - ClickChain also ensures that the solution itself is correct in that each step the user took while solving does indeed lead to the final result being what they submitted
+        
+    For more on the ClickChain or how integrity, noise or uniqueness are guarenteed, see [Server-Side Documentation](../internal/puzzle-util/README.md).
 
     4) Machine Learning (behaviour analysis) - NOT YET DONE
 
