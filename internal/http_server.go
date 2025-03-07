@@ -870,6 +870,13 @@ func handleValidatePuzzleCAPTCHA(
 
 	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
 
+	defer func() {
+		_, err := c.Cookie("__banjax_sol")
+		if err == nil {
+			c.SetCookie("__banjax_sol", "", -1, "/", "", false, false)
+		}
+	}()
+
 	puzzleVerifierInterface, exists := c.Get(CaptchaVerifierKey)
 	if !exists {
 		log.Println("Failed to get dependencies")
