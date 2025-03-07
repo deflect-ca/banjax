@@ -20,8 +20,6 @@ import (
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/deflect-ca/banjax/internal"
 	"github.com/gonetx/ipset"
-
-	puzzleCAPTCHA "github.com/deflect-ca/banjax/internal/puzzle-util"
 )
 
 const (
@@ -149,39 +147,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	//the puzzle secret, clickChain secret, data collect flag as well as the path to the puzzle's .yaml configs would need to be integrated into the existing config object
-	thumbnailSecret := "thumbnailSecret"
-	puzzleSecret := "puzzleSecret"
-	clickChainSecret := "clickChainSecret"
-	enabledDataCollection := false
-	puzzleConfigPath := "config/difficulty-config.yaml"
+	clickChainController := internal.NewClickChainController(config.ClickChainEntropySecret)
+	cache := internal.NewCAPTCHASolutionCache()
 
-	captchaDifficultyProfileConfigs := puzzleCAPTCHA.DifficultyProfileConfig{}
-	err = captchaDifficultyProfileConfigs.LoadDifficultyConfig(puzzleConfigPath)
-	if err != nil {
-		log.Fatalf("Initial config load failed: %v", err)
-	}
-
-	go captchaDifficultyProfileConfigs.WatchConfigFile(ctx, puzzleConfigPath)
-
-	clickChainController := puzzleCAPTCHA.NewClickChainController(clickChainSecret)
-	cache := puzzleCAPTCHA.NewCAPTCHASolutionCache()
-
-	puzzleGenerator := puzzleCAPTCHA.NewCAPTCHAGenerator(
-		thumbnailSecret,
-		puzzleSecret,
+	puzzleGenerator := internal.NewCAPTCHAGenerator(
+		config.ThumbnailEntropySecret,
+		config.PuzzleEntropySecret,
 		cache,
 		clickChainController,
-		&captchaDifficultyProfileConfigs,
-		enabledDataCollection,
+		config.EnableGameplayDataCollection,
 	)
 
-	puzzleVerifier := puzzleCAPTCHA.NewCAPTCHAVerifier(
-		puzzleSecret,
+	puzzleVerifier := internal.NewCAPTCHAVerifier(
+		config.PuzzleEntropySecret,
 		cache,
 		clickChainController,
-		&captchaDifficultyProfileConfigs,
-		enabledDataCollection,
+		config.EnableGameplayDataCollection,
 	)
 
 	go internal.RunHttpServer(

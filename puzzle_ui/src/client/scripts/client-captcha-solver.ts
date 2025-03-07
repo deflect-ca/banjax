@@ -1,5 +1,10 @@
+import {stringToBase64WithFallback, clickChainToBase64WithFallback} from "./utils/b64-utils"
 import {generateHmacWithFallback} from "./utils/hmac-utils"
 import {getCookieValue} from "./utils/cookie-utils"
+
+
+
+
 
 
 
@@ -297,64 +302,22 @@ export default class ClientCaptchaSolver {
         */
         const solutionHash = await this.computeUserPuzzleSolution()
 
-        /*
-            to verify that the time is valid (ie they did not take more time than they were alloted) 
-            AND none of the other states have been tampered with (including their intended endpoint), 
-            we also include the integrity checked payload 
-            
-            NOTE: we keep the puzzleChallenge.timeToSolve_ms because we need to check against the time 
-            at which the challenge was issued to see if they went over all of which are part of the hmac 
-            which uses a secret the client side does not know 
-        */
-        const integrity_check_confirmation_payload:iPayloadVerificationAndIntegrityCheck = {
-            //hash of original data with secret
-            hash:this.puzzleChallenge.integrity_check, 
-
-            integrity_check_fields: {
-                //the fields set in state at the time of submission
-                users_intended_endpoint:this.desiredEndpoint,
-                maxNumberOfMovesAllowed:this.maxNumberOfMovesAllowed, 
-                
-                timeToSolve_ms:this.puzzleChallenge.timeToSolve_ms,
-                challenge_issued_date:this.challengeIssuedAtTime,
-
-                collect_data:this.gameplayDataCollectionEnabled,
-                challenge_difficulty:this.challengeDifficulty
-            }
-        }
-
-
-        /*
-            to verify that the number of clicks was valid we send the click chain 
-            (note that the total number of clicks they are allowed is included in the HMAC calculation)
-        */
-        const click_chain:iClickVerificationAndIntegrityCheck = {
-            n_clicks_made: this.clickCountTracker,
-            click_chain:this.clickChain,
-        }
-
-        /*
-            finally we need to gather the data that was collected about how the user played the 
-            game (for ML predictions) but only IF we collected data in the first place
-            again notice that the collect_data field was also included in the HMAC so we can 
-            confirm it was not tampered with/disabled/enabled throwing off verification
-        */
-        let data_collection:iDataCollected = {}
-        if (this.gameplayDataCollectionEnabled) {
-            data_collection = {} //point it to the actual data we collected
-        }
-
         const resultToVerify:iClientSolutionSubmissionPayload = {
             solution:solutionHash,
-            game_board:this.gameBoard,
-            captcha_properties: integrity_check_confirmation_payload,
-            click_properties:click_chain,
-            data_collected:data_collection,
+            click_chain:this.clickChain,
         }
 
         return resultToVerify
     }
 
+    private partitionString(str: string, maxChunkSize: number): string[] {
+        const chunks: string[] = []
+        for (let i = 0; i < str.length; i += maxChunkSize) {
+            chunks.push(str.slice(i, i + maxChunkSize))
+        }
+        return chunks
+    }
+    
 
 
     private async submitSolution() {
@@ -376,12 +339,23 @@ export default class ClientCaptchaSolver {
     
             const usersSolution:iClientSolutionSubmissionPayload = await this.gatherSolution()
 
+            //testing the cookie strategy
+            const solutionStringAsCookie:string = stringToBase64WithFallback(usersSolution.solution)
+            const clickChainAsBase64Strings:string[] = this.partitionString(clickChainToBase64WithFallback(usersSolution.click_chain), 4000)
 
-            const solutionRequest = await fetch(this.VERIFY_SOLUTION_ENDPOINT, {
-                method:"POST",
+            //set solution hash as a cookie
+            document.cookie = `__banjax_sol=${solutionStringAsCookie}; path=/; Secure; SameSite=Strict; Max-Age=30;`
+
+            //partition click chain & store in multiple cookies
+            const nClickChainCookies = clickChainAsBase64Strings.length
+            for (let i = 0; i < nClickChainCookies; i++) {
+                document.cookie = `__banjax_cc_${i+1}_${nClickChainCookies}=${clickChainAsBase64Strings[i]}; path=/; Secure; SameSite=Strict; Max-Age=30;`
+            }
+
+            const solutionRequest = await fetch(document.location.href, {
+                method:"GET",
                 headers: {"Content-Type":"application/json"},
                 credentials:"include",
-                body:JSON.stringify(usersSolution),
             })
 
             this.toggleSubmitButtonLoading(false)

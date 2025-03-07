@@ -50,10 +50,11 @@ declare global {
     //interface for the solution that the client sends back to the server
     interface iClientSolutionSubmissionPayload {
         solution:string
-        game_board:(TileImagePartitionValue | null)[][]
-        captcha_properties: iPayloadVerificationAndIntegrityCheck
-        click_properties: iClickVerificationAndIntegrityCheck
-        data_collected:iDataCollected
+        // game_board:(TileImagePartitionValue | null)[][]
+        // captcha_properties: iPayloadVerificationAndIntegrityCheck
+        // click_properties: iClickVerificationAndIntegrityCheck
+        click_chain:iClickChainEntry[]
+        // data_collected:iDataCollected
     }
 
     interface iPayloadVerificationAndIntegrityCheck {
