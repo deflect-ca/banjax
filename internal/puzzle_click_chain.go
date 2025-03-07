@@ -214,7 +214,7 @@ func (cc *ClickChainController) verifyClickChainIntegrity(userChallengeCookieStr
 		return errors.New("ErrClickChainEmpty: Only the genesis is in the click chain, solution cannot be valid")
 	}
 
-	isValidGenesis, err := cc.verifyGenesis(userChallengeCookieString, copiedClickChain[0])
+	isValidGenesis, err := cc.verifyGenesisHash(userChallengeCookieString, copiedClickChain[0])
 	if err != nil {
 		log.Printf("ErrGenesisFailedMarshalBinary: %v", err)
 		return fmt.Errorf("ErrGenesisFailedMarshalBinary: %v", err)
@@ -241,8 +241,12 @@ func (cc *ClickChainController) verifyClickChainIntegrity(userChallengeCookieStr
 	return nil
 }
 
-// since the user does not know our initialization vector, they are not able to forge their own genesis
-func (cc *ClickChainController) verifyGenesis(userChallengeCookieString string, userGenesisEntry ClickChainEntry) (bool, error) {
+/*
+since the user does not know our initialization vector, they are not able to forge their own genesis. Note, this is different
+from the direct match comparison as it is meant to also tie the user challenge cookie string and confirm the first hash in the
+entire click chain which is necessary for being able to confirm all subsequent hashes
+*/
+func (cc *ClickChainController) verifyGenesisHash(userChallengeCookieString string, userGenesisEntry ClickChainEntry) (bool, error) {
 
 	submittedHash := userGenesisEntry.Hash
 	userGenesisEntry.Hash = "" //in order to recreate how the genesis entry was created
