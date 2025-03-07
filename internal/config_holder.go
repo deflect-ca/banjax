@@ -157,5 +157,14 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
+	if config.PathToDifficultyProfiles != "" {
+		var loadedConfig = &DifficultyProfileConfig{}
+		err := loadedConfig.UnmarshalYAML(config.PathToDifficultyProfiles)
+		if err != nil {
+			return nil, fmt.Errorf("ErrFailedUnmarshalDifficultyProfileConfig: %v", err)
+		}
+		config.DifficultyProfiles = loadedConfig
+	}
+
 	return config, nil
 }

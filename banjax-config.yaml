@@ -136,3 +136,11 @@ sha_inv_path_exceptions:
     - /no_challenge
 # enable pprof for debugging
 profile: false
+#puzzle captcha configs:
+thumbnail_entropy_secret: "thumbnailSecret"
+puzzle_entropy_secret: "puzzleSecret"
+click_chain_entropy_secret: "clickChainSecret"
+enable_gameplay_data_collection: false
+rate_limit_brute_force_solution_ttl_seconds: 60
+use_fresh_entropy_for_dynamic_tile_removal: true
+path_to_difficulty_profiles: "/etc/banjax/puzzle/difficulty_profiles_config.yaml"
