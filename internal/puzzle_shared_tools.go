@@ -376,6 +376,7 @@ type CAPTCHASolution struct {
 	ShuffledGameBoard         [][]*TileWithoutImage
 	PrecomputedSolution       string
 	PuzzleIntegrityProperties IntegrityCheckCAPTCHAChallenge
+	GenesisClickChainItem     ClickChainEntry
 }
 
 type CAPTCHASolutionCache struct {
@@ -420,6 +421,7 @@ func (cache *CAPTCHASolutionCache) Get(userChallengeCookie string) (*CAPTCHASolu
 		//no deep copy needed (string is primitive and go passes primitives by value)
 		PrecomputedSolution:       originalSolution.PrecomputedSolution,
 		PuzzleIntegrityProperties: originalSolution.PuzzleIntegrityProperties,
+		GenesisClickChainItem:     originalSolution.GenesisClickChainItem,
 	}
 
 	return captchaSol, true

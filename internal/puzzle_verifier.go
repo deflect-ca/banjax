@@ -12,16 +12,7 @@ import (
 type ClientSolutionSubmissionPayload struct {
 	Solution   string            `json:"solution"`
 	ClickChain []ClickChainEntry `json:"click_chain"`
-	// GameBoard         [][]*Tile                       `json:"game_board"`
-	// CaptchaProperties PayloadVerificationAndIntegrity `json:"captcha_properties"`
-	// ClickProperties ClickVerificationAndIntegrity `json:"click_properties"`
-	// DataCollected     DataCollected                   `json:"data_collected"`
 }
-
-// type PayloadVerificationAndIntegrity struct {
-// 	Hash                 string                         `json:"hash"`
-// 	IntegrityCheckFields IntegrityCheckCAPTCHAChallenge `json:"integrity_check_fields"`
-// }
 
 type ClickVerificationAndIntegrity struct {
 	NClicksMade int               `json:"n_clicks_made"`
@@ -65,6 +56,7 @@ func (captchaIntegrity *IntegrityCheckCAPTCHAChallenge) JSONBytesToString(data [
 }
 
 var (
+	ErrInvalidGenesisClickChainEntry    = errors.New("submitted click chain entry does not match expectation")
 	ErrCookieDeleteOrNeverExisted       = errors.New("solution was either submitted too late so the cookie was deleted or never existed")
 	ErrFailedClickChainIntegrity        = errors.New("failed click chain integrity check")
 	ErrFailedCaptchaPropertiesIntegrity = errors.New("failed captcha properties integrity check")
@@ -121,36 +113,21 @@ func (captchaVerifier *CAPTCHAVerifier) VerifySolution(config *Config, userChall
 		return ErrCookieDeleteOrNeverExisted
 	}
 
-	//SAVE GENESIS BLOCK AS WELL SO THAT WE CAN DO A DIRECT PROPERTY MATCH AND CHECK? Yes because if they manage to forge it then we can see they tampered with the properties
-
 	//apply integrity checks
-	//err := captchaVerifier.ClickChainUtils.IntegrityCheckClickChain(userChallengeCookieString, userCaptchaSolution.ClickProperties.ClickChain, userCaptchaSolution.GameBoard, locallyStoredSolution.ShuffledGameBoard)
-	err := captchaVerifier.ClickChainUtils.IntegrityCheckClickChain(userCaptchaSolution.Solution, userChallengeCookieString, userCaptchaSolution.ClickChain, locallyStoredSolution.ShuffledGameBoard, locallyStoredSolution.UnshuffledGameBoard)
+	err := captchaVerifier.ClickChainUtils.IntegrityCheckClickChainGenesis(userCaptchaSolution.ClickChain, locallyStoredSolution.GenesisClickChainItem)
+	if err != nil {
+		log.Println("Failed genesis click chain entry direct comparison")
+		return fmt.Errorf("%w: %v", ErrInvalidGenesisClickChainEntry, err)
+	}
+
+	err = captchaVerifier.ClickChainUtils.IntegrityCheckClickChain(userCaptchaSolution.Solution, userChallengeCookieString, userCaptchaSolution.ClickChain, locallyStoredSolution.ShuffledGameBoard, locallyStoredSolution.UnshuffledGameBoard)
 	if err != nil {
 		log.Println("Failed to integrity check click chain")
 		return fmt.Errorf("%w: %v", ErrFailedClickChainIntegrity, err)
 	}
 
-	// err = captchaVerifier.integrityCheckCaptchaProperties(userChallengeCookieString, userCaptchaSolution.CaptchaProperties)
-	// if err != nil {
-	// 	log.Println("Failed to integrity check initial captcha properties")
-	// 	return fmt.Errorf("%w: %v", ErrFailedCaptchaPropertiesIntegrity, err)
-	// }
-
-	// err = captchaVerifier.integrityCheckGameboard(userChallengeCookieString, userCaptchaSolution)
-	// if err != nil {
-	// 	log.Println("Failed to integrity check gameboard")
-	// 	return fmt.Errorf("%w: %v", ErrFailedGameboardIntegrity, err)
-	// }
-
 	//solutions checks
 
-	//save them in the map and provide the properties as args to this function instead of depending on the users properties, better to trust OUR version, otherwise they can send us anything
-	//like its a ton of overhead, yeah sure we can integrity check but why bother if we need not?
-
-	//store the genesis locally as well?
-
-	//locallyStoredCaptchaProperties IntegrityCheckCAPTCHAChallenge
 	err = captchaVerifier.verifyTimeLimit(config, locallyStoredSolution.PuzzleIntegrityProperties, userCaptchaSolution.ClickChain)
 	if err != nil {
 		log.Println("Failed to verify time limit")
@@ -163,12 +140,6 @@ func (captchaVerifier *CAPTCHAVerifier) VerifySolution(config *Config, userChall
 		return fmt.Errorf("%w: %v", ErrVerificationFailedClickLimit, err)
 	}
 
-	// err = captchaVerifier.verifyBoardTiles(userCaptchaSolution.GameBoard, locallyStoredSolution.UnshuffledGameBoard)
-	// if err != nil {
-	// 	log.Println("Failed to verify board tiles")
-	// 	return fmt.Errorf("%w: %v", ErrVerificationFailedBoardTiles, err)
-	// }
-
 	err = captchaVerifier.verifySolutionHash(userCaptchaSolution.Solution, locallyStoredSolution.PrecomputedSolution)
 	if err != nil {
 		log.Println("Failed to verify solution hash")
@@ -179,93 +150,6 @@ func (captchaVerifier *CAPTCHAVerifier) VerifySolution(config *Config, userChall
 
 	return nil
 }
-
-/*
-integrityCheckCaptchaProperties verifies the integrity of the properties we initially sent to the user when we created the puzzle
-*/
-// func (captchaVerifier *CAPTCHAVerifier) integrityCheckCaptchaProperties(userChallengeCookieString string, submittedCaptchaProperties PayloadVerificationAndIntegrity) error {
-
-// 	hmacPayload := IntegrityCheckCAPTCHAChallenge{
-// 		UserDesiredEndpoint:   submittedCaptchaProperties.IntegrityCheckFields.UserDesiredEndpoint,
-// 		MaxAllowedMoves:       submittedCaptchaProperties.IntegrityCheckFields.MaxAllowedMoves,
-// 		TimeToSolveMS:         submittedCaptchaProperties.IntegrityCheckFields.TimeToSolveMS,
-// 		ChallengeIssuedAtDate: submittedCaptchaProperties.IntegrityCheckFields.ChallengeIssuedAtDate,
-// 		CollectDataEnabled:    submittedCaptchaProperties.IntegrityCheckFields.CollectDataEnabled,
-// 		ChallengeDifficulty:   submittedCaptchaProperties.IntegrityCheckFields.ChallengeDifficulty,
-// 	}
-
-// 	hmacFromUser := submittedCaptchaProperties.Hash
-
-// 	hmacPayloadAsBytes, err := hmacPayload.MarshalBinary()
-// 	if err != nil {
-// 		return fmt.Errorf("ErrFailedMarshalBinary: %v", err)
-// 	}
-
-// 	hmacBytesPayloadAsString := hmacPayload.JSONBytesToString(hmacPayloadAsBytes)
-
-// 	challengeEntropy := fmt.Sprintf("%s%s", userChallengeCookieString, captchaVerifier.PuzzleSecret)
-
-// 	expectedHmac := GenerateHMACFromString(hmacBytesPayloadAsString, challengeEntropy)
-
-// 	if expectedHmac != hmacFromUser {
-// 		return fmt.Errorf("ErrHmacMismatch: Expected %s, got %s", expectedHmac, hmacFromUser)
-// 	}
-
-// 	return nil
-// }
-
-/*
-integrityCheckGameboard checks the integrity of the board as well as the solution the user submitted.
-This is done by recreating the gameboards tile ids which are unique to the user as they are generated using their challenge cookie string value and a secret only we know
-We then re-create the solution from the gameboard sent back to make sure that they calculated their solution using the method we provided.
-*/
-
-// THIS NOW HAPPENS IN THE CLICK CHAIN VALIDATION - WE START WITH OUR BOARD THAT WE STORED LOCALLY, PLAYBACK THEIR STEPS AND CHECK THAT THE
-// STEPS THEY TOOK RESULTED IN A FINAL HASH THAT MATCHES WHAT THEY SUBMITTED TO US
-// func (captchaVerifier *CAPTCHAVerifier) integrityCheckGameboard(userChallengeCookieString string, userSubmittedCaptchaSolution ClientSolutionSubmissionPayload) error {
-
-// 	challengeEntropy := fmt.Sprintf("%s%s", userChallengeCookieString, captchaVerifier.PuzzleSecret)
-
-// 	gameboard := userSubmittedCaptchaSolution.GameBoard
-
-// 	for rowIndex := 0; rowIndex < len(gameboard); rowIndex++ {
-// 		rowOfTiles := gameboard[rowIndex]
-// 		for colIndex := 0; colIndex < len(rowOfTiles); colIndex++ {
-// 			tile := rowOfTiles[colIndex]
-// 			if tile != nil {
-// 				expectedID := GenerateHMACFromString(tile.Base64Image, challengeEntropy)
-// 				if expectedID != tile.TileGridID {
-// 					log.Printf("ErrTamperedTile: Gameboard tile ID does not match expected HMAC. Expected row:%d col:%d id to be: %s, got: %s", rowIndex, colIndex, expectedID, tile.TileGridID)
-// 					return fmt.Errorf("ErrTamperedTile: Gameboard tile ID does not match expected HMAC. Expected row:%d col:%d id to be: %s, got: %s", rowIndex, colIndex, expectedID, tile.TileGridID)
-// 				}
-// 			}
-// 		}
-// 	}
-
-// 	var boardIDHashesInOrder strings.Builder
-// 	for _, row := range gameboard {
-// 		for _, tile := range row {
-// 			if tile == nil {
-// 				boardIDHashesInOrder.WriteString("null_tile")
-// 			} else {
-// 				boardIDHashesInOrder.WriteString(tile.TileGridID)
-// 			}
-// 		}
-// 	}
-
-// 	//here we re-create the solution from the gameboard sent back to make sure that they calculated their solution using the method we provided.
-// 	//the `expectedSolutionDerivedFromGrid` should match the users submitted hash. NOTE this is NOT the same thing as checking their answer. All this does is check that
-// 	//the solution they submitted was actually derived from the board they submitted. The userSubmittedSolution.solution CAN be wrong. That is why we still need
-// 	//to compare their userSubmittedSolution.solution to the actual pre-computed result we stored in the map
-// 	expectedSolutionDerivedFromGrid := GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookieString)
-
-// 	if expectedSolutionDerivedFromGrid != userSubmittedCaptchaSolution.Solution {
-// 		log.Println("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")
-// 		return errors.New("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")
-// 	}
-
-// 	return nil
-// }
 
 /*
 verifyTimeLimit is to be called only AFTER having completed ALL of the following:
@@ -365,71 +249,11 @@ func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(locallyStoredCaptchaPro
 }
 
 /*
-verifyBoardTiles takes the original board we created as the captcha (and stored server side in cache) BEFORE it was shuffled, and compare it to the board
-submitted by the user to confirm that their board is indeed unshuffled as desired
-*/
-// func (captchaVerifier *CAPTCHAVerifier) verifyBoardTiles(userSubmittedGameboard [][]*Tile, locallyStoredUnshuffledGameBoard [][]*TileWithoutImage) error {
-
-// 	if len(userSubmittedGameboard) == 0 || len(locallyStoredUnshuffledGameBoard) == 0 {
-// 		log.Println("ErrInvalidGameboard: One or both gameboards are empty")
-// 		return errors.New("ErrInvalidGameboard: One or both gameboards are empty")
-// 	}
-
-// 	if len(userSubmittedGameboard) != len(locallyStoredUnshuffledGameBoard) || len(userSubmittedGameboard[0]) != len(locallyStoredUnshuffledGameBoard[0]) {
-// 		log.Printf("ErrDimensionMismatch: Expected gameboard dimensions (%dx%d) but got (%dx%d)", len(locallyStoredUnshuffledGameBoard), len(locallyStoredUnshuffledGameBoard[0]), len(userSubmittedGameboard), len(userSubmittedGameboard[0]))
-// 		return fmt.Errorf("ErrDimensionMismatch: Expected gameboard dimensions (%dx%d) but got (%dx%d)", len(locallyStoredUnshuffledGameBoard), len(locallyStoredUnshuffledGameBoard[0]), len(userSubmittedGameboard), len(userSubmittedGameboard[0]))
-// 	}
-
-// 	// log.Println("User submitted board: ")
-// 	// LogGameBoard(userSubmittedGameboard)
-
-// 	// log.Printf("\nOriginal unshuffled board:")
-// 	// LogCachedGameBoard(locallyStoredUnshuffledGameBoard)
-
-// 	//now we need only iteratively check that the submitted board and the original board match id for id in the SAME order
-// 	//we already confirmed the size of the game boards are the same, so the dimensions we use are guarenteed to work for both
-// 	nRows := len(locallyStoredUnshuffledGameBoard)
-// 	nCols := len(locallyStoredUnshuffledGameBoard[0])
-
-// 	for r := 0; r < nRows; r++ {
-// 		for c := 0; c < nCols; c++ {
-// 			userEntry := userSubmittedGameboard[r][c]
-// 			localEntry := locallyStoredUnshuffledGameBoard[r][c]
-
-// 			//either they're both nil (ie they're the same so great) or they both not nil (so they must have the same id and if so great)
-// 			//otherwise, they're necessarily different, so return error
-
-// 			if localEntry == nil && userEntry != nil {
-// 				log.Printf("ErrNullTilePositionMismatch: Expected null at (%d,%d), but got tile with ID: %s", r, c, userEntry.TileGridID)
-// 				return fmt.Errorf("ErrNullTilePositionMismatch: Expected null at (%d,%d), but got tile with ID: %s", r, c, userEntry.TileGridID)
-// 			}
-
-// 			if localEntry != nil && userEntry == nil {
-// 				log.Printf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received null", localEntry.TileGridID, r, c)
-// 				return fmt.Errorf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received null", localEntry.TileGridID, r, c)
-// 			}
-
-// 			if localEntry != nil && userEntry != nil && localEntry.TileGridID != userEntry.TileGridID {
-// 				log.Printf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received %s", localEntry.TileGridID, r, c, userEntry.TileGridID)
-// 				return fmt.Errorf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received %s", localEntry.TileGridID, r, c, userEntry.TileGridID)
-// 			}
-// 		}
-// 	}
-
-// 	return nil
-// }
-
-/*
 verifySolutionHash is to be called only AFTER having completed ALL of the following:
-
  1. integrity checked the click chain
-
  2. integrity checked the CAPTCHA properties (which include the maximum number of clicks a user is allowed to make)
-
  3. verified that the clicks made from start to finish actually result in the puzzle board that was submitted
-
  4. verified that the submitted puzzle board was valid
-
     verifySolutionHash actually checks to see that the answer is right
 */
 func (captchaVerifier *CAPTCHAVerifier) verifySolutionHash(submittedSolution, locallyStoredPrecomputedSolution string) error {
@@ -455,33 +279,3 @@ func (captchaVerifier *CAPTCHAVerifier) isValidISOString(dateString string) (tim
 	}
 	return parsedTime, nil
 }
-
-// func LogGameBoard(gameBoard [][]*imageutils.Tile) {
-// 	log.Println("=== GAMEBOARD ===")
-// 	for i, row := range gameBoard {
-// 		rowStr := fmt.Sprintf("Row %d: ", i)
-// 		for _, tile := range row {
-// 			if tile != nil && len(tile.TileGridID) > 20 {
-// 				rowStr += fmt.Sprintf("[%s...] ", tile.TileGridID[:20])
-// 			} else {
-// 				rowStr += "[nil] "
-// 			}
-// 		}
-// 		log.Println(rowStr)
-// 	}
-// }
-
-// func LogCachedGameBoard(gameBoard [][]*imageutils.TileWithoutImage) {
-// 	log.Println("=== GAMEBOARD ===")
-// 	for i, row := range gameBoard {
-// 		rowStr := fmt.Sprintf("Row %d: ", i)
-// 		for _, tile := range row {
-// 			if tile != nil && len(tile.TileGridID) > 20 {
-// 				rowStr += fmt.Sprintf("[%s...] ", tile.TileGridID[:20])
-// 			} else {
-// 				rowStr += "[nil] "
-// 			}
-// 		}
-// 		log.Println(rowStr)
-// 	}
-// }

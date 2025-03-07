@@ -133,11 +133,61 @@ func (cc *ClickChainController) IntegrityCheckClickChain(
 		return fmt.Errorf("ErrFailedClickChainMoveIntegrityCheck: %v", err)
 	}
 
-	// err = cc.recreateAndMatchFinalBoardFromClickChain(userSubmittedClickChain, userSubmittedGamboard, locallyStoredShuffledGameBoard)
 	err = cc.recreateAndIntegrityCheckFinalBoardFromClickChain(userSubmittedClickChain, locallyStoredShuffledGameBoard, locallyStoredUnShuffledGamboard, userSubmittedSolutionHash, userChallengeCookieString)
 	if err != nil {
 		log.Println("Failed click chain move to board state integrity check")
 		return fmt.Errorf("ErrFailedClickChainMoveToBoardStateIntegrityCheck: %v", err)
+	}
+
+	return nil
+}
+
+/*
+We compare the genesis block stored locally against the submitted directly in order to confirm that they match. This is done in case
+the initVector secret was discovered, the user may forge the rest of the chain. Directly comparing helps mitigate this
+*/
+func (cc *ClickChainController) IntegrityCheckClickChainGenesis(userSubmittedClickChain []ClickChainEntry, localCopyGenesisClickChainItem ClickChainEntry) error {
+
+	if len(userSubmittedClickChain) == 0 {
+		return errors.New("ErrDetectedTampering: Missing genesis click chain item")
+	}
+
+	userSubmittedGenesisEntry := userSubmittedClickChain[0]
+
+	if userSubmittedGenesisEntry.Hash != localCopyGenesisClickChainItem.Hash {
+		return errors.New("ErrDetectedTampering: Hash does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TimeStamp != localCopyGenesisClickChainItem.TimeStamp {
+		return errors.New("ErrDetectedTampering: TimeStamp does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.ClickCount != localCopyGenesisClickChainItem.ClickCount {
+		return errors.New("ErrDetectedTampering: ClickCount does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileClicked.Col != localCopyGenesisClickChainItem.TileClicked.Col {
+		return errors.New("ErrDetectedTampering: TileClicked.Col does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileClicked.Row != localCopyGenesisClickChainItem.TileClicked.Row {
+		return errors.New("ErrDetectedTampering: TileClicked.Row does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileClicked.Id != localCopyGenesisClickChainItem.TileClicked.Id {
+		return errors.New("ErrDetectedTampering: TileClicked.Id does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileSwappedWith.Col != localCopyGenesisClickChainItem.TileSwappedWith.Col {
+		return errors.New("ErrDetectedTampering: TileSwappedWith.Col does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileSwappedWith.Row != localCopyGenesisClickChainItem.TileSwappedWith.Row {
+		return errors.New("ErrDetectedTampering: TileSwappedWith.Row does not match local copy")
+	}
+
+	if userSubmittedGenesisEntry.TileSwappedWith.Id != localCopyGenesisClickChainItem.TileSwappedWith.Id {
+		return errors.New("ErrDetectedTampering: TileSwappedWith.Id does not match local copy")
 	}
 
 	return nil
@@ -295,27 +345,15 @@ func (cc *ClickChainController) isValidMove(tileClicked, tileSwappedWith ChainTi
 	return isValidMove
 }
 
-// func (cc *ClickChainController) recreateAndMatchFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, userSubmittedGamboard [][]*Tile, locallyStoredShuffledGameBoard [][]*TileWithoutImage) error {
-
 // this will check that the solution they submitted was derived from the set of operations they performed on the gameboard we provided them by playing back the operations on the gameboard we saved locally and seeing that it results
 // in the state which produces the hash they would get if they applied the operations they claim to have used via the click chain on the board we gave them. This ONLY proves that the steps they applied to the board result in the hash
 // they submitted. It does NOT prove that the hash they submitted is correct. For this we juxtapose the precomputed solution to the one they submitted. This happens later in the validation procedure.
 func (cc *ClickChainController) recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, locallyStoredShuffledGameBoard, locallyStored_Un_ShuffledGamboard [][]*TileWithoutImage, userSubmittedSolutionHash, userChallengeCookieString string) error {
 
-	// if len(userSubmittedGamboard) == 0 || len(locallyStoredShuffledGameBoard) == 0 {
-	// 	log.Printf("ErrInvalidGameboard: One or both gameboards are empty")
-	// 	return errors.New("ErrInvalidGameboard: One or both gameboards are empty")
-	// }
-
 	if len(locallyStoredShuffledGameBoard) == 0 {
 		log.Printf("ErrInvalidGameboard: Local gameboard empty")
 		return errors.New("ErrInvalidGameboard: Local gameboard empty")
 	}
-
-	// if len(userSubmittedGamboard) != len(locallyStoredShuffledGameBoard) || len(userSubmittedGamboard[0]) != len(locallyStoredShuffledGameBoard[0]) {
-	// 	log.Printf("ErrDimensionMismatch: Expected gameboard dimensions (%dx%d) but got (%dx%d)", len(locallyStoredShuffledGameBoard), len(locallyStoredShuffledGameBoard[0]), len(userSubmittedGamboard), len(userSubmittedGamboard[0]))
-	// 	return fmt.Errorf("ErrDimensionMismatch: Expected gameboard dimensions (%dx%d) but got (%dx%d)", len(locallyStoredShuffledGameBoard), len(locallyStoredShuffledGameBoard[0]), len(userSubmittedGamboard), len(userSubmittedGamboard[0]))
-	// }
 
 	if len(userClickChainWithGenesis) == 0 {
 		log.Println("ErrInvalidClickChain: Missing genesis")
@@ -368,12 +406,6 @@ func (cc *ClickChainController) recreateAndIntegrityCheckFinalBoardFromClickChai
 
 		cc.swap(locallyStoredShuffledGameBoard, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col, tileSwappedWith.Row, tileSwappedWith.Col)
 	}
-
-	//
-
-	//YOU MUST NOW PRODUCE THEIR SOLUTION, IE ITERATE OVER IT AND HASH IT WITH THEIR COOKIE AS THEY WOULD HAVE TO CONFIRM THAT THIS CREATES THE SOLUTION THEY SUBMITTED
-
-	//
 
 	var boardIDHashesInOrder strings.Builder
 	for _, row := range locallyStoredShuffledGameBoard {

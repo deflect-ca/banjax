@@ -171,6 +171,7 @@ func (generateCaptcha *CAPTCHAGenerator) NewCAPTCHAChallenge(config *Config, use
 		ShuffledGameBoard:         sol_deepCopyOfShuffledBoardWithoutImage,
 		PrecomputedSolution:       sol_ExpectedCorrectSolutionHash,
 		PuzzleIntegrityProperties: hmacPayload,
+		GenesisClickChainItem:     captchaClickChain[0],
 	}
 
 	//store the solution in cache until we receive their result such that we can use them in validation
