@@ -1,31 +1,24 @@
 package internal
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
-	"image/png"
 	"log"
-	"math"
-	"math/rand"
+	"math/big"
+	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
+	"strconv"
+	"strings"
 	"time"
-)
 
-func GenerateHMACFromString(message string, key string) string {
-	h := hmac.New(sha256.New, []byte(key))
-	h.Write([]byte(message))              //msg is a string, converted to bytes
-	return hex.EncodeToString(h.Sum(nil)) //ensures no padding
-}
+	"github.com/gin-gonic/gin"
+)
 
 func LoadDefaultImageBase64() string {
 	relativePath := "internal/static/images/default_baskerville_logo.png"
@@ -50,401 +43,314 @@ func getAbsolutePath(relativePath string) (string, error) {
 }
 
 /*
-
-	The tile image tools for partitioning and adding noise that are shared by both verifier and generator
-
+GenerateHMACFromString is used across the generator & verifier because it matches the behaviour
+of the client side (written in typescript). If we use go idiomatic function signatures for this,
+it can result in hashing being incosistent and since the validation strategy relies on verifying a blockchain
+it is really important to consistently use this function in particular when generating hashes
 */
-
-/*to save memory, we store only the tileIDs without the base64 when storing the copy of the original for verification*/
-type TileWithoutImage struct {
-	TileGridID string `json:"tile_grid_id"`
-}
-
-type Tile struct {
-	Base64Image string `json:"base64_image"`
-	TileGridID  string `json:"tile_grid_id"`
-}
-
-type TileMap map[int]Tile
-
-/*
-- Dynamically partitions the image into tiles and generates a map of hash-to-index pairs.
-
-Despite adding noise to the thumbnail so users cannot just partition the thumbnail and recreate the solution
-on their own by matching the b64 hashes directly, we could still be vulnerable to replays if the user has seen
-**this** image in particular. If they knew the final order and recorded the b64 of the images, they could just
-map the b64 of each tile and then look up the IDs. To beat this vector, we now add noise to the tiles themselves.
-
-HOWEVER, one really important thing is that some tiles may be blank. Adding noise to blank tiles might seem problematic,
-but since identical tiles (like blanks) always have the **same b64 representation** AND are passed the same **entropy**,
-they receive the **exact same noise**, keeping them interchangeable.
-
-Previously, we avoided adding noise to blank tiles to ensure interchangeability, but with deterministic noise application,
-we can now apply noise to **all tiles**, making **every puzzle unique across all tiles while maintaining interchangeability** where needed.
-
-For example, if a puzzle solution consists of tiles [A, B, A], the hash calculation remains the same whether the first and last tiles are swapped:
-
-	hash(A, B, A) == hash(A, B, A)
-
-Since blank tiles are identical, they will always be given the same noise, ensuring their interchangeability is preserved,
-while every puzzle remains uniquely coded to each user, destroying any replay attack vectors.
-
-Additionally, since we now use a separate **thumbnail entropy**, even the thumbnail cannot be used as a reference to map tile hashes,
-further ensuring that previously seen solutions **cannot be reused**.
-
-To guarantee full security, noise is applied **before computing HMAC hashes**, ensuring each puzzle is cryptographically distinct
-and resistant to brute-force attacks.
-
-Even with dedicated attacks attempting to brute-force noise values, using the rate limiting strategy explain in docs and
-simply rotating images periodically further mitigates any long-term risks.
-
-	challengeEntropy - string assigned uniquely to this particular user we are currently challenging to create a different key unique
-	to their puzzle to identify each game board piece without giving up location/index/positional information
-
-	base64PngImage - a base64 encoded PNG image
-
-	nPartitions - the number of partitions you want the image to be partitioned into. MUST be a perfect square
-*/
-func TileMapFromImage(challengeEntropy string, base64PngImage string, nPartitions int) (TileMap, error) {
-	img, err := decodeBase64ToImage(base64PngImage)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode image: %w", err)
-	}
-
-	imageRGBA := convertToRGBA(img)
-	tiles, err := partitionImage(imageRGBA, nPartitions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to partition image: %w", err)
-	}
-
-	tileMap := make(TileMap)
-	for i, tile := range tiles {
-		noisyTile, err := addNoise(convertToRGBA(tile), challengeEntropy)
-		if err != nil {
-			return nil, fmt.Errorf("failed to add noise to tile: %w", err)
-		}
-		encodedTile, err := encodeImageToBase64(noisyTile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode noisy tile: %w", err)
-		}
-		hash := GenerateHMACFromString(encodedTile, challengeEntropy)
-		tileMap[i] = Tile{Base64Image: encodedTile, TileGridID: hash}
-	}
-
-	return tileMap, nil
+func GenerateHMACFromString(message string, key string) string {
+	h := hmac.New(sha256.New, []byte(key))
+	h.Write([]byte(message))              //msg is a string, converted to bytes
+	return hex.EncodeToString(h.Sum(nil)) //ensures no padding
 }
 
 /*
-- generates the thumbnail image to be displayed but the thumbnails replaced tile is transparent to help users
-understand what would have been there (provides a complete image making it easier to understand)
+EntropyFromRange is used to generate entropy anytime we need a soure of randomness across any of the
+CAPTCHA puzzle components.
 
-	challengeEntropy - string assigned uniquely to this particular user we are currently challenging to create a different (comprising a server secret and the users challenge cookie string)
+WARNING: It is really important that we derive the randomness from a deterministic source (the users challenge cookie)
+since validation requires recreating parts of the initial challenge we issued. In order to guarentee this type of
+deterministic psuedo reandomness by taking, as arugment, key properties such as:
 
-	base64PngImageOrPathToBase64PngImage - either a base64 encoded PNG image OR a path to a base64 encoded PNG image
+  - `entropyInitalizationVector` (like a `puzzleSecret`)
+    Where `puzzleSecret` is a secret only we know that allows us to ensure no one can cheat/forge/replay
 
-	nPartitions - the number of partitions you want the image to be partitioned into. MUST be a perfect square
+  - `entropyContext` (like a `userChallengeCookieString`)
+    Where `userChallengeCookieString` allows generating a different challenge for each user, wrt tileRemoved, noise, etc
 
-	rowOfPartitionToRemove - row of the partition to remove
-
-	colOfPartitionToRemove - col of the partition to remove
+and use them AS the source of entropy enabling generation of pseudo-random numbers for verifiying solutions
+by recreating the initial challenge we issued at runtime. Anytime the same info is passed in, it will generate
+the same "random" sequence.
 */
-func ThumbnailFromImageWithTransparentTile(challengeEntropy string, base64PngImage string, nPartitions, removeRow, removeCol int) (string, error) {
-	img, err := decodeBase64ToImage(base64PngImage)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode image: %w", err)
-	}
+func EntropyFromRange(entropyInitalizationVector, entropyContext string, minValue, maxValue int) int {
 
-	imgRGBA := convertToRGBA(img)
-	tileWidth := imgRGBA.Bounds().Dx() / int(math.Sqrt(float64(nPartitions)))
-	tileHeight := imgRGBA.Bounds().Dy() / int(math.Sqrt(float64(nPartitions)))
+	// log.Printf("EntropyFromRange called: minValue:%d, maxValue:%d", minValue, maxValue)
 
-	transparencyFactor := 0.9
-	for y := 0; y < tileHeight; y++ {
-		for x := 0; x < tileWidth; x++ {
-			idxX := removeCol*tileWidth + x
-			idxY := removeRow*tileHeight + y
-			origColor := imgRGBA.RGBAAt(idxX, idxY)
-			grayValue := uint8(170)
+	h := hmac.New(sha256.New, []byte(entropyInitalizationVector))
+	h.Write([]byte(entropyContext))
+	hash := h.Sum(nil)
 
-			imgRGBA.SetRGBA(idxX, idxY, color.RGBA{
-				R: uint8(float64(origColor.R)*(1-transparencyFactor) + float64(grayValue)*transparencyFactor),
-				G: uint8(float64(origColor.G)*(1-transparencyFactor) + float64(grayValue)*transparencyFactor),
-				B: uint8(float64(origColor.B)*(1-transparencyFactor) + float64(grayValue)*transparencyFactor),
-				A: uint8(float64(origColor.A)*(1-transparencyFactor) + 120*transparencyFactor),
-			})
-		}
-	}
+	hashInt := new(big.Int).SetBytes(hash)
 
-	noisyImg, err := addNoise(imgRGBA, challengeEntropy)
-	if err != nil {
-		return "", fmt.Errorf("failed to add noise: %w", err)
-	}
+	//ensure we get a number in the range [minValue, maxValue]
+	rangeSize := maxValue - minValue // WARNING: DO NOT add +1, maxValue is already inclusive!
 
-	thumbnailBase64, err := encodeImageToBase64(noisyImg)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode thumbnail: %w", err)
-	}
+	// if rangeSize <= 0 {
+	// 	log.Printf("FATAL: Invalid range detected in EntropyFromRange. minValue: %d, maxValue: %d", minValue, maxValue)
+	// }
 
-	return thumbnailBase64, nil
+	return int(new(big.Int).Mod(hashInt, big.NewInt(int64(rangeSize))).Int64()) + minValue
 }
 
 /*
-- generates the thumbnail image to be displayed
-
-	challengeEntropy - string assigned uniquely to this particular user we are currently challenging to create a different (comprising a server secret and the users challenge cookie string)
-
-	base64PngImageOrPathToBase64PngImage - either a base64 encoded PNG image OR a path to a base64 encoded PNG image
-
-	nPartitions - the number of partitions you want the image to be partitioned into. MUST be a perfect square
-
-	rowOfPartitionToRemove - row of the partition to remove
-
-	colOfPartitionToRemove - col of the partition to remove
+same as the function on the client side such that the user can submit their sol to us and we
+can compute our expectation of that sol for comparison
 */
-func ThumbnailFromImage(challengeEntropy string, base64PngImage string, nPartitions, removeRow, removeCol int) (string, error) {
-	img, err := decodeBase64ToImage(base64PngImage)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode image: %w", err)
-	}
-	imageRGBA := convertToRGBA(img)
-	tileWidth := imageRGBA.Bounds().Dx() / int(math.Sqrt(float64(nPartitions)))
-	tileHeight := imageRGBA.Bounds().Dy() / int(math.Sqrt(float64(nPartitions)))
+func CalculateExpectedSolution[T TileIdentifier](boardRef [][]*T, userChallengeCookie string) string {
 
-	grayTile := image.NewRGBA(image.Rect(0, 0, tileWidth, tileHeight))
-	for y := 0; y < tileHeight; y++ {
-		for x := 0; x < tileWidth; x++ {
-			grayTile.Set(x, y, color.RGBA{170, 170, 170, 255})
-		}
-	}
-
-	offsetX := removeCol * tileWidth
-	offsetY := removeRow * tileHeight
-	dst := image.NewRGBA(imageRGBA.Bounds())
-	copy(dst.Pix, imageRGBA.Pix)
-	drawImage(dst, grayTile, offsetX, offsetY)
-
-	noisyImg, err := addNoise(dst, challengeEntropy)
-	if err != nil {
-		return "", fmt.Errorf("failed to add noise: %w", err)
-	}
-
-	thumbnailBase64, err := encodeImageToBase64(noisyImg)
-	if err != nil {
-		return "", fmt.Errorf("failed to encode thumbnail: %w", err)
-	}
-
-	return thumbnailBase64, nil
-}
-
-// convertToRGBA converts any image.Image to *image.RGBA
-func convertToRGBA(img image.Image) *image.RGBA {
-	if rgbaImg, ok := img.(*image.RGBA); ok {
-		return rgbaImg
-	}
-	rgba := image.NewRGBA(img.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), img, img.Bounds().Min, draw.Src)
-	return rgba
-}
-
-func decodeBase64ToImage(data string) (image.Image, error) {
-	decoded, err := base64.StdEncoding.DecodeString(data)
-	if err != nil {
-		return nil, err
-	}
-	img, err := png.Decode(bytes.NewReader(decoded))
-	if err != nil {
-		return nil, err
-	}
-	return img, nil
-}
-
-func encodeImageToBase64(img image.Image) (string, error) {
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(buf.Bytes()), nil
-}
-
-func partitionImage(img image.Image, nPartitions int) ([]image.Image, error) {
-	sqrt := int(math.Sqrt(float64(nPartitions)))
-	if sqrt*sqrt != nPartitions {
-		return nil, errors.New("nPartitions must be a perfect square")
-	}
-	tileWidth := img.Bounds().Dx() / sqrt
-	tileHeight := img.Bounds().Dy() / sqrt
-	tiles := []image.Image{}
-
-	for row := 0; row < sqrt; row++ {
-		for col := 0; col < sqrt; col++ {
-			tile := image.NewRGBA(image.Rect(0, 0, tileWidth, tileHeight))
-			for y := 0; y < tileHeight; y++ {
-				for x := 0; x < tileWidth; x++ {
-					tile.Set(x, y, img.At(col*tileWidth+x, row*tileHeight+y))
-				}
-			}
-			tiles = append(tiles, tile)
-		}
-	}
-	return tiles, nil
-}
-
-/*
-adds invisible noise to a base64-encoded PNG image to prevent trivial reverse engineering via hash matching.
-Ie, without adding noise to the thumbnail, someone can just download the thumbnail, partition it themselves, re-create the base64 encoded tiles and then
-they would have the correct order. So looking at the gameBoard, they could arrange it trivially. Instead, by adding invisible noise to only the thumbnail, we make this
-less easy.
-
-Noise need not be limited to what we are currently doing (adding invisible changes), instead they can be visible. Furthermore, applying blurring or compression etc can help with this.
-
-NOTE: Do NOT apply noise to the users tiles, ONLY do so to the thumbnail. If you add noise to user tiles, then the blank tiles are no longer "interchangeable" which isnt
-fair to the user since the noise is invisible. Users would have to put tiles that look identical "in order" and thats just possible. So instead, we modify only the thumbnail since its only provided as a reference image
-and the changes are subtle enough that you can't see them with the human eye but make a massive difference to the resultant base64 string. For example, a simple +-2 noiseLevel gives us:
-
-The resulting image is identical to the human eye, the b64 strings are not same length and the strings are completely different!
-So trivial statistical/hashing reverse engineering attacks become considerably harder.
-
-NOTE however that there does exist a class of hashing algorithms called "perceptual hashing algorithms" take care more about the "look" than exact pixel values. So this change, although important
-is not nearly enough. Later we would need to consider actually adding visible changes as well
-
-Also note, this is a particularly good strategy as long as the images are "simple" like logos etc because they have a LOT of empty space. PNG compression relies on redudancy, so if the original image
-has a lot of uniform regions that were compressable, you get a smaller size, BUT because we are adding a noise everywhere, the result is considerably larger but makes it much more different as desired!
-So be careful about having extremely complex designs/logos because the more complex the logo, the less effective the noise strategy is at producing a massive difference between the thumbnail and the puzzle
-tiles should someone try to partition the thumbnail
-*/
-func addNoise(img *image.RGBA, entropy string) (*image.RGBA, error) {
-	seed := stringToSeed(entropy)
-	r := rand.New(rand.NewSource(seed))
-
-	//anything from [16, 26] results in solid noise, doesn't disturb peoples ability to see
-	//the image, makes it different per puzzle and doesn't generate an overwhelmingly large filesize
-	minNoise := 16
-	maxNoise := 26
-	noiseLevel := r.Intn(maxNoise-minNoise+1) + minNoise
-
-	for y := 0; y < img.Bounds().Dy(); y++ {
-		for x := 0; x < img.Bounds().Dx(); x++ {
-			c := img.RGBAAt(x, y)
-			for i := 0; i < 3; i++ {
-				randomNoise := r.Intn(noiseLevel*2+1) - noiseLevel
-				switch i {
-				case 0:
-					c.R = clampColor(int(c.R) + randomNoise)
-				case 1:
-					c.G = clampColor(int(c.G) + randomNoise)
-				case 2:
-					c.B = clampColor(int(c.B) + randomNoise)
-				}
-			}
-			img.SetRGBA(x, y, c)
-		}
-	}
-	return img, nil
-}
-
-func clampColor(val int) uint8 {
-	if val < 0 {
-		return 0
-	} else if val > 255 {
-		return 255
-	}
-	return uint8(val)
-}
-
-func stringToSeed(entropy string) int64 {
-	h := sha256.New()
-	h.Write([]byte(entropy))
-	sum := h.Sum(nil)
-	var seed int64
-	for _, b := range sum[:8] {
-		seed = (seed << 8) | int64(b)
-	}
-	return seed
-}
-
-func drawImage(dst, src *image.RGBA, offsetX, offsetY int) {
-	for y := 0; y < src.Bounds().Dy(); y++ {
-		for x := 0; x < src.Bounds().Dx(); x++ {
-			color := src.RGBAAt(x, y)
-			dst.SetRGBA(offsetX+x, offsetY+y, color)
-		}
-	}
-}
-
-type CAPTCHASolution struct {
-	UnshuffledGameBoard       [][]*TileWithoutImage
-	ShuffledGameBoard         [][]*TileWithoutImage
-	PrecomputedSolution       string
-	PuzzleIntegrityProperties IntegrityCheckCAPTCHAChallenge
-	GenesisClickChainItem     ClickChainEntry
-}
-
-type CAPTCHASolutionCache struct {
-	solutions sync.Map // map[string]CAPTCHASolution
-}
-
-/*CAPTCHASolutionCache stores the minimum required data in cache until we get a response, purges on challenge expiry*/
-func NewCAPTCHASolutionCache() *CAPTCHASolutionCache {
-	cache := &CAPTCHASolutionCache{} // This should NEVER be nil
-	return cache
-}
-
-func (cache *CAPTCHASolutionCache) Set(userChallengeCookie string, solution CAPTCHASolution, purgeAfterMS *int) {
-
-	cache.solutions.Store(userChallengeCookie, solution)
-
-	// auto delete after `purgeAfterMS` milliseconds + 2 seconds buffer (magic number to account for latency over the wire)
-	if purgeAfterMS != nil {
-		duration := time.Duration(*purgeAfterMS+2000) * time.Millisecond
-		go func() {
-			time.Sleep(duration)
-			cache.solutions.Delete(userChallengeCookie)
-		}()
-	}
-}
-
-/* returns deep copy of the solution so we can run through the validation making modifications with worry if its wrong, they can try again*/
-func (cache *CAPTCHASolutionCache) Get(userChallengeCookie string) (*CAPTCHASolution, bool) {
-	value, exists := cache.solutions.Load(userChallengeCookie)
-	if !exists {
-		return nil, false
-	}
-
-	originalSolution, ok := value.(CAPTCHASolution)
-	if !ok {
-		return nil, false
-	}
-
-	captchaSol := &CAPTCHASolution{
-		UnshuffledGameBoard: deepCopyBoardWithoutImage(originalSolution.UnshuffledGameBoard),
-		ShuffledGameBoard:   deepCopyBoardWithoutImage(originalSolution.ShuffledGameBoard),
-		//no deep copy needed (string is primitive and go passes primitives by value)
-		PrecomputedSolution:       originalSolution.PrecomputedSolution,
-		PuzzleIntegrityProperties: originalSolution.PuzzleIntegrityProperties,
-		GenesisClickChainItem:     originalSolution.GenesisClickChainItem,
-	}
-
-	return captchaSol, true
-}
-
-/*idempotent will not get upset if already deleted*/
-func (cache *CAPTCHASolutionCache) Delete(userChallengeCookie string) {
-	cache.solutions.Delete(userChallengeCookie)
-}
-
-func deepCopyBoardWithoutImage(original [][]*TileWithoutImage) [][]*TileWithoutImage {
-	copyBoard := make([][]*TileWithoutImage, len(original))
-
-	for i := range original {
-		copyBoard[i] = make([]*TileWithoutImage, len(original[i]))
-
-		for j, tile := range original[i] {
-			if tile != nil {
-				copyBoard[i][j] = &TileWithoutImage{TileGridID: tile.TileGridID}
+	var boardIDHashesInOrder strings.Builder
+	for _, row := range boardRef {
+		for _, tile := range row {
+			if tile == nil {
+				boardIDHashesInOrder.WriteString("null_tile")
 			} else {
-				copyBoard[i][j] = nil
+				boardIDHashesInOrder.WriteString((*tile).GetTileGridID()) //dereferencing needed
 			}
 		}
 	}
-	return copyBoard
+
+	//this is the part of the solution that the user computes on their end
+	expectedSolution := GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookie)
+	return expectedSolution
+}
+
+func LogGameBoard[T TileIdentifier](gameBoard [][]*T) {
+	log.Println("=== GAMEBOARD ===")
+	for i, row := range gameBoard {
+		rowStr := fmt.Sprintf("Row %d: ", i)
+		for _, tile := range row {
+			if tile != nil {
+				rowStr += fmt.Sprintf("[%s...] ", (*tile).GetTileGridID()) // Preview first 20 chars
+			} else {
+				rowStr += "[nil] "
+			}
+		}
+		log.Println(rowStr)
+	}
+}
+
+func ParseSolutionCookie(c *gin.Context, cookiesToDelete *[]string) (userSolutionSubmission *ClientSolutionSubmissionPayload, err error) {
+
+	defer func() {
+		if err != nil {
+			// log.Println("stripping solution cookies due to error while parsing solution cookie")
+			StripSolutionCookieIfExist(c, *cookiesToDelete)
+			*cookiesToDelete = make([]string, 0)
+		}
+	}()
+
+	userSolutionAsB64EncodedCookieString, err := c.Cookie("__banjax_sol")
+	if err != nil {
+		return nil, err
+	}
+	*cookiesToDelete = append(*cookiesToDelete, "__banjax_sol")
+
+	cookies := c.Request.Cookies()
+	userJSONSerializedClickChain, cookieNames, err := extractClickChainFromCookies(cookies)
+	//the cookieNames are always guarenteed to return at least empty array
+	*cookiesToDelete = append(*cookiesToDelete, cookieNames...)
+	if err != nil {
+		// log.Println("Unable to verify solution without users click chain cookie(s)")
+		return nil, err
+	}
+
+	var userSubmittedClickChain []ClickChainEntry
+	err = json.Unmarshal(userJSONSerializedClickChain, &userSubmittedClickChain)
+	if err != nil {
+		// log.Printf("Failed to unmarshal user click chain from cookies due to error: %v", err)
+		return nil, err
+	}
+
+	userSolutionString, err := base64.StdEncoding.DecodeString(userSolutionAsB64EncodedCookieString)
+	if err != nil {
+		// log.Printf("Failed to decode user solution string due to error: %v", err)
+		return nil, err
+	}
+
+	userSolutionSubmission = &ClientSolutionSubmissionPayload{
+		Solution:   string(userSolutionString),
+		ClickChain: userSubmittedClickChain,
+	}
+
+	return
+
+}
+
+/*
+ExtractClickChainFromCookies parses the cookies available in the requests cookies header
+to recreate the click chain bytes. The ClickChain is written into cookies when the user submits
+a solution. Because there is a 4096 byte limit per cookie, the click chain itself is initially
+encoded into base64, then parsed into segments < 4096 bytes. In order to ensure we can recreate the
+solution in order, the cookies are written with metadata that tells us how many to expect:
+
+For example, suppose the click chain needs 3 cookies to be sent, then we will receive cookies with names:
+__banjax_cc_1_3, __banjax_cc_2_3, __banjax_cc_3_3
+
+In order to guarentee always being able to receive user solutions, we cap the number of moves required
+for any puzzle solution at < 80. This ensures that at most 8 cookies will be attached. In practice, most puzzles are
+solvable in < 10 moves so it should only require attaching a single __banjax_cc_1_1 cookie
+*/
+func extractClickChainFromCookies(cookies []*http.Cookie) ([]byte, []string, error) {
+
+	clickChainParts := make(map[int]string)
+	cookieNames := make([]string, 0)
+	totalParts := 0
+
+	for _, cookie := range cookies {
+		//match only __banjax_cc_x_y format since we know that is guarenteed to be there, we just dont know
+		//what will come after. If there are 2 then it will be __banjax_cc_1_2, but if only 1 it will be __banjax_cc_1_1
+		if strings.HasPrefix(cookie.Name, "__banjax_cc_") {
+			//get the indices from the name "__banjax_cc_x_y"
+			parts := strings.Split(cookie.Name, "_")
+			//which should produce: ['', '', 'banjax', 'cc', '1', '2']
+			if len(parts) != 6 {
+				log.Printf("skipping malformed click chain cookie: %s", cookie.Name)
+				continue
+			}
+
+			parts = parts[2:]
+
+			partIndex, err1 := strconv.Atoi(parts[2]) // x (current part)
+			total, err2 := strconv.Atoi(parts[3])     // y (total parts)
+
+			if err1 != nil || err2 != nil || partIndex < 1 || total < 1 || partIndex > total {
+				continue
+			}
+
+			cookieNames = append(cookieNames, cookie.Name)
+			clickChainParts[partIndex] = cookie.Value
+
+			//this way we know the highest seen
+			if partIndex > totalParts {
+				totalParts = partIndex
+			}
+		}
+	}
+
+	if len(clickChainParts) == 0 {
+		return nil, cookieNames, fmt.Errorf("no valid click chain cookies found")
+	}
+
+	if len(clickChainParts) != totalParts {
+		return nil, cookieNames, fmt.Errorf("incomplete click chain cookies")
+	}
+
+	var clickChainPartsInOrder []string
+	//now we can look for any missing parts explicitly
+	for i := 1; i <= totalParts; i++ {
+		_, exists := clickChainParts[i]
+		if !exists {
+			return nil, cookieNames, fmt.Errorf("missing click chain part: %d", i)
+		}
+		clickChainPartsInOrder = append(clickChainPartsInOrder, clickChainParts[i])
+	}
+
+	clickChainBase64 := strings.Join(clickChainPartsInOrder, "")
+	clickChainJSON, err := base64.StdEncoding.DecodeString(clickChainBase64)
+	if err != nil {
+		return nil, cookieNames, fmt.Errorf("failed to decode Base64 click chain: %w", err)
+	}
+
+	return clickChainJSON, cookieNames, nil
+}
+
+func StripSolutionCookieIfExist(c *gin.Context, cookieNamesToDelete []string) {
+	for _, name := range cookieNamesToDelete {
+		_, err := c.Cookie(name)
+		if err == nil {
+			c.SetCookie(name, "", -1, "/", "", false, false)
+		}
+	}
+}
+
+/*
+ValidatePuzzleCAPTCHACookie is used to validate captcha puzzle cookies. The goal is simiilar to how the ValidateShaInvCookie works in the
+context of sendOrValidateShaInvChallenge: We need to distinguish between whether the cookie is is a challenge cookie or a solution cookie.
+If it is a solution, we need to check the validity of the solution.
+
+Validity of a solution:
+
+In the puzzle captcha flow, a "challenge cookie" is a the same as the shaChallenge. This is because this cookie format is reliable, admits
+integrity checking as well as built in expiry and IP Address / user agent which ties the cookie to a specific user (network). However since
+we are not issuing a proof of work challenge, the expected zero bits is hardcoded to 0
+
+The users solution submission has 2 parts:
+
+ 1. Click Chain
+    As the user is solving the puzzle they are adding to their click chain by using the challenge cookie to calculate hashes starting with the
+    reference hash we provided initially when issueing the challenge (the genesis click chain item). This ties their solution to a specific puzzle.
+
+ 2. Solution hash
+    On click submit, the tile IDs of the users board are concatinated in the order the user positioned them, and they are signed using the
+    users challenge cookie
+
+When we receive the submission, we validate the click chain for integrity proving they actually did work to get the solution hash and used the
+challenge cookie to perform all of the operations. Then we compare the solution hash to the expected solution by recreating the challenge we
+initially issued them and calculate the solution ourselves using their cookie.
+
+If both of these steps were valid, then the user passed the challenge. So, we generate the solution cookie and return it to them. This solution
+cookie is comprised of 2 parts: The initial challenge cookie we provided and the solution hash they provided after solving delimited by "[sol]".
+
+ie the solution cookie is:
+
+	base64(original_challenge_cookie[sol]solution_hash_from_submission)
+
+In order to verify that the user did work (ie the proof of work) to earn this cookie, whenever we receive a request, we parse out the original cookie
+as well as the solution hash. We first start by validating the original cookie (as mentioned before because it is tied to the IP address, has integrity
+checking built it etc). As long as that is valid, we use this challenge cookie to recreate the puzzle we initially issued to the user and recalculate
+the expected solution hash. As long as this solution hash matches the only provided, we know that this solution could have only been generated from
+this original challenge cookie.
+
+NOTE: It is important to note that by base 64 encoding the entire solution cookie, the original_challenge_cookie (which is already base64) gets encoded again
+and as a result, needs to be base64 decoded in order to get it back to the form that would be parsed properly by validateShaInvCookie. This is an essential
+part of how we distinguish a refresh request from a request made by a user who has passed as a refresh request will have sent the original challenge cookie,
+whereas a user who has the solution cookie will send a cookie not parsable by the validateShaInvCookie until it reaches this function.
+*/
+func ValidatePuzzleCAPTCHACookie(config *Config, cookieString string, nowTime time.Time, clientIp string) error {
+
+	decodedCookieValue, err := base64.StdEncoding.DecodeString(cookieString)
+	if err != nil {
+		return errors.New("failed to decode CAPTCHA cookie")
+	}
+
+	parts := strings.Split(string(decodedCookieValue), "[sol]")
+
+	if len(parts) == 1 {
+		//no solution submitted yet, validate only the original challenge portion
+		return ValidateShaInvCookie(config.HmacSecret, parts[0], nowTime, clientIp, 0)
+
+	} else if len(parts) == 2 {
+
+		originalCookiePortion := parts[0]
+		puzzleSolutionPortion := strings.TrimSpace(parts[1])
+
+		//if no solution portion is provided, treat as missing solution
+		if len(puzzleSolutionPortion) == 0 {
+			return ValidateShaInvCookie(config.HmacSecret, originalCookiePortion, nowTime, clientIp, 0)
+		}
+
+		//validate the original challenge first
+		err := ValidateShaInvCookie(config.HmacSecret, originalCookiePortion, nowTime, clientIp, 0)
+		if err != nil {
+			return err // If the challenge is expired/invalid, we don't care about the solution
+		}
+
+		//validate the solution against the original challenge portion
+		var expectedSolution string
+		_, _, expectedSolution, err = GenerateExpectedSolution(config, originalCookiePortion)
+
+		if err != nil {
+			return fmt.Errorf("ErrRecreatingExpectedSolution: %v", err)
+		}
+
+		if expectedSolution == "" {
+			return errors.New("failed to calculate existing solution")
+		}
+
+		return VerifySolutionHash(puzzleSolutionPortion, expectedSolution)
+
+	} else {
+		//malformed cookie (too many `[sol]` delimiters)
+		return errors.New("malformed CAPTCHA cookie")
+	}
 }

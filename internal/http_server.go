@@ -18,7 +18,6 @@ import (
 	"net/http"
 	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
@@ -32,11 +31,6 @@ const (
 	PuzzleChallengeCookieName = "deflect_challenge4"
 )
 
-const (
-	CaptchaGeneratorKey = "CaptchaGenerator"
-	CaptchaVerifierKey  = "CaptchaVerifier"
-)
-
 var USE_PUZZLE_CHALLENGE = true
 
 func RunHttpServer(
@@ -48,10 +42,6 @@ func RunHttpServer(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
-
-	CaptchaGenerator *CAPTCHAGenerator,
-	CaptchaVerifier *CAPTCHAVerifier,
-
 ) {
 	addr := "127.0.0.1:8081" // XXX config
 
@@ -75,7 +65,6 @@ func RunHttpServer(
 	}
 
 	r := gin.New()
-	r.Use(captchaMiddleware(CaptchaGenerator, CaptchaVerifier))
 
 	if ginLogFileName != "" {
 		type LogLine struct {
@@ -194,34 +183,33 @@ func RunHttpServer(
 		),
 	)
 
-	//when users click the "refresh" button, to get a new puzzle state (not the entire challenge with index.html and embedded js just the puzzle itself)
-	//the request will be handled by this endpoint. NOTE this is different from challenge issuance which still goes through the decisionForNginx endpoint
-	r.GET("/refresh_puzzle_state", func(c *gin.Context) {
-		handleRefreshPuzzleCAPTCHAState(
-			config,
-			c,
-			banner,
-			failedChallengeStates,
-			Block, //fail action is a constant
-			staticDecisionLists,
-		)
-	})
-
-	//any non critical errors that do not break gameplay will be reported here by the entrypoint client side script with payloads
-	//such that we create recreate the environment that gave rise to them
-	r.POST("/__banjax/error/:errorType", func(c *gin.Context) {
-
-		errorType := c.Param("errorType")
-		log.Printf("Received error report: %s", errorType)
-
-		handleLoggingPuzzleCAPTCHAErrorReport(
-			config,
-			c,
-			banner,
-			failedChallengeStates,
-			Block, //fail action is a constant
-			staticDecisionLists,
-		)
+	//handles refresh state & receiving errors
+	r.GET("/__banjax/:endpoint/:errorType", func(c *gin.Context) {
+		endpoint := c.Param("endpoint")
+		switch endpoint {
+		case "refresh":
+			handleRefreshPuzzleCAPTCHAState(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, //fail action is a constant
+				staticDecisionLists,
+			)
+			return
+		case "error":
+			handleLoggingPuzzleCAPTCHAErrorReport(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, //fail action is a constant
+				staticDecisionLists,
+			)
+			return
+		default:
+			c.JSON(http.StatusNotFound, gin.H{})
+		}
 	})
 
 	r.GET("/info", func(c *gin.Context) {
@@ -376,20 +364,6 @@ func RunHttpServer(
 	<-ctx.Done()
 }
 
-func captchaMiddleware(
-
-	captchaGeneratorPtr *CAPTCHAGenerator,
-	captchaVerifierPtr *CAPTCHAVerifier,
-
-) gin.HandlerFunc {
-
-	return func(c *gin.Context) {
-		c.Set(CaptchaGeneratorKey, captchaGeneratorPtr)
-		c.Set(CaptchaVerifierKey, captchaVerifierPtr)
-		c.Next()
-	}
-}
-
 // this adds the headers that Nginx usually would in production
 func addOurXHeadersForTesting(c *gin.Context) {
 	if c.Request.Header.Get("X-Client-IP") == "" {
@@ -418,7 +392,6 @@ func accessDenied(c *gin.Context, config *Config, decisionListResultString strin
 
 func accessThrottled(c *gin.Context, config *Config, decisionListResultString string) {
 	msg := fmt.Sprintf("Too many failed attempts. Try again in %d seconds.", config.RateLimitBruteForceSolutionTTLSeconds)
-
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store")    // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_throttled") // nginx named location that gives a ban page
@@ -441,6 +414,7 @@ func challenge(
 		// Provide the domain so that the cookie is set for subdomains, EX: .example.com
 		domainScope = c.Request.Header.Get("X-Requested-Host")
 	}
+	log.Printf("CALLED challenge() attaching new challenge cookie!: %s %s", cookieName, newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", domainScope, false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 }
@@ -620,13 +594,16 @@ func sendOrValidateShaChallenge(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 ) (sendOrValidateShaChallengeResult SendOrValidateShaChallengeResult) {
+
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	challengeCookie, err := c.Cookie(ChallengeCookieName)
 	requestedMethod := c.Request.Method
+
 	if err == nil {
+
 		err := ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getUserAgentOrIp(c, config), config.ShaInvExpectedZeroBits)
 		if err != nil {
 			// log.Println("Sha-inverse challenge failed")
@@ -637,11 +614,12 @@ func sendOrValidateShaChallenge(
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Sha-inverse challenge passed")
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassed
-			return sendOrValidateShaChallengeResult
+			return
 		}
 	} else {
 		sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedNoCookie
 	}
+
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
 		tooManyFailedChallengesResult := tooManyFailedChallenges(
@@ -660,11 +638,12 @@ func sendOrValidateShaChallenge(
 		if tooManyFailedChallengesResult.Exceeded {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 			accessDenied(c, config, "TooManyFailedChallenges")
-			return sendOrValidateShaChallengeResult
+			return
 		}
 	}
+
 	shaInvChallenge(c, config)
-	return sendOrValidateShaChallengeResult
+	return
 }
 
 type PuzzleCAPTCHAResult uint
@@ -674,24 +653,19 @@ const (
 	PuzzleCAPTCHAPass
 	PuzzleCAPTCHAFailNoCookie
 	PuzzleCAPTCHAFailBadCookie
-	PuzzleCAPTCHAFailIntegrityCheck         //detected tampering
-	PuzzleCAPTCHAFailPuzzleGeneration       //failed to generate new puzzle
-	PuzzleCAPTCHAFailMissingDependency      //missing generator | validator pointer
-	PuzzleCAPTCHAFailIncorrectSolution      //solution to puzzle is not correct
-	PuzzleCAPTCHAFailMissingSolutionBody    //solution was not sent
-	PuzzleCAPTCHAFailMissingDesiredEndpoint //missing user desired endpoint
+	PuzzleCAPTCHAFailPuzzleIntegrity  //detected tampering
+	PuzzleCAPTCHAFailPuzzleGeneration //failed to generate new puzzle
+	PuzzleCAPTCHAFailPuzzleValidation //solution to puzzle is not correct
+
 )
 
 var PuzzleCAPTCHAResultToString = map[PuzzleCAPTCHAResult]string{
-	PuzzleCAPTCHAPass:                       "PuzzleCAPTCHAPass",
-	PuzzleCAPTCHAFailNoCookie:               "PuzzleCAPTCHAFailNoCookie",
-	PuzzleCAPTCHAFailBadCookie:              "PuzzleCAPTCHAFailBadCookie",
-	PuzzleCAPTCHAFailIntegrityCheck:         "PuzzleCAPTCHAFailIntegrityCheck",
-	PuzzleCAPTCHAFailPuzzleGeneration:       "PuzzleCAPTCHAFailPuzzleGeneration",
-	PuzzleCAPTCHAFailMissingDependency:      "PuzzleCAPTCHAFailMissingDependency",
-	PuzzleCAPTCHAFailIncorrectSolution:      "PuzzleCAPTCHAFailIncorrectSolution",
-	PuzzleCAPTCHAFailMissingSolutionBody:    "PuzzleCAPTCHAFailMissingSolutionBody",
-	PuzzleCAPTCHAFailMissingDesiredEndpoint: "PuzzleCAPTCHAFailMissingDesiredEndpoint",
+	PuzzleCAPTCHAPass:                 "PuzzleCAPTCHAPass",
+	PuzzleCAPTCHAFailNoCookie:         "PuzzleCAPTCHAFailNoCookie",
+	PuzzleCAPTCHAFailBadCookie:        "PuzzleCAPTCHAFailBadCookie",
+	PuzzleCAPTCHAFailPuzzleIntegrity:  "PuzzleCAPTCHAFailPuzzleIntegrity",
+	PuzzleCAPTCHAFailPuzzleGeneration: "PuzzleCAPTCHAFailPuzzleGeneration",
+	PuzzleCAPTCHAFailPuzzleValidation: "PuzzleCAPTCHAFailPuzzleValidation",
 }
 
 func (pcr PuzzleCAPTCHAResult) String() string {
@@ -727,137 +701,118 @@ func sendOrValidatePuzzleCAPTCHA(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) SendOrValidatePuzzleCAPTCHAResult {
+) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
-	// requestedHost := c.Request.Header.Get("X-Requested-Host")
-	// requestedPath := c.Request.Header.Get("X-Requested-Path")
-	_, err := c.Cookie("__banjax_sol")
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
+
+	requestedMethod := c.Request.Method
+
+	challengeCookie, err := c.Cookie(PuzzleChallengeCookieName)
 
 	if err == nil {
-		// log.Printf("Validating solution to challenge... on path: %s, host:%s", requestedPath, requestedHost)
-		//solution cookie exists so validate the solution
-		return handleValidatePuzzleCAPTCHA(config, c, banner, rateLimitStates, failAction, decisionLists)
+		err = ValidateShaInvCookie(config.HmacSecret, challengeCookie, time.Now(), getUserAgentOrIp(c, config), 0)
+		if err == nil {
+			_, err := c.Cookie("__banjax_sol")
+			if err == nil {
+				return handleValidatePuzzleCAPTCHASolution(config, c, banner, rateLimitStates, failAction, decisionLists)
+			}
+			/*
+				they have a challenge cookie BUT it is either invalid OR it is a puzzle captcha solution cookie
+				so let it fallthrough to the next check. If it was a challege solution cookie, then good, otherwise
+				their cookie was probably an old cookie that expired. Therefore, issue the challenge. Note, we cannot yet
+				comment as to whether or not the challenge cookie was not valid, we need to let the validate puzzle decide
+			*/
+		}
+
+		err := ValidatePuzzleCAPTCHACookie(config, challengeCookie, time.Now(), getUserAgentOrIp(c, config))
+		if err != nil {
+			sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
+		} else {
+			accessGranted(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAPass])
+			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
+			sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAPass
+			return
+		}
+	} else {
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
 	}
 
-	// log.Printf("Issueing challenge... on path: %s, host:%s", requestedPath, requestedHost)
-	//otherwise we issue the challenge as its clearly not a solution submission
-	return sendPuzzleCAPTCHA(config, c)
+	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
+	if failAction == Block {
+		tooManyFailedChallengesResult := tooManyFailedChallenges(
+			config,
+			clientIp,
+			clientUserAgent,
+			requestedHost,
+			requestedPath,
+			banner,
+			"captcha_puzzle",
+			rateLimitStates,
+			requestedMethod,
+			decisionLists,
+		)
+		sendOrValidatePuzzleCAPTCHAResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
+		if tooManyFailedChallengesResult.Exceeded {
+			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
+			accessDenied(c, config, "TooManyFailedChallenges")
+			return
+		}
+	}
+
+	solutionCookieNamesToDelete := make([]string, 0)
+	_, err = ParseSolutionCookie(c, &solutionCookieNamesToDelete)
+	if err == nil {
+		StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+	}
+
+	handlePuzzleCAPTCHAChallenge(config, c)
+	return
 }
 
 /*
-issuePuzzleCAPTCHA sends the index.html (which has also had the css and js bundle injected into it at build) and
+puzzleCAPTCHAChallenge sends the index.html (which has also had the css and js bundle injected into it at build) and
 subsequently injects the initial puzzle state such that there are no follow up requests.
-
-This issuePuzzleCAPTCHA function is very different from the newPuzzleChallenge handler as it serves the entire challenge
-including the index.html, css and js whereas the handleNewPuzzleChallenge will ONLY generate the actual puzzle itself
-(ie the state of the challenge).
 */
-func sendPuzzleCAPTCHA(
+func handlePuzzleCAPTCHAChallenge(
 
 	config *Config,
 	c *gin.Context,
 
-) SendOrValidatePuzzleCAPTCHAResult {
+) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
-	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
+	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, config.ShaInvCookieTtlSeconds, getUserAgentOrIp(c, config))
 
-	filePath := "./puzzle_ui/dist/index.html"
-	htmlContent, err := os.ReadFile(filePath)
-	if err != nil {
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	puzzleGeneratorInterface, exists := c.Get(CaptchaGeneratorKey)
-	if !exists {
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	puzzleGenerator := puzzleGeneratorInterface.(*CAPTCHAGenerator)
-
-	challengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
-	if err == nil {
-		// If cookie exists, remove the previous solution from cache then reissue challenge
-		//this happens if the user clicks on "request new puzzle" or refreshes on their own (assuming we determine to challenges again)
-		puzzleGenerator.SolutionCache.Delete(challengeCookieValue)
-	}
-
-	cookieExpiryMS := 600_000 //a default expiry 10 minutes
-	targetDifficultyProfile, exists := config.DifficultyProfiles.GetProfileByTarget(config.UseFreshEntropyForDynamicTileRemoval)
-	if exists {
-		cookieExpiryMS = targetDifficultyProfile.TimeToSolveMs
-	}
-
-	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, cookieExpiryMS, getUserAgentOrIp(c, config))
-
-	b64PngImage := LoadDefaultImageBase64()
-
-	//captcha challenger and client side expect a "userDesiredEndpoint" that is parsable as a URL
-	requestedPath := c.Request.Header.Get("X-Requested-Path")
-	requestedHost := c.Request.Header.Get("X-Requested-Host")
-	sanitizedPath := strings.TrimPrefix(requestedPath, "/")
-	userDesiredEndpoint := fmt.Sprintf("https://%s/%s", requestedHost, sanitizedPath)
-
-	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(config, userChallengeCookieValue, userDesiredEndpoint, b64PngImage)
+	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, userChallengeCookieValue)
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	serializedGameState, err := json.Marshal(newCaptcha)
-	if err != nil {
-		log.Printf("Error marshalling CAPTCHA: %v", err)
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
-		return sendOrValidatePuzzleCAPTCHAResult
+		return
 	}
 
 	var escapedGameState bytes.Buffer
-	json.HTMLEscape(&escapedGameState, serializedGameState)
+	json.HTMLEscape(&escapedGameState, serializedCAPTCHAChallenge)
 	scriptTag := fmt.Sprintf(`<script id="initial-game-state" type="application/json">%s</script>`, escapedGameState.String())
 
 	modifiedHTML := strings.Replace(
-		string(htmlContent),
+		config.PuzzleUIIndexHtml,
 		"<!-- INITIAL_STATE_PLACEHOLDER: this will be replaced by the initial state containing script when serving the CAPTCHA -->",
 		scriptTag,
 		1, //replace only the first occurrence
 	)
 
-	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, cookieExpiryMS/1000, "/", "", true, false)
+	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, config.ShaInvCookieTtlSeconds, "/", "", false, false)
 	c.Header("Content-Type", "text/html")
+	c.Header("Cache-Control", "no-cache,no-store")
+	sessionCookieEndPoint(c, config)
 	c.String(http.StatusTooManyRequests, modifiedHTML)
-	return sendOrValidatePuzzleCAPTCHAResult
+	c.Abort()
+	return
 }
 
-/*
-handleValidatePuzzleCAPTCHA validates the user's submitted solution to the CAPTCHA challenge.
-
-Workflow:
-1. Retrieves the puzzle verifier from context
-2. Checks if the user has a challenge cookie. If missing, issues a new challenge
-3. Validates the integrity of the cookie
-4. Parses the user's JSON submission
-5. Verifies the solution using the CAPTCHA verifier
-6. If correct:
-  - Grants access and logs
-  - Expires the challenge cookie
-  - Responds with 202 Accepted and a Location header
-
-7. If incorrect:
-  - Responds with 400 Bad Request
-  - Users can retry, but excessive failures may be rate-limited (TODO)
-
-Responses:
-- 202: Successfully validated, grants access
-- 400: Incorrect solution
-- 500: Missing dependencies
-
-NOTE: For now it will always just verify a challenge solution, but we can implement the rate limiting logic like sending back the dedicated
-response codes to show the user that they are being rate limited and to wait before trying again - (this is built into the UI as based
-based on response codes)
-*/
-func handleValidatePuzzleCAPTCHA(
+func handleValidatePuzzleCAPTCHASolution(
 
 	config *Config,
 	c *gin.Context,
@@ -866,106 +821,7 @@ func handleValidatePuzzleCAPTCHA(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) SendOrValidatePuzzleCAPTCHAResult {
-
-	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
-
-	defer func() {
-		_, err := c.Cookie("__banjax_sol")
-		if err == nil {
-			c.SetCookie("__banjax_sol", "", -1, "/", "", false, false)
-		}
-	}()
-
-	puzzleVerifierInterface, exists := c.Get(CaptchaVerifierKey)
-	if !exists {
-		log.Println("Failed to get dependencies")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailMissingDependency])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	puzzleVerifier := puzzleVerifierInterface.(*CAPTCHAVerifier)
-
-	//viewing all attached cookies:
-	// cookies := c.Request.Cookies()
-	// for _, cookie := range cookies {
-	// 	log.Printf("Cookie: %s = %s\n", cookie.Name, cookie.Value)
-	// }
-
-	/*
-		if the cookie dne on verification, we need to issue a new puzzle since their
-		cookie is an important part of ensuring this puzzle belong to them in particular as its
-		coded to them through their cookie. So if it's missing, issue the challenge again
-	*/
-	userChallengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
-	if err != nil {
-		log.Println("Unable to verify challenge without cookie")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	// log.Println("USER CHALLENGE COOKIE: ", userChallengeCookieValue)
-
-	/*
-		since I am using the sha cookie generator I just want to integrity check it, but this is not necessary
-		just a heads up as to why I put 0 expected bits because we are not solving PoW
-	*/
-	err = ValidateShaInvCookie(config.HmacSecret, userChallengeCookieValue, time.Now(), getUserAgentOrIp(c, config), 0)
-	if err != nil {
-		log.Println("Failed cookie validation")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailBadCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	userSolutionAsB64EncodedCookieString, err := c.Cookie("__banjax_sol")
-	if err != nil {
-		log.Println("Unable to verify solution without users solution cookie")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	userSolutionString, err := base64.StdEncoding.DecodeString(userSolutionAsB64EncodedCookieString)
-	if err != nil {
-		log.Printf("Failed to decode user solution string due to error: %v", err)
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailBadCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	userJSONSerializedClickChain, cookieNames, err := extractClickChainFromCookies(c)
-	if err != nil {
-		log.Println("Unable to verify solution without users click chain cookie(s)")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	var userSubmittedClickChain []ClickChainEntry
-	err = json.Unmarshal(userJSONSerializedClickChain, &userSubmittedClickChain)
-	if err != nil {
-		log.Printf("Failed to unmarshal user click chain from cookies due to error: %v", err)
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailBadCookie])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	if len(userSubmittedClickChain) <= 1 {
-		log.Println("Empty click chain provided, expected at least genesis entry and other clicks to solve")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIntegrityCheck
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailIntegrityCheck])
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	userSolutionSubmission := ClientSolutionSubmissionPayload{
-		Solution:   string(userSolutionString),
-		ClickChain: userSubmittedClickChain,
-	}
-
-	// log.Printf("GOT THE SOLUTION FROM COOKIES!: %v", userSolutionSubmission)
+) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -973,14 +829,37 @@ func handleValidatePuzzleCAPTCHA(
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	requestedMethod := c.Request.Method
 
-	err = puzzleVerifier.VerifySolution(config, userChallengeCookieValue, userSolutionSubmission)
+	//we would not have made it this far if we were not certain of having access to this
+	userChallengeCookieValue, _ := c.Cookie(PuzzleChallengeCookieName)
+
+	solutionCookieNamesToDelete := make([]string, 0)
+	//because appending may trigger reallocation, and we dont know how many are going to be added to slice ahead of time we use ref
+	userSubmission, err := ParseSolutionCookie(c, &solutionCookieNamesToDelete)
 	if err != nil {
-		// log.Printf("User solution incorrect for challenge: %s", userChallengeCookieValue)
-		/*
-			they can keep retrying but it should obviously subject to rate limit
-			if they keep spamming, or try to brute force we could also ramp up the
-			difficulty and serve them a new challenge instead?
-		*/
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
+		return
+	}
+
+	err = ValidatePuzzleCAPTCHASolution(config, userChallengeCookieValue, *userSubmission)
+	if err != nil {
+
+		StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+
+		integrityErrors := []error{
+			ErrFailedClickChainIntegrityCheck,
+			ErrFailedClickChainMoveIntegrityCheck,
+		}
+
+		isIntegrityError := false
+
+		for _, integrityError := range integrityErrors {
+			if errors.Is(err, integrityError) {
+				isIntegrityError = true
+				break
+			}
+		}
+
 		ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 		if failAction == Block {
 
@@ -1000,231 +879,54 @@ func handleValidatePuzzleCAPTCHA(
 			sendOrValidatePuzzleCAPTCHAResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 
 			if tooManyFailedChallengesResult.Exceeded {
-				/*
-					instead of blindly banning, use RateLimitWithBan with incremental timing
-					that being said, we shouldn't use a magic number. Instead, we should lookup how much time they are allotted given the
-					difficulty profile and divide it in 4. This way they can have 4 intervals with rate limits in between. Anything more
-					and the puzzle will run out of time and force a restart.
-				*/
 
-				//so that we can apply rate limiting using the existing banning tools
+				if isIntegrityError {
+					/*
+						because an integrity error means we detected they were tampering with state and may warrant us outright banning them
+						ie we just will not overwrite ban with rate limit when they are literally just cheating
+					*/
+					sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleIntegrity
+					ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
+					accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailPuzzleIntegrity])
+					return
+				}
+
+				/*
+					if too many, ban them for a preset amount of time like 60 seconds to behave as a rate limiter. The duration should
+					be set in config at the total amount of time you have to solve the puzzle / 4. This way, if you do trigger the rate
+					limiter 4 times, the puzzle is no longer solvable by time constraint forcing them to get a new puzzle
+				*/
 				banner.OverwriteBanWithRateLimit(config, clientIp, config.RateLimitBruteForceSolutionTTLSeconds)
+				sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleValidation
 				ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
 				accessThrottled(c, config, "TooManyFailedChallenges")
-				return sendOrValidatePuzzleCAPTCHAResult
+				return
 			}
 		}
 
-		integrityErrors := []error{
-			ErrFailedClickChainIntegrity,
-			ErrFailedCaptchaPropertiesIntegrity,
-			ErrFailedGameboardIntegrity,
+		puzzleResultCode := PuzzleCAPTCHAFailPuzzleValidation
+		if isIntegrityError {
+			puzzleResultCode = PuzzleCAPTCHAFailPuzzleIntegrity
 		}
 
-		//immediately invalidate solution cookies by name
-		allCookies := append(cookieNames, "__banjax_sol")
-		for _, name := range allCookies {
-			_, err := c.Cookie(name)
-			if err == nil {
-				c.SetCookie(name, "", -1, "/", "", false, false)
-			}
-		}
-
-		for _, integrityError := range integrityErrors {
-			if errors.Is(err, integrityError) {
-				sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIntegrityCheck
-				accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailIntegrityCheck])
-				return sendOrValidatePuzzleCAPTCHAResult
-			}
-		}
-
-		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailIncorrectSolution])
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailIncorrectSolution
-		return sendOrValidatePuzzleCAPTCHAResult
+		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = puzzleResultCode
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[puzzleResultCode])
+		return
 	}
 
-	/*
-		Since the solution was valid, we expire the challenge cookie, attach a
-		challenge passed cookie (if needed?) and then invoke the accessGranted
-	*/
-
-	//immediately invalidate solution cookies by name
-	allCookies := append(cookieNames, "__banjax_sol", PuzzleChallengeCookieName)
-	for _, name := range allCookies {
-		_, err := c.Cookie(name)
-		if err == nil {
-			c.SetCookie(name, "", -1, "/", "", false, false)
-		}
-	}
+	StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAPass
+	encodedValue := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s[sol]%s", userChallengeCookieValue, userSubmission.Solution)))
+	c.SetCookie(PuzzleChallengeCookieName, encodedValue, config.ShaInvCookieTtlSeconds, "/", "", false, false)
 	accessGranted(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAPass])
 	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
-	// log.Println("puzzle captcha challenge passed")
-	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAPass
-	return sendOrValidatePuzzleCAPTCHAResult
-}
-
-// extract and reconstruct the click chain from cookies
-func extractClickChainFromCookies(c *gin.Context) ([]byte, []string, error) {
-	cookies := c.Request.Cookies() //get all cookies remaining after removing the __banjax_sol and puzzle cookie
-
-	clickChainParts := make(map[int]string)
-	totalParts := 0
-	cookieNames := make([]string, 0)
-
-	for _, cookie := range cookies {
-		//match only __banjax_cc_x_y format since we know that is guarenteed to be there, we just dont know
-		//what will come after. If there are 2 then it will be __banjax_cc_1_2, but if only 1 it will be __banjax_cc_1_1
-		if strings.HasPrefix(cookie.Name, "__banjax_cc_") {
-			//get the indices from the name "__banjax_cc_x_y"
-			parts := strings.Split(cookie.Name, "_")
-			//which should produce: ['', '', 'banjax', 'cc', '1', '2']
-			if len(parts) != 6 {
-				log.Printf("skipping malformed click chain cookie: %s", cookie.Name)
-				continue
-			}
-
-			parts = parts[2:]
-
-			//parse indices
-			partIndex, err1 := strconv.Atoi(parts[2]) // x (current part)
-			total, err2 := strconv.Atoi(parts[3])     // y (total parts)
-
-			if err1 != nil || err2 != nil || partIndex < 1 || total < 1 || partIndex > total {
-				continue
-			}
-
-			//fmt.Sprintf("__banjax_cc_%d_%d", partIndex, total)
-			cookieNames = append(cookieNames, cookie.Name)
-			clickChainParts[partIndex] = cookie.Value
-			//this way we know the highest seen
-			if partIndex > totalParts {
-				totalParts = partIndex
-			}
-		}
-	}
-
-	if len(clickChainParts) == 0 {
-		return nil, nil, fmt.Errorf("no valid click chain cookies found")
-	}
-
-	if len(clickChainParts) != totalParts {
-		return nil, nil, fmt.Errorf("incomplete click chain cookies")
-	}
-
-	var sortedParts []string
-	//now we can look for any missing parts explicitly
-	for i := 1; i <= totalParts; i++ {
-		_, exists := clickChainParts[i]
-		if !exists {
-			return nil, nil, fmt.Errorf("missing click chain part: %d", i)
-		}
-		sortedParts = append(sortedParts, clickChainParts[i])
-	}
-
-	clickChainBase64 := strings.Join(sortedParts, "")
-	clickChainJSON, err := base64.StdEncoding.DecodeString(clickChainBase64)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decode Base64 click chain: %w", err)
-	}
-
-	return clickChainJSON, cookieNames, nil
+	c.Abort()
+	return
 }
 
 /*
-handlePuzzleCAPTCHAErrorReport handles any error we receive based on the endpoint as well as
-the rateLimitStates.
-
-Error reports are generated by the client side when it detects an inability to attach one (or more) of the
-event listeners required. Most errors are non critical and the puzzle will be able to continue to function
-the only errors that matter are sent to critical error endpoint which can be handled accordingly. The rest
-are mostly to give us the capability to getting info about their environment and be able to recreate the issue
-to improve the puzzle later.
-
-For now it will log the error, but later we can take into consideration the other options we have
-*/
-func handleLoggingPuzzleCAPTCHAErrorReport(
-
-	config *Config,
-	c *gin.Context,
-	banner BannerInterface,
-	rateLimitStates *FailedChallengeRateLimitStates,
-	failAction FailAction,
-	decisionLists *StaticDecisionLists,
-
-) SendOrValidatePuzzleCAPTCHAResult {
-
-	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
-
-	clientIp := c.Request.Header.Get("X-Client-IP")
-	requestedHost := c.Request.Header.Get("X-Requested-Host")
-	requestedPath := c.Request.Header.Get("X-Requested-Path")
-	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	challengeCookie, err := c.Cookie(PuzzleChallengeCookieName)
-	if err != nil {
-		log.Println("Err looking up challenge cookie: ", err)
-	}
-	requestedMethod := c.Request.Method
-
-	log.Printf("\nERROR: %s", requestedPath)
-	log.Println("IP Address: ", clientIp)
-	log.Println("Host: ", requestedHost)
-	log.Println("User Agent: ", clientUserAgent)
-	log.Println("Challenge Cookie: ", challengeCookie)
-	log.Println("Method: ", requestedMethod)
-
-	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
-
-	// handleSendPuzzleChallenge(config, c, banner, rateLimitStates, failAction, decisionLists)
-	return sendOrValidatePuzzleCAPTCHAResult
-}
-
-/*
-handleRefreshPuzzleCAPTCHAState generates a new CAPTCHA challenge for the client. This is only used
+handleRefreshPuzzleCAPTCHAState generates a new CAPTCHA challenge STATE for the client. This is only used
 when the user clicks on the new challenge button as it doesnt require anything other than the challenge payload itself
-
-the issueCAPTCHAPuzzle handles injecting the initial puzzle state and sending it off in one request so there are no subsequent
-requests that are necessary as all css and js are also bundled with the index.html
-
-Workflow:
-1. Checks if the user already has a challenge cookie. If so, deletes the previous solution from cache
-2. Generates a new challenge cookie uniquely tied to the user
-3. Loads a base64 PNG image / company logo (or other by lookup TODO)
-4. Determines challenge difficulty (default or dynamically adjusted TODO)
-5. Generates a new CAPTCHA challenge and returns it as JSON
-6. Sets a new challenge cookie for tracking
-
-Responses:
-- 200: Successfully issued a challenge
-- 500: Failed to generate a challenge
-
-NOTE1: For now it will always just issue a challenge, but we can implement the rate limiting logic like sending back the dedicated
-response codes to show the user that they are being rate limited and to wait before trying again - (this is built into the UI as based
-based on response codes)
-
---
-
-Why do we lookup the userDesiredEndpoint from the previous attempts solution cache when responding to a request for a new puzzle state?
-
-Because of how deflect works, when a user currently has a challenge and clicks on refresh button
-to get a new puzzle, the request is sent to this /new_challenge endpoint which generates only the
-captcha puzzle state itself. Unlike the issueCaptchaChallenge endpoint, here we do not inject
-the state into the index.html and respond, instead we are only send back the state.
-
-The problem is that deflect doesn't remember what endpoint they were actually trying to visit, instead you see that
-the RequestedPath is /new_puzzle_challenge. This is a problem because the UserDesiredEndpoint is one of the
-key properties we are integrity checking to detect tampering. To get around this, since we already have a cache storing
-solutions, I added the UserDesiredEndpoint to the payload being cached. The upside is we need not change the entire
-integrity checking or weaken it to just integrity checking the hostname. The downside is that the cache entry gets purged
-automatically as soon as the user runs of of time as specified in the difficulty configuration. This means that if the user
-tries to ask for a new puzzle after the amount of time allotted to solve the puzzles rules out, we won't find the entry.
-
-So in order to ensure that we know what endpoint to redirect the user to and that they pass when they submit their solution
-even if they requested a different puzzle to solve, we need to lookup the userDesiredEndpoint from cache. If it has been
-purged, we will just send back a 404.
-
-NOTE:
-this is not only extremely unlikely because they would have had to not solve it for like 20 minutes and then click new puzzle
-but the puzzle itself triggers a refresh automatically on the client side when it detects it ran out of time preventing this from occuring
 */
 func handleRefreshPuzzleCAPTCHAState(
 
@@ -1235,60 +937,7 @@ func handleRefreshPuzzleCAPTCHAState(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 
-) SendOrValidatePuzzleCAPTCHAResult {
-
-	var sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult
-
-	puzzleGeneratorInterface, exists := c.Get(CaptchaGeneratorKey)
-	if !exists {
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDependency
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	puzzleGenerator := puzzleGeneratorInterface.(*CAPTCHAGenerator)
-
-	userDesiredEndpoint := ""
-
-	challengeCookieValue, err := c.Cookie(PuzzleChallengeCookieName)
-	if err == nil {
-		/*
-			If cookie exists, remove the previous solution from cache then reissue challenge
-			this happens if the user clicks on "request new puzzle" or refreshes on their own (assuming we determine to challenges again)
-		*/
-		cachedPayload, exists := puzzleGenerator.SolutionCache.Get(challengeCookieValue)
-		if !exists {
-			log.Println("Error: user desired endpoint cannot be ''")
-			sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDesiredEndpoint
-			return sendOrValidatePuzzleCAPTCHAResult
-		}
-
-		userDesiredEndpoint = cachedPayload.PuzzleIntegrityProperties.UserDesiredEndpoint
-		puzzleGenerator.SolutionCache.Delete(challengeCookieValue)
-	}
-
-	if userDesiredEndpoint == "" {
-		/*
-			this shouldn't happen, if it does, we would need to fail their existing
-			challenge and subsequently issue an entirely new challenge to them
-		*/
-		log.Println("Error: user desired endpoint cannot be ''")
-		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailMissingDesiredEndpoint
-		return sendOrValidatePuzzleCAPTCHAResult
-	}
-
-	TimeAllowedToSolvePuzzleMs := 600_000 //a default expiry 10 minutes
-	targetDifficultyProfile, exists := config.DifficultyProfiles.GetProfileByTarget(config.UseFreshEntropyForDynamicTileRemoval)
-	if exists {
-		TimeAllowedToSolvePuzzleMs = targetDifficultyProfile.TimeToSolveMs
-	}
-
-	/*
-		Since the objective of this endpoint is to be able to get a new puzzle state, we protect it by assuming each click is a failed entry
-		ie they couldnt solve it. After n failures, we simply prevent them from aaccessing this endpoint for the duration of the current challenge
-		difficulty forcing them to solve this puzzle that they currently have. IE, we allow them to get new puzzle state a handful of times before
-		banning them from doing so again for the duration of this particular puzzles lifetime. We do so just after we know what the difficulty is, but before
-		we actually do the work of calculating a new puzzle for them to solve
-	*/
+) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -1306,44 +955,104 @@ func handleRefreshPuzzleCAPTCHAState(
 			requestedHost,
 			requestedPath,
 			banner,
-			"captcha_puzzle",
+			"captcha_puzzle_refresh",
 			rateLimitStates,
 			requestedMethod,
 			decisionLists,
 		)
 
 		if tooManyFailedChallengesResult.Exceeded {
-			log.Printf("Throttling users ability to fetch new puzzle for: %d ms", TimeAllowedToSolvePuzzleMs)
-			banner.OverwriteBanWithRateLimit(config, clientIp, TimeAllowedToSolvePuzzleMs)
+			banner.OverwriteBanWithRateLimit(config, clientIp, config.RateLimitBruteForceSolutionTTLSeconds)
 			accessThrottled(c, config, "TooManyFailedChallenges")
-			return sendOrValidatePuzzleCAPTCHAResult
+			return
 		}
 	}
 
-	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, TimeAllowedToSolvePuzzleMs, getUserAgentOrIp(c, config))
-
-	/*
-		load either the default image, or use path + a hostname? to identify
-		the logo of a company, then load that b64 png logo and it will work
-	*/
-	b64PngImage := LoadDefaultImageBase64()
-
-	/*
-		make a decision on difficulty by implementing something on this, you can also make a dynamic decision
-		and invoke GetProfileByName() instead of relying on the default (target) profile
-		ie targetDifficulty := puzzleGenerator.DifficultyConfigController.GetProfileByName("medium")
-	*/
-
-	newCaptcha, err := puzzleGenerator.NewCAPTCHAChallenge(config, userChallengeCookieValue, userDesiredEndpoint, b64PngImage)
+	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, config.ShaInvCookieTtlSeconds, getUserAgentOrIp(c, config))
+	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, userChallengeCookieValue)
 	if err != nil {
-		log.Printf("Error generating CAPTCHA: %v", err)
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
-		return sendOrValidatePuzzleCAPTCHAResult
+		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailPuzzleGeneration])
+		return
 	}
 
-	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, TimeAllowedToSolvePuzzleMs/1000, "/", "", true, false)
-	c.JSON(http.StatusOK, newCaptcha)
-	return sendOrValidatePuzzleCAPTCHAResult
+	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, config.ShaInvCookieTtlSeconds, "/", "", false, false)
+	c.Header("Cache-Control", "no-cache,no-store")
+	c.Data(http.StatusOK, "application/json", serializedCAPTCHAChallenge)
+	c.Abort()
+	return
+}
+
+/*
+any non critical errors that do not break gameplay will be reported here by the entrypoint client side script
+with payloads such that we create recreate the environment that gave rise to them
+
+NOTE: for critical errors, there exists a fallback function that is immediately called. We need only provide
+a hardcoded backup challenge, for example putting a hardcoded version of shaInvChallenge inside of the runfallback()
+since we are using the same cookie generation function, the sha challenge can still be validated normally
+*/
+func handleLoggingPuzzleCAPTCHAErrorReport(
+
+	config *Config,
+	c *gin.Context,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	failAction FailAction,
+	decisionLists *StaticDecisionLists,
+
+) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
+
+	clientIp := c.Request.Header.Get("X-Client-IP")
+	requestedHost := c.Request.Header.Get("X-Requested-Host")
+	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
+	challengeCookie, err := c.Cookie(PuzzleChallengeCookieName)
+	if err != nil {
+		log.Println("Err looking up challenge cookie: ", err)
+	}
+	requestedMethod := c.Request.Method
+
+	errorType := c.Param("errorType")
+	if errorType != "" {
+		errorType = strings.TrimPrefix(errorType, "/")
+	}
+
+	stackTrace, err := c.Cookie("__banjax_error")
+	if err != nil {
+		stackTrace = "Unknown"
+	}
+
+	log.Printf("\nERROR: %s", requestedPath)
+	log.Println("IP Address: ", clientIp)
+	log.Println("Host: ", requestedHost)
+	log.Println("User Agent: ", clientUserAgent)
+	log.Println("Challenge Cookie: ", challengeCookie)
+	log.Println("Method: ", requestedMethod)
+	log.Println("error Type: ", errorType)
+	log.Println("stack trace: ", stackTrace)
+
+	if failAction == Block {
+		tooManyFailedChallengesResult := tooManyFailedChallenges(
+			config,
+			clientIp,
+			clientUserAgent,
+			requestedHost,
+			requestedPath,
+			banner,
+			"captcha_puzzle_error_log",
+			rateLimitStates,
+			requestedMethod,
+			decisionLists,
+		)
+
+		if tooManyFailedChallengesResult.Exceeded {
+			accessDenied(c, config, "TooManyErrorReports")
+			return
+		}
+	}
+
+	c.JSON(http.StatusNoContent, gin.H{})
+	return
 }
 
 type PasswordChallengeResult uint

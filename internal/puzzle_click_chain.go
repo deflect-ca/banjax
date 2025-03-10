@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"strings"
 	"time"
 )
 
@@ -49,34 +47,22 @@ func (chainEntry *ClickChainEntry) JSONBytesToString(data []byte) string {
 	return string(data)
 }
 
-/*
-ClickChainController is the main click chain tool
-it is used to generate a new click chain as well as verify click chains
-on solution submission
-*/
-type ClickChainController struct {
-	InitVector string
-}
-
-func NewClickChainController(initVector string) *ClickChainController {
-	return &ClickChainController{InitVector: initVector}
-}
-
-func (cc *ClickChainController) RotateInitVector(newInitVector string) {
-	/*
-		TODO:
-			since there may be challenges already issued with the previous, I suggest we use like a map to track times challenges were issued, then
-			from that deduce what vector to use. Then since we know the max puzzle length is 20 minutes, once that time frame expires you can just delete it since no matter what their
-			answer is necessarily not valid as by the time constraint
-	*/
-	cc.InitVector = newInitVector
-}
+var (
+	ErrFailedClickChainIntegrityCheck                 = errors.New("failed click chain integrity check")
+	ErrFailedClickChainMoveIntegrityCheck             = errors.New("failed click chain moves sequence validation")
+	ErrFailedClickChainMoveToBoardStateIntegrityCheck = errors.New("failed to recreate successfully solved puzzle using users submitted steps")
+	ErrClickChainEmpty                                = errors.New("click chain empty, expected at least genesis + 1 valid operation to solve")
+	ErrGenesisFailedMarshalBinary                     = errors.New("failed to marshal genesis click chain item")
+	ErrFailedClickChainItemMarshalBinary              = errors.New("failed to marshal click chain item")
+	ErrGenesisEntryVerification                       = errors.New("failed genesis click chain verification")
+	ErrChainVerification                              = errors.New("failed click chain verification")
+)
 
 /*
 NewClickChain is used to create a ClickChain which is a mini blockchain of clicks (clickChainEntries) that a user makes as they try to solve the captcha
 where each block references the previous and we create the genesis with a secret initialization vector the user doesn't have access to
 */
-func (cc *ClickChainController) NewClickChain(userChallengeCookieString string) ([]ClickChainEntry, error) {
+func NewClickChain(userChallengeCookieString, clickChainEntroy string) ([]ClickChainEntry, error) {
 
 	clickChain := make([]ClickChainEntry, 0)
 
@@ -93,7 +79,7 @@ func (cc *ClickChainController) NewClickChain(userChallengeCookieString string) 
 		return nil, err
 	}
 
-	challengeEntroy := fmt.Sprintf("%s%s", cc.InitVector, userChallengeCookieString)
+	challengeEntroy := fmt.Sprintf("%s%s", clickChainEntroy, userChallengeCookieString)
 	genesis.Hash = GenerateHMACFromString(genesis.JSONBytesToString(genesisChainEntryAsBytes), challengeEntroy)
 	clickChain = append(clickChain, genesis)
 
@@ -111,83 +97,28 @@ finally, we recreate their submitted board using the steps they took to see that
 
 NOTE: This does NOT prove their answer was right. ONLY that given the initial board they started with it was THIS series of steps in particular that got them to the final result they submitted.
 */
-func (cc *ClickChainController) IntegrityCheckClickChain(
+func IntegrityCheckClickChain(
 
-	userSubmittedSolutionHash, userChallengeCookieString string,
+	userSubmittedSolutionHash, userChallengeCookieString, clickChainEntroy string,
 	userSubmittedClickChain []ClickChainEntry,
-	// userSubmittedGamboard [][]*Tile,
 	locallyStoredShuffledGameBoard [][]*TileWithoutImage,
 	locallyStoredUnShuffledGamboard [][]*TileWithoutImage,
 
 ) error {
 
-	err := cc.verifyClickChainIntegrity(userChallengeCookieString, userSubmittedClickChain)
+	err := verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy, userSubmittedClickChain)
 	if err != nil {
-		log.Println("Failed click chain integrity check")
-		return fmt.Errorf("ErrFailedClickChainIntegrityCheck: %v", err)
+		return fmt.Errorf("%w: %v", ErrFailedClickChainIntegrityCheck, err)
 	}
 
-	err = cc.verifyClickChainMoveValidity(userSubmittedClickChain)
+	err = verifyClickChainMoveValidity(userSubmittedClickChain)
 	if err != nil {
-		log.Println("Failed click chain move integrity check")
-		return fmt.Errorf("ErrFailedClickChainMoveIntegrityCheck: %v", err)
+		return fmt.Errorf("%w: %v", ErrFailedClickChainMoveIntegrityCheck, err)
 	}
 
-	err = cc.recreateAndIntegrityCheckFinalBoardFromClickChain(userSubmittedClickChain, locallyStoredShuffledGameBoard, locallyStoredUnShuffledGamboard, userSubmittedSolutionHash, userChallengeCookieString)
+	err = recreateAndIntegrityCheckFinalBoardFromClickChain(userSubmittedClickChain, locallyStoredShuffledGameBoard, locallyStoredUnShuffledGamboard, userSubmittedSolutionHash, userChallengeCookieString)
 	if err != nil {
-		log.Println("Failed click chain move to board state integrity check")
-		return fmt.Errorf("ErrFailedClickChainMoveToBoardStateIntegrityCheck: %v", err)
-	}
-
-	return nil
-}
-
-/*
-We compare the genesis block stored locally against the submitted directly in order to confirm that they match. This is done in case
-the initVector secret was discovered, the user may forge the rest of the chain. Directly comparing helps mitigate this
-*/
-func (cc *ClickChainController) IntegrityCheckClickChainGenesis(userSubmittedClickChain []ClickChainEntry, localCopyGenesisClickChainItem ClickChainEntry) error {
-
-	if len(userSubmittedClickChain) == 0 {
-		return errors.New("ErrDetectedTampering: Missing genesis click chain item")
-	}
-
-	userSubmittedGenesisEntry := userSubmittedClickChain[0]
-
-	if userSubmittedGenesisEntry.Hash != localCopyGenesisClickChainItem.Hash {
-		return errors.New("ErrDetectedTampering: Hash does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TimeStamp != localCopyGenesisClickChainItem.TimeStamp {
-		return errors.New("ErrDetectedTampering: TimeStamp does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.ClickCount != localCopyGenesisClickChainItem.ClickCount {
-		return errors.New("ErrDetectedTampering: ClickCount does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileClicked.Col != localCopyGenesisClickChainItem.TileClicked.Col {
-		return errors.New("ErrDetectedTampering: TileClicked.Col does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileClicked.Row != localCopyGenesisClickChainItem.TileClicked.Row {
-		return errors.New("ErrDetectedTampering: TileClicked.Row does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileClicked.Id != localCopyGenesisClickChainItem.TileClicked.Id {
-		return errors.New("ErrDetectedTampering: TileClicked.Id does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileSwappedWith.Col != localCopyGenesisClickChainItem.TileSwappedWith.Col {
-		return errors.New("ErrDetectedTampering: TileSwappedWith.Col does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileSwappedWith.Row != localCopyGenesisClickChainItem.TileSwappedWith.Row {
-		return errors.New("ErrDetectedTampering: TileSwappedWith.Row does not match local copy")
-	}
-
-	if userSubmittedGenesisEntry.TileSwappedWith.Id != localCopyGenesisClickChainItem.TileSwappedWith.Id {
-		return errors.New("ErrDetectedTampering: TileSwappedWith.Id does not match local copy")
+		return fmt.Errorf("%w: %v", ErrFailedClickChainMoveToBoardStateIntegrityCheck, err)
 	}
 
 	return nil
@@ -200,29 +131,25 @@ fields putting them into a new entry, setting the current count ourselves and se
 items hash as the initial hash field value of the current object, producing the hash of that object and storing that item to be the hash and then hashing that object
 to produce the hash of that object in particular.
 */
-func (cc *ClickChainController) verifyClickChainIntegrity(userChallengeCookieString string, userClickChain []ClickChainEntry) error {
+func verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy string, userClickChain []ClickChainEntry) error {
 	copiedClickChain := make([]ClickChainEntry, len(userClickChain))
 	copy(copiedClickChain, userClickChain)
 
 	if len(copiedClickChain) == 0 {
-		log.Println("ErrClickChainEmpty: No entries in click chain")
-		return errors.New("ErrClickChainEmpty: No entries in click chain")
+		return fmt.Errorf("%w: No entries in click chain", ErrClickChainEmpty)
 	}
 
 	if len(copiedClickChain) == 1 {
-		log.Println("ErrClickChainEmpty: Only the genesis is in the click chain, solution cannot be valid")
-		return errors.New("ErrClickChainEmpty: Only the genesis is in the click chain, solution cannot be valid")
+		return fmt.Errorf("%w: Only the genesis is in the click chain, solution cannot be valid", ErrClickChainEmpty)
 	}
 
-	isValidGenesis, err := cc.verifyGenesisHash(userChallengeCookieString, copiedClickChain[0])
+	isValidGenesisHash, err := verifyGenesisHash(userChallengeCookieString, clickChainEntroy, copiedClickChain[0])
 	if err != nil {
-		log.Printf("ErrGenesisFailedMarshalBinary: %v", err)
-		return fmt.Errorf("ErrGenesisFailedMarshalBinary: %v", err)
+		return fmt.Errorf("%w: %v", ErrGenesisFailedMarshalBinary, err)
 	}
 
-	if !isValidGenesis {
-		log.Println("ErrGenesisEntryVerification: Invalid genesis block")
-		return errors.New("ErrGenesisEntryVerification: Invalid genesis block")
+	if !isValidGenesisHash {
+		return fmt.Errorf("%w: Invalid genesis block", ErrGenesisEntryVerification)
 	}
 
 	previousHash := copiedClickChain[0].Hash
@@ -230,10 +157,9 @@ func (cc *ClickChainController) verifyClickChainIntegrity(userChallengeCookieStr
 	//at this point we know that the genesis entry is valid, so we can continue to verify every other entry is valid using "i" as the click count
 	//starting at 1 since that would have been the first click
 	for i := 1; i < len(copiedClickChain); i++ {
-		expectedHash, err := cc.verifyClickChainEntry(userChallengeCookieString, i, previousHash, copiedClickChain[i])
+		expectedHash, err := verifyClickChainEntry(userChallengeCookieString, i, previousHash, copiedClickChain[i])
 		if err != nil {
-			log.Printf("ErrChainVerification: Entry %d, expected hash: %s, got: %s", i, expectedHash, copiedClickChain[i].Hash)
-			return fmt.Errorf("ErrChainVerification: Entry %d, expected hash: %s, got: %s", i, expectedHash, copiedClickChain[i].Hash)
+			return fmt.Errorf("%w: Entry %d, expected hash: %s, got: %s", ErrChainVerification, i, expectedHash, copiedClickChain[i].Hash)
 		}
 		previousHash = copiedClickChain[i].Hash
 	}
@@ -246,12 +172,12 @@ since the user does not know our initialization vector, they are not able to for
 from the direct match comparison as it is meant to also tie the user challenge cookie string and confirm the first hash in the
 entire click chain which is necessary for being able to confirm all subsequent hashes
 */
-func (cc *ClickChainController) verifyGenesisHash(userChallengeCookieString string, userGenesisEntry ClickChainEntry) (bool, error) {
+func verifyGenesisHash(userChallengeCookieString, clickChainEntroy string, userGenesisEntry ClickChainEntry) (bool, error) {
 
 	submittedHash := userGenesisEntry.Hash
 	userGenesisEntry.Hash = "" //in order to recreate how the genesis entry was created
 
-	challengeEntropy := fmt.Sprintf("%s%s", cc.InitVector, userChallengeCookieString)
+	challengeEntropy := fmt.Sprintf("%s%s", clickChainEntroy, userChallengeCookieString)
 
 	genesisBytes, err := userGenesisEntry.MarshalBinary()
 	if err != nil {
@@ -264,9 +190,11 @@ func (cc *ClickChainController) verifyGenesisHash(userChallengeCookieString stri
 	return expectedHash == submittedHash, nil
 }
 
-// we remove the hash and index user provided for this entry, and replace them with the previous entry hash and expected index respectively
-// we produce the hash of this entry and compare it to what they actually had to confirm it was indeed correct
-func (cc *ClickChainController) verifyClickChainEntry(userChallengeCookieString string, expectedIndex int, previousHash string, userSubmittedChainEntry ClickChainEntry) (string, error) {
+/*
+we remove the hash and index user provided for this entry, and replace them with the previous entry hash and expected index respectively
+we produce the hash of this entry and compare it to what they actually had to confirm it was indeed correct
+*/
+func verifyClickChainEntry(userChallengeCookieString string, expectedIndex int, previousHash string, userSubmittedChainEntry ClickChainEntry) (string, error) {
 
 	recreatedEntry := ClickChainEntry{
 		TimeStamp:       userSubmittedChainEntry.TimeStamp,
@@ -278,26 +206,23 @@ func (cc *ClickChainController) verifyClickChainEntry(userChallengeCookieString 
 
 	asBytes, err := recreatedEntry.MarshalBinary()
 	if err != nil {
-		log.Printf("ErrFailedMarshalBinary: %v", err)
-		return "", fmt.Errorf("ErrFailedMarshalBinary: %v", err)
+		return "", fmt.Errorf("%w: %v", ErrFailedClickChainItemMarshalBinary, err)
 	}
 
 	marshaledBytesAsString := recreatedEntry.JSONBytesToString(asBytes)
 	expectedHash := GenerateHMACFromString(marshaledBytesAsString, userChallengeCookieString)
 
 	if expectedHash != userSubmittedChainEntry.Hash {
-		log.Println("expected hash versus submitted hash mismatch!")
-		return expectedHash, errors.New("hash mismatch")
+		return expectedHash, fmt.Errorf("%w: %v", ErrChainVerification, errors.New("hash mismatch"))
 	}
 
 	return expectedHash, nil
 }
 
-func (cc *ClickChainController) verifyClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) error {
+func verifyClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) error {
 
 	if len(userClickChainWithGenesis) == 0 {
-		log.Println("ErrInvalidClickChain: Missing genesis")
-		return errors.New("ErrInvalidClickChain: Missing genesis")
+		return fmt.Errorf("%w: %v", ErrChainVerification, errors.New("ErrInvalidClickChain: Missing genesis"))
 	}
 
 	//since we integrity checked the userClickChainWithGenesis, we start by removing the genesis entry as its not one of the users entries
@@ -307,28 +232,25 @@ func (cc *ClickChainController) verifyClickChainMoveValidity(userClickChainWithG
 	userClickChain := copiedClickChain[1:]
 
 	if len(userClickChain) == 0 {
-		log.Println("ErrInvalidClickChain: Expected at least one move for a valid answer, puzzles are not issued already solved")
-		return errors.New("ErrInvalidClickChain: Expected at least one move for a valid answer, puzzles are not issued already solved")
+		return fmt.Errorf("%w: %v", ErrChainVerification, errors.New("ErrInvalidClickChain: Expected at least one move for a valid answer, puzzles are not issued already solved"))
 	}
 
 	for userMove := 0; userMove < len(userClickChain); userMove++ {
 		currentTileThatWasClicked := userClickChain[userMove].TileClicked
 		tileSwappedWith := userClickChain[userMove].TileSwappedWith
 		if tileSwappedWith.Id != "null_tile" {
-			log.Printf("ErrInvalidMove: Detected impossible swap: swapping tile clicked: %s with tile:%s", currentTileThatWasClicked.Id, tileSwappedWith.Id)
-			return fmt.Errorf("ErrInvalidMove: Detected impossible swap: swapping tile clicked: %s with tile:%s", currentTileThatWasClicked.Id, tileSwappedWith.Id)
+			return fmt.Errorf("%w: ErrInvalidMove: Detected impossible swap: swapping tile clicked: %s with tile:%s", ErrChainVerification, currentTileThatWasClicked.Id, tileSwappedWith.Id)
 		}
 
-		if !cc.isValidMove(currentTileThatWasClicked, tileSwappedWith) {
-			log.Printf("ErrInvalidMove: Swap should not have been possible: tile clicked: %s with tile:%s", currentTileThatWasClicked.Id, tileSwappedWith.Id)
-			return fmt.Errorf("ErrInvalidMove: Swap should not have been possible: tile clicked: %s with tile:%s", currentTileThatWasClicked.Id, tileSwappedWith.Id)
+		if !isValidMove(currentTileThatWasClicked, tileSwappedWith) {
+			return fmt.Errorf("%w: ErrInvalidMove: Swap should not have been possible: tile clicked: %s with tile:%s", ErrChainVerification, currentTileThatWasClicked.Id, tileSwappedWith.Id)
 		}
 	}
 
 	return nil
 }
 
-func (cc *ClickChainController) isValidMove(tileClicked, tileSwappedWith ChainTile) bool {
+func isValidMove(tileClicked, tileSwappedWith ChainTile) bool {
 
 	validMoves_X := []int{1, -1, 0, 0}
 	validMoves_Y := []int{0, 0, 1, -1}
@@ -349,18 +271,19 @@ func (cc *ClickChainController) isValidMove(tileClicked, tileSwappedWith ChainTi
 	return isValidMove
 }
 
-// this will check that the solution they submitted was derived from the set of operations they performed on the gameboard we provided them by playing back the operations on the gameboard we saved locally and seeing that it results
-// in the state which produces the hash they would get if they applied the operations they claim to have used via the click chain on the board we gave them. This ONLY proves that the steps they applied to the board result in the hash
-// they submitted. It does NOT prove that the hash they submitted is correct. For this we juxtapose the precomputed solution to the one they submitted. This happens later in the validation procedure.
-func (cc *ClickChainController) recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, locallyStoredShuffledGameBoard, locallyStored_Un_ShuffledGamboard [][]*TileWithoutImage, userSubmittedSolutionHash, userChallengeCookieString string) error {
+/*
+this will check that the solution they submitted was derived from the set of operations they performed on the gameboard we provided
+them by playing back the operations on the gameboard we saved locally and seeing that it results in the state which produces the hash they would get if they applied
+the operations they claim to have used via the click chain on the board we gave them. This ONLY proves that the steps they applied to the board result in the hash
+they submitted. It does NOT prove that the hash they submitted is correct.
+*/
+func recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, locallyStoredShuffledGameBoard, locallyStored_Un_ShuffledGamboard [][]*TileWithoutImage, userSubmittedSolutionHash, userChallengeCookieString string) error {
 
 	if len(locallyStoredShuffledGameBoard) == 0 {
-		log.Printf("ErrInvalidGameboard: Local gameboard empty")
 		return errors.New("ErrInvalidGameboard: Local gameboard empty")
 	}
 
 	if len(userClickChainWithGenesis) == 0 {
-		log.Println("ErrInvalidClickChain: Missing genesis")
 		return errors.New("ErrInvalidClickChain: Missing genesis")
 	}
 
@@ -370,76 +293,60 @@ func (cc *ClickChainController) recreateAndIntegrityCheckFinalBoardFromClickChai
 	userClickChain := copiedClickChain[1:]
 
 	if len(userClickChain) == 0 {
-		log.Println("ErrInvalidClickChain: Expected at least one move for a valid answer, puzzles are not issued already solved")
 		return errors.New("ErrInvalidClickChain: Expected at least one move for a valid answer, puzzles are not issued already solved")
 	}
 
-	//since we removed the genesis, the indexes of the clicks are off by 1 as genesis gets index 0, so users first click is always 1. so i+1 will be userClickChain.ClickCount
+	//since we removed the genesis, the indexes of the clicks are off by 1 as genesis gets index 0,
+	//so users first click is always 1. so i+1 will be userClickChain.ClickCount
 	for i := 0; i < len(userClickChain); i++ {
 		userMove := userClickChain[i]
 		expectedClickChainIndex := i + 1
 		if userMove.ClickCount != expectedClickChainIndex {
-			log.Printf("ErrInconsistentIndex: Expected click count %d but got: %d", expectedClickChainIndex, userMove.ClickCount)
 			return fmt.Errorf("ErrInconsistentIndex: Expected click count %d but got: %d", expectedClickChainIndex, userMove.ClickCount)
 		}
 
 		currentTileThatWasClicked := userMove.TileClicked
 		tileSwappedWith := userMove.TileSwappedWith
 
-		//the locally stored shuffled game board is the gameboard they initially received, so playing back their steps means
-		//that its not possible for anything they ever clicked on to have been the null tile
 		clickedItemOnOriginalMap := locallyStoredShuffledGameBoard[currentTileThatWasClicked.Row][currentTileThatWasClicked.Col]
-		//how would we guard against row/col not being in the array?
 		if clickedItemOnOriginalMap == nil {
-			log.Printf("ErrTileNotFound: Tile at row:%d col:%d could not be found in the server-side gameboard", currentTileThatWasClicked.Row, currentTileThatWasClicked.Col)
 			return fmt.Errorf("ErrTileNotFound: Tile at row:%d col:%d could not be found in the server-side gameboard", currentTileThatWasClicked.Row, currentTileThatWasClicked.Col)
 		}
 
-		//this is the KEY check confirming the ID of the tile clicked as we follow the users clicks on the map we initially sent them
 		if clickedItemOnOriginalMap.TileGridID != currentTileThatWasClicked.Id {
-			log.Printf("ErrTileIDMismatch: Expected tile ID: %s, but got: %s at row:%d col:%d", clickedItemOnOriginalMap.TileGridID, currentTileThatWasClicked.Id, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col)
 			return fmt.Errorf("ErrTileIDMismatch: Expected tile ID: %s, but got: %s at row:%d col:%d", clickedItemOnOriginalMap.TileGridID, currentTileThatWasClicked.Id, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col)
 		}
 
 		swappedItemOnOriginalMap := locallyStoredShuffledGameBoard[tileSwappedWith.Row][tileSwappedWith.Col]
-		//how would we guard against row/col not being in the array?
 		if tileSwappedWith.Id != "null_tile" || swappedItemOnOriginalMap != nil {
-			log.Printf("ErrInvalidNullTileSwap: Attempted swap with non-null tile at row:%d col:%d. Expected null tile with id: 'null_tile'", tileSwappedWith.Row, tileSwappedWith.Col)
 			return fmt.Errorf("ErrInvalidNullTileSwap: Attempted swap with non-null tile at row:%d col:%d. Expected null tile with id: 'null_tile'", tileSwappedWith.Row, tileSwappedWith.Col)
 		}
 
-		cc.swap(locallyStoredShuffledGameBoard, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col, tileSwappedWith.Row, tileSwappedWith.Col)
+		Swap(locallyStoredShuffledGameBoard, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col, tileSwappedWith.Row, tileSwappedWith.Col)
 	}
 
-	var boardIDHashesInOrder strings.Builder
-	for _, row := range locallyStoredShuffledGameBoard {
-		for _, tile := range row {
-			if tile == nil {
-				boardIDHashesInOrder.WriteString("null_tile")
-			} else {
-				boardIDHashesInOrder.WriteString(tile.TileGridID) //since we saved this locally and its coded to this user, the result will match unless the user tried to forge their cookie
-			}
-		}
-	}
+	/*
+		here we are recreating the solution that the user found. We start with the shuffled gameboard that we stored locally. We playback the users steps (from their click chain)
+		we check that the final solution that THEY submitted to us MATCHES what they WOULD have calculated GIVEN the click chain they submitted.
 
-	//here we are recreating the solution that the user found. We start with the shuffled gameboard that we stored locally. We playback the users steps (from their click chain)
-	//we check that the final solution that THEY submitted to us MATCHES what they WOULD have calculated GIVEN the click chain they submitted.
-	//NOTE this is NOT the same thing as checking their answer. All this does is check that the solution they submitted was actually derived from the click
-	//chain steps they submitted. Their solution MAY STILL be wrong, HOWEVER at this stage we know for a fact that they started with the board we gave them, they applied the steps
-	//and got their solution as a result of these steps. This is why we still need to compare their submitted solution to the precomputed solution we saved locally
-	expectedSolutionDerivedFromGrid := GenerateHMACFromString(boardIDHashesInOrder.String(), userChallengeCookieString)
+		NOTE this is NOT the same thing as checking their answer. All this does is check that the solution they submitted was actually derived from the click
+		chain steps they submitted. Their solution MAY STILL be wrong, HOWEVER at this stage we know for a fact that they started with the board we gave them, they applied the steps
+		and got their solution as a result of these steps. This is why we still need to compare their submitted solution to the precomputed solution we saved locally
+	*/
+	expectedSolutionDerivedFromGrid := CalculateExpectedSolution(locallyStoredShuffledGameBoard, userChallengeCookieString)
 
 	if expectedSolutionDerivedFromGrid != userSubmittedSolutionHash {
-		log.Println("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")
 		return errors.New("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")
 	}
 
-	//since we are now confident that the users steps match the board they submitted, we apply a comparison to the UN-shuffled version (ie the FINAL solution) board, to confirm that these match ID by ID
-	//if so, what remains is integrity checking properties (ie completed within the time and clicks allowed) and subsequently confirming that the hash is a match. This is the first confirmation that the
-	//board ITSELF was in a correct state when submitted because we applied the steps the user took to the shuffled board and ended up at the unshuffled board (as deired)
+	/*
+		since we are now confident that the users steps match the board they submitted, we apply a comparison to the UN-shuffled version (ie the FINAL solution) board, to confirm that these match ID by ID
+		if so, what remains is integrity checking properties (ie completed within the time and clicks allowed) and subsequently confirming that the hash is a match. This is the first confirmation that the
+		board ITSELF was in a correct state when submitted because we applied the steps the user took to the shuffled board and ended up at the unshuffled board (as deired)
 
-	//now we need only iteratively check that the submitted board and the original board match id for id in the SAME order
-	//we already confirmed the size of the game boards are the same, so the dimensions we use are guarenteed to work for both
+		now we need only iteratively check that the submitted board and the original board match id for id in the SAME order
+		we already confirmed the size of the game boards are the same, so the dimensions we use are guarenteed to work for both
+	*/
 	nRows := len(locallyStoredShuffledGameBoard)
 	nCols := len(locallyStoredShuffledGameBoard[0])
 
@@ -448,31 +355,21 @@ func (cc *ClickChainController) recreateAndIntegrityCheckFinalBoardFromClickChai
 			userEntry := locallyStored_Un_ShuffledGamboard[r][c]
 			localEntry := locallyStoredShuffledGameBoard[r][c]
 
-			//either they're both nil (ie they're the same so great) or they both not nil (so they must have the same id and if so great)
-			//otherwise, they're necessarily different, so return error
+			//either they're both nil (ie they're the same so great) or they both not nil otherwise, they're necessarily different, so return error
 
 			if localEntry == nil && userEntry != nil {
-				log.Printf("ErrNullTilePositionMismatch: Null tile position mismatch at (%d,%d). Expected null, but got: %s", r, c, userEntry.TileGridID)
 				return fmt.Errorf("ErrNullTilePositionMismatch: Null tile position mismatch at (%d,%d). Expected null, but got: %s", r, c, userEntry.TileGridID)
 			}
 
 			if localEntry != nil && userEntry == nil {
-				log.Printf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received null", localEntry.TileGridID, r, c)
 				return fmt.Errorf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received null", localEntry.TileGridID, r, c)
 			}
 
 			if localEntry != nil && userEntry != nil && localEntry.TileGridID != userEntry.TileGridID {
-				log.Printf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received %s", localEntry.TileGridID, r, c, userEntry.TileGridID)
 				return fmt.Errorf("ErrFinalBoardMismatch: Expected tile ID %s at (%d,%d) but received %s", localEntry.TileGridID, r, c, userEntry.TileGridID)
 			}
 		}
 	}
 
 	return nil
-}
-
-func (cc *ClickChainController) swap(locallyStoredShuffledGameBoard [][]*TileWithoutImage, currentTileThatWasClickedRow, currentTileThatWasClickedCol, tileSwappedWithRow, tileSwappedWithCol int) {
-	temp := locallyStoredShuffledGameBoard[currentTileThatWasClickedRow][currentTileThatWasClickedCol]
-	locallyStoredShuffledGameBoard[currentTileThatWasClickedRow][currentTileThatWasClickedCol] = locallyStoredShuffledGameBoard[tileSwappedWithRow][tileSwappedWithCol]
-	locallyStoredShuffledGameBoard[tileSwappedWithRow][tileSwappedWithCol] = temp
 }

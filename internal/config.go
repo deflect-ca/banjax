@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/rand"
 	"os"
 	"regexp"
 	"sync"
@@ -20,8 +19,6 @@ import (
 
 	"gopkg.in/yaml.v2"
 )
-
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 type Config struct {
 	RegexesWithRates                       []RegexWithRate                `yaml:"regexes_with_rates"`
@@ -81,17 +78,21 @@ type Config struct {
 	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
 	SitesToDisableBaskerville   map[string]bool     `yaml:"sites_to_disable_baskerville"`
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
+
 	//puzzle captcha requirements
 	ThumbnailEntropySecret                string `yaml:"thumbnail_entropy_secret"`
 	PuzzleEntropySecret                   string `yaml:"puzzle_entropy_secret"`
 	ClickChainEntropySecret               string `yaml:"click_chain_entropy_secret"`
 	EnableGameplayDataCollection          bool   `yaml:"enable_gameplay_data_collection"`
 	RateLimitBruteForceSolutionTTLSeconds int    `yaml:"rate_limit_brute_force_solution_ttl_seconds"`
-	UseFreshEntropyForDynamicTileRemoval  bool   `yaml:"use_fresh_entropy_for_dynamic_tile_removal"`
 
-	PathToDifficultyProfiles string `yaml:"path_to_difficulty_profiles"` //stores path to file in etc that stores difficulty profiles
+	PathToPuzzleUiIndex string `yaml:"path_to_puzzle_index_html"` //stores the index.html that we need to serve to users
+	PuzzleUIIndexHtml   string
 
-	DifficultyProfiles *DifficultyProfileConfig //stores the parsed difficulty profiles & provides getters
+	PathToDifficultyProfiles string                   `yaml:"path_to_difficulty_profiles"` //stores path to file in etc that stores difficulty profiles
+	DifficultyProfiles       *DifficultyProfileConfig //stores the parsed difficulty profiles & provides getters
+
+	PuzzleImageController *PuzzleImageController //stores all the images we need access to for validation purposes
 }
 
 /*individual difficulty profiles as desired in the banjax-puzzle-difficulty-config.yaml file*/
@@ -104,18 +105,6 @@ type DifficultyProfile struct {
 	ShowCountdownTimer      bool   `yaml:"showCountdownTimer"`
 }
 
-/*
-converts a specific index of a perfect square number of partitions into a (row, col)
-is required due to the possibility of a 'random' RemoveTileIndex being supplied, requiring the ability
-to recalculate a (row, col) pair for any given difficulty profile
-*/
-func (difficultyProfile DifficultyProfile) TileIndexToRowCol(index int) (row int, col int) {
-	square := int(math.Sqrt(float64(difficultyProfile.NPartitions)))
-	row = index / square
-	col = index % square
-	return
-}
-
 type DifficultyProfileConfig struct {
 	Profiles   map[string]DifficultyProfile `yaml:"profiles"`
 	Target     string                       `yaml:"target"`
@@ -125,26 +114,14 @@ type DifficultyProfileConfig struct {
 /*
 Returns the profile associated with "target" key in the yaml
 
-if the `useNewEntropy` is true, then on issuing the same difficulty challenge, each challenge will admit
-a different missing tile location (assuming that the RemoveTileIndex is specified as -1 in the configs)
-
-if the `userNewEntropy` is false, it will always use the same the same source of entropy (or the 0 <= RemoveTileIndex <= nPartitions
-as specified at in the difficulty profile .yaml configurations)
+accepts userChallengeCookie as argument such that if the profile specifies a random index,
+the source of entropy used is the users challenge cookie
 */
-func (profileConfig *DifficultyProfileConfig) GetProfileByTarget(useNewEntropy bool) (DifficultyProfile, bool) {
-	return profileConfig.GetProfileByName(profileConfig.Target, useNewEntropy)
+func (profileConfig *DifficultyProfileConfig) GetProfileByTarget(userChallengeCookie string) (DifficultyProfile, bool) {
+	return profileConfig.GetProfileByName(profileConfig.Target, userChallengeCookie)
 }
 
-/*
-Returns the difficulty profile by name. Useful if you imlpement a dynamic means of determining the type of challenge to issue
-
-if the `useNewEntropy` is true, then on issuing the same difficulty challenge, each challenge will admit
-a different missing tile location (assuming that the RemoveTileIndex is specified as -1 in the configs)
-
-if the `userNewEntropy` is false, it will always use the same the same source of entropy (or the 0 <= RemoveTileIndex <= nPartitions
-as specified at in the difficulty profile .yaml configurations)
-*/
-func (profileConfig *DifficultyProfileConfig) GetProfileByName(difficulty string, useNewEntropy bool) (DifficultyProfile, bool) {
+func (profileConfig *DifficultyProfileConfig) GetProfileByName(difficulty string, userChallengeCookie string) (DifficultyProfile, bool) {
 	profileConfig.configLock.RLock()
 	difficultyProfile, exists := profileConfig.Profiles[difficulty]
 
@@ -166,22 +143,21 @@ func (profileConfig *DifficultyProfileConfig) GetProfileByName(difficulty string
 	defer profileConfig.configLock.Unlock()
 
 	if difficultyProfile.RemoveTileIndex == -1 { //just in case another thread in the time we upgraded changed it...
-		difficultyProfile.RemoveTileIndex = profileConfig.getRandomTileIndex(difficultyProfile.NPartitions, useNewEntropy)
+		// difficultyProfile.RemoveTileIndex = profileConfig.getRandomTileIndex(userChallengeCookie, difficultyProfile.NPartitions)
+
+		/*
+			We use the users challenge cookie so that we can guarentee given the same cookie we can
+			produce the exact same result. This is required for validation!
+
+			NOTE on initVector:
+				- I would use profileConfig.Target as opposed to "tile_index_noise", but we first need to
+				confirm we are going to be selecting difficulty that way and not dynamically
+		*/
+		initVector := "tile_index_noise"
+		difficultyProfile.RemoveTileIndex = EntropyFromRange(initVector, userChallengeCookie, 0, difficultyProfile.NPartitions)
 	}
 
 	return difficultyProfile, true
-}
-
-/*
-uses the rng as entropy to pick a random number ∈ [0, nPartitions] which will be used to replace the
-removeTileIndex if it was specified as -1 in the configs
-*/
-func (profileConfig *DifficultyProfileConfig) getRandomTileIndex(nPartitions int, useNewEntropy bool) int {
-	if useNewEntropy {
-		//we reseed it the rng anytime we need new entropy, otherwise we use what already exists
-		rng.Seed(time.Now().UnixNano())
-	}
-	return rng.Intn(nPartitions)
 }
 
 /*Loads the profiles from the yaml file and stores them in a map for user*/

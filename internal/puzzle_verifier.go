@@ -2,57 +2,14 @@ package internal
 
 import (
 	"crypto/subtle"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 )
 
 type ClientSolutionSubmissionPayload struct {
 	Solution   string            `json:"solution"`
 	ClickChain []ClickChainEntry `json:"click_chain"`
-}
-
-type ClickVerificationAndIntegrity struct {
-	NClicksMade int               `json:"n_clicks_made"`
-	ClickChain  []ClickChainEntry `json:"click_chain"`
-}
-
-type DataCollected struct{}
-
-/*
-It is important to ensure that the IntegrityCheckCAPTCHAChallenge struct matches the client side definition with respect order when serializing.
-If the order does not match, then even if the data is correct, the resultant hash will not be the same.
-*/
-
-type IntegrityCheckCAPTCHAChallenge struct {
-	//the users desired endpoint to ensure we redirect to the appropraite location on success
-	UserDesiredEndpoint string `json:"users_intended_endpoint"`
-
-	//tells us the maximum number of clicks we allowed (later compared to the click chain which admits its own integrity check)
-	MaxAllowedMoves int `json:"maxNumberOfMovesAllowed"`
-
-	// 	//time to solve and issuance date tells us whether or not it was completed in a reasonable amount of time
-	TimeToSolveMS         int    `json:"timeToSolve_ms"`
-	ChallengeIssuedAtDate string `json:"challenge_issued_date"`
-
-	// 	//whether or not to collect data tells us what to expect in the collected data object
-	CollectDataEnabled bool `json:"collect_data"`
-
-	ChallengeDifficulty string `json:"challenge_difficulty"`
-}
-
-func (captchaIntegrity *IntegrityCheckCAPTCHAChallenge) MarshalBinary() ([]byte, error) {
-	return json.Marshal(captchaIntegrity)
-}
-
-func (captchaIntegrity *IntegrityCheckCAPTCHAChallenge) UnmarshalBinary(data []byte) error {
-	return json.Unmarshal(data, captchaIntegrity)
-}
-
-func (captchaIntegrity *IntegrityCheckCAPTCHAChallenge) JSONBytesToString(data []byte) string {
-	return string(data)
 }
 
 var (
@@ -65,104 +22,119 @@ var (
 	ErrVerificationFailedClickLimit     = errors.New("submitted solution failed click limit check")
 	ErrVerificationFailedBoardTiles     = errors.New("submitted solution failed board tiles check")
 	ErrVerificationFailedSolutionHash   = errors.New("submitted solution failed hash check")
+	ErrRecreatingTileMap                = errors.New("failed to recreate tile map for validation")
+	ErrRecreating                       = errors.New("failed to recreate the puzzle that gave rise to the solution")
 )
-
-type CAPTCHAVerifier struct {
-	PuzzleSecret          string
-	SolutionCache         *CAPTCHASolutionCache
-	ClickChainUtils       *ClickChainController
-	EnabledDataCollection bool //if it was enabled, we can verify we received the payload when validating and pass it to the prediction part
-}
-
-/*CAPTCHAVerifier verifies the solution payload submitted by the user.*/
-func NewCAPTCHAVerifier(
-
-	puzzleSecret string,
-	cache *CAPTCHASolutionCache,
-	clickChainController *ClickChainController,
-
-	enabledDataCollection bool,
-
-) *CAPTCHAVerifier {
-
-	return &CAPTCHAVerifier{
-		PuzzleSecret:          puzzleSecret,
-		SolutionCache:         cache,
-		ClickChainUtils:       clickChainController,
-		EnabledDataCollection: enabledDataCollection,
-	}
-}
 
 /*
 VerifySolution verifies the solution payload submitted by the user.
 
-The solution is a click chain (similar to how a blockchain works) that we integrity check and verify.
-It's a record of the clicks made while the user was solving.
+The solution is a hash and integrity/anti-cheat is a click chain (similar to how a blockchain works) that we integrity check and verify.
 
-NOTE: Technically, this is just 1/2 of the solution. We are also meant to collect data about how the
+After the integrity check of the click chain is complete we can trust the timestamp embedded into the genesis click chain item
+as well as the users challenge cookie string value being the one we issued to them to complete this challenge in particular because:
+ 1. The genesis click chain item was created using the challenge cookie and
+ 2. their original TileIDs were re-computed using their cookie value which would not produce the correct tileIDs and subsequently solution otherwise
+
+NOTE:
+Technically, this is just 1/2 of the solution. We are also meant to collect data about how the
 game was played and make a prediction about bot or not as the hypothesis behind state the "state-space search problem"
 puzzle was that bots and people would play the game differently. Regardless, we need to make sure that the solution
 itself is indeed correct and we do so with a call to VerifySolution
 */
-func (captchaVerifier *CAPTCHAVerifier) VerifySolution(config *Config, userChallengeCookieString string, userCaptchaSolution ClientSolutionSubmissionPayload) error {
+func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString string, userCaptchaSolution ClientSolutionSubmissionPayload) error {
 
-	//get expected solution
-	locallyStoredSolution, exists := captchaVerifier.SolutionCache.Get(userChallengeCookieString)
-	if !exists {
-		log.Printf("Challenge expired or missing for: %s", userChallengeCookieString)
-		return ErrCookieDeleteOrNeverExisted
+	//we need to derive a solution to their challenge, and recompute their shuffled & unshuffled board
+	var shuffledBoard [][]*TileWithoutImage
+	var unshuffledBoard [][]*TileWithoutImage
+	var expectedSolution string
+	var err error
+	shuffledBoard, unshuffledBoard, expectedSolution, err = GenerateExpectedSolution(config, userChallengeCookieString)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrRecreating, err)
 	}
 
-	//apply integrity checks
-	err := captchaVerifier.ClickChainUtils.IntegrityCheckClickChainGenesis(userCaptchaSolution.ClickChain, locallyStoredSolution.GenesisClickChainItem)
-	if err != nil {
-		log.Println("Failed genesis click chain entry direct comparison")
-		return fmt.Errorf("%w: %v", ErrInvalidGenesisClickChainEntry, err)
+	if shuffledBoard == nil || unshuffledBoard == nil || expectedSolution == "" {
+		return fmt.Errorf("%w: %v", ErrRecreating, errors.New("one or more generated outputs were invalid"))
 	}
 
-	err = captchaVerifier.ClickChainUtils.IntegrityCheckClickChain(userCaptchaSolution.Solution, userChallengeCookieString, userCaptchaSolution.ClickChain, locallyStoredSolution.ShuffledGameBoard, locallyStoredSolution.UnshuffledGameBoard)
+	//at this point we have recomputed everything, we can now perform the integrity check on the click chain as well as the time limit, click limit and solution checks
+
+	//integrity checks
+
+	err = IntegrityCheckClickChain(userCaptchaSolution.Solution, userChallengeCookieString, config.ClickChainEntropySecret, userCaptchaSolution.ClickChain, shuffledBoard, unshuffledBoard)
 	if err != nil {
-		log.Println("Failed to integrity check click chain")
 		return fmt.Errorf("%w: %v", ErrFailedClickChainIntegrity, err)
 	}
 
-	//solutions checks
+	//constraints & solutions checks
 
-	err = captchaVerifier.verifyTimeLimit(config, locallyStoredSolution.PuzzleIntegrityProperties, userCaptchaSolution.ClickChain)
+	err = verifyTimeLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
 	if err != nil {
-		log.Println("Failed to verify time limit")
 		return fmt.Errorf("%w: %v", ErrVerificationFailedTimeLimit, err)
 	}
 
-	err = captchaVerifier.verifyClickLimit(locallyStoredSolution.PuzzleIntegrityProperties, userCaptchaSolution.ClickChain)
+	err = verifyClickLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
 	if err != nil {
-		log.Println("Failed to verify click limit")
 		return fmt.Errorf("%w: %v", ErrVerificationFailedClickLimit, err)
 	}
 
-	err = captchaVerifier.verifySolutionHash(userCaptchaSolution.Solution, locallyStoredSolution.PrecomputedSolution)
+	err = VerifySolutionHash(userCaptchaSolution.Solution, expectedSolution)
 	if err != nil {
-		log.Println("Failed to verify solution hash")
 		return fmt.Errorf("%w: %v", ErrVerificationFailedBoardTiles, err)
 	}
-
-	captchaVerifier.SolutionCache.Delete(userChallengeCookieString)
 
 	return nil
 }
 
-/*
-verifyTimeLimit is to be called only AFTER having completed ALL of the following:
- 1. integrity checked the click chain
- 2. integrity checked the CAPTCHA properties (which include the maximum number of clicks a user is allowed to make)
+func GenerateExpectedSolution(config *Config, userChallengeCookieString string) (shuffledBoard [][]*TileWithoutImage, unshuffledBoard [][]*TileWithoutImage, expectedSolution string, err error) {
 
-We need to check the click chain because only then can we trust the date of the genesis click chain entry which is the date of the challenge issuance
-We need the captcha properties integrity check since that is how we tie this current captcha challenge to when the challenge was issued (linking the properties to the click list)
+	includeB64ImageData := false // dont need b64 image data when verifying the solution
+	var tileMap TileMap[TileWithoutImage]
 
-The function compare the date of the properties with the date of the captcha to ensure that they are the same (as when issuing the challenge we use the genesis blocks date as the start time)
-From there, we lookup the amount of time allowed by using the difficulty (which was also part of the integrity check properties) to see if nowTime exceeds startTime + max time allowed as by difficulty
-*/
-func (captchaVerifier *CAPTCHAVerifier) verifyTimeLimit(config *Config, locallyStoredCaptchaProperties IntegrityCheckCAPTCHAChallenge, submittedClickChain []ClickChainEntry) error {
+	tileMap, err = TileMapFromImage[TileWithoutImage](config, userChallengeCookieString, includeB64ImageData)
+	if err != nil {
+		err = fmt.Errorf("%w: %v", ErrRecreatingTileMap, err)
+		return
+	}
+
+	var exists bool
+	targetDifficulty, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
+	if !exists {
+		err = ErrTargetDifficultyDoesNotExist
+		return
+	}
+
+	shuffledBoard, err = NewCAPTCHABoard(tileMap, targetDifficulty)
+	if err != nil {
+		err = fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
+		return
+	}
+
+	// Note: We need to remove the tile prior to making a deep copy such that both shuffled and unshuffled boards have the null tile as needed for validation.
+	if err = RemoveTileFromBoard(shuffledBoard, targetDifficulty); err != nil {
+		err = fmt.Errorf("%w: %v", ErrFailedRemovingTile, err)
+		return
+	}
+
+	unshuffledBoard, err = DeepCopyTileBoard(shuffledBoard)
+	if err != nil {
+		err = fmt.Errorf("%w: %v", ErrFailedNewGameboard, err)
+		return
+	}
+
+	nReShuffles := 0
+	if err = ShuffleBoard(shuffledBoard, unshuffledBoard, targetDifficulty, nReShuffles, config.PuzzleEntropySecret, userChallengeCookieString); err != nil {
+		err = fmt.Errorf("%w: %v", ErrFailedShuffling, err)
+		return
+	}
+
+	expectedSolution = CalculateExpectedSolution(unshuffledBoard, userChallengeCookieString)
+
+	return
+}
+
+func verifyTimeLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
 
 	//every click chain will at least admit the genesis block
 	if len(submittedClickChain) == 0 {
@@ -174,31 +146,16 @@ func (captchaVerifier *CAPTCHAVerifier) verifyTimeLimit(config *Config, locallyS
 		return errors.New("ErrExpectedAtleastOneClickRequiredToSolve")
 	}
 
-	dateOfIssuanceByProperties, err := captchaVerifier.isValidISOString(locallyStoredCaptchaProperties.ChallengeIssuedAtDate)
-	if err != nil {
-		return fmt.Errorf("ErrFailedToParseData: Expected date of issuance from properties to be valid ISO 3399 compliant string, got: %s", locallyStoredCaptchaProperties.ChallengeIssuedAtDate)
-	}
-
 	genesisChainEntryIssuedAtTime := submittedClickChain[0].TimeStamp
 
-	dateOfIssuanceByClickChain, err := captchaVerifier.isValidISOString(genesisChainEntryIssuedAtTime)
+	dateOfIssuanceByClickChain, err := isValidISOString(genesisChainEntryIssuedAtTime)
 	if err != nil {
 		return fmt.Errorf("ErrFailedToParseData: Expected date of issuance from click chain to be valid ISO 3399 compliant string, got: %s", genesisChainEntryIssuedAtTime)
 	}
 
-	if locallyStoredCaptchaProperties.ChallengeIssuedAtDate != genesisChainEntryIssuedAtTime {
-		return fmt.Errorf("ErrFailedDateComparison: Expected data from genesis chain entry: %s to match in integrity checked properties %s", genesisChainEntryIssuedAtTime, locallyStoredCaptchaProperties.ChallengeIssuedAtDate)
-	}
-
-	if !dateOfIssuanceByProperties.Equal(dateOfIssuanceByClickChain) {
-		return fmt.Errorf("ErrFailedDateComparison: Expected timestamp from genesis chain entry: %s to match timestamp in integrity-checked properties: %s", genesisChainEntryIssuedAtTime, locallyStoredCaptchaProperties.ChallengeIssuedAtDate)
-	}
-
-	//use the `submittedCaptchaProperties.IntegrityCheckFields.ChallengeDifficulty` to get the amount of time they were allowed to use
-	//we use `false` for entropy but it doesn't matter the tile to remove isnt considered here, we only care about issuance which doesn't change
-	difficultyProfile, exists := config.DifficultyProfiles.GetProfileByName(locallyStoredCaptchaProperties.ChallengeDifficulty, config.UseFreshEntropyForDynamicTileRemoval)
+	difficultyProfile, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
 	if !exists {
-		return fmt.Errorf("ErrFailedDifficultyProfileLookup: The difficulty submitted by user is unknown: %s", locallyStoredCaptchaProperties.ChallengeDifficulty)
+		return ErrTargetDifficultyDoesNotExist
 	}
 
 	//now compare the time it was issued with the time we get from the challenge difficulty to know whether or not they actually exceeded the time limit
@@ -217,16 +174,7 @@ func (captchaVerifier *CAPTCHAVerifier) verifyTimeLimit(config *Config, locallyS
 	return nil
 }
 
-/*
-verifyClickLimit is to be called only AFTER having completed ALL of the following:
- 1. integrity checked the click chain
- 2. integrity checked the CAPTCHA properties (which include the maximum number of clicks a user is allowed to make)
- 3. verified that the clicks made from start to finish actually result in the puzzle board that was submitted
- 4. verified that the submitted puzzle board was valid
-
-Together, all of these checks ensure that the number of clicks used did not exceed the preset maximum as well as actually returned a valid result
-*/
-func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(locallyStoredCaptchaProperties IntegrityCheckCAPTCHAChallenge, submittedClickChain []ClickChainEntry) error {
+func verifyClickLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
 
 	//every click chain will at least admit the genesis block
 	if len(submittedClickChain) == 0 {
@@ -238,28 +186,28 @@ func (captchaVerifier *CAPTCHAVerifier) verifyClickLimit(locallyStoredCaptchaPro
 		return errors.New("ErrExpectedAtleastOneClickRequiredToSolve")
 	}
 
+	difficultyProfile, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
+	if !exists {
+		return ErrTargetDifficultyDoesNotExist
+	}
+
 	//click chain will contain the genesis, so we account for it by subtracting by 1 to make sure that the number of clicks is indeed within allowed limit
 	nClicksMade := len(submittedClickChain) - 1
 
-	if nClicksMade > locallyStoredCaptchaProperties.MaxAllowedMoves {
-		return fmt.Errorf("ErrClickLimitExceeded: expected nClicksMade: %d < maximum allowed number of clicks to solve puzzle: %d", nClicksMade, locallyStoredCaptchaProperties.MaxAllowedMoves)
+	if nClicksMade > difficultyProfile.MaxNumberOfMovesAllowed {
+		return fmt.Errorf("ErrClickLimitExceeded: expected nClicksMade: %d < maximum allowed number of clicks to solve puzzle: %d", nClicksMade, difficultyProfile.MaxNumberOfMovesAllowed)
 	}
 
 	return nil
 }
 
 /*
-verifySolutionHash is to be called only AFTER having completed ALL of the following:
- 1. integrity checked the click chain
- 2. integrity checked the CAPTCHA properties (which include the maximum number of clicks a user is allowed to make)
- 3. verified that the clicks made from start to finish actually result in the puzzle board that was submitted
- 4. verified that the submitted puzzle board was valid
-    verifySolutionHash actually checks to see that the answer is right
+because "==" leaks info that can be used for timing attacks (users can just keep making strings bigger and bigger to see how it behaves)
+we use crypto.subtle's ConstantTimeCompare
 */
-func (captchaVerifier *CAPTCHAVerifier) verifySolutionHash(submittedSolution, locallyStoredPrecomputedSolution string) error {
-	//because "==" leaks info that can be used for timing attacks (users can just keep making strings bigger and bigger to see how it behaves)
-	//we use crypto.subtle's ConstantTimeCompare
-	solutionA := []byte(submittedSolution)
+func VerifySolutionHash(userSubmittedSolution, locallyStoredPrecomputedSolution string) error {
+
+	solutionA := []byte(userSubmittedSolution)
 	solutionB := []byte(locallyStoredPrecomputedSolution)
 
 	if len(solutionA) != len(solutionB) {
@@ -269,10 +217,11 @@ func (captchaVerifier *CAPTCHAVerifier) verifySolutionHash(submittedSolution, lo
 	if subtle.ConstantTimeCompare(solutionA, solutionB) == 1 {
 		return nil
 	}
-	return fmt.Errorf("ErrInvalidSolution: Expected %s, received %s", locallyStoredPrecomputedSolution, submittedSolution)
+
+	return fmt.Errorf("ErrInvalidSolution: Expected %s, received %s", locallyStoredPrecomputedSolution, userSubmittedSolution)
 }
 
-func (captchaVerifier *CAPTCHAVerifier) isValidISOString(dateString string) (time.Time, error) {
+func isValidISOString(dateString string) (time.Time, error) {
 	parsedTime, err := time.Parse(time.RFC3339, dateString)
 	if err != nil {
 		return time.Time{}, errors.New("invalid ISO 8601 date string")

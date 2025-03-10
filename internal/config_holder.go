@@ -157,6 +157,23 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
+	/*
+		should we also put the puzzle bytes in an embed as we do with sha challenge above?
+
+		ie: //go:embed sha-inverse-challenge.html
+		var shaInvChallengeEmbed []byte
+
+		because right now we just read in the bytes and pass them into config then reference in handlers?
+
+	*/
+	if config.PathToPuzzleUiIndex != "" {
+		htmlContent, err := os.ReadFile(config.PathToPuzzleUiIndex)
+		if err != nil {
+			return nil, fmt.Errorf("ErrFailedReadingPuzzleIndexHTML: %v", err)
+		}
+		config.PuzzleUIIndexHtml = string(htmlContent)
+	}
+
 	if config.PathToDifficultyProfiles != "" {
 		var loadedConfig = &DifficultyProfileConfig{}
 		err := loadedConfig.UnmarshalYAML(config.PathToDifficultyProfiles)
@@ -164,6 +181,36 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 			return nil, fmt.Errorf("ErrFailedUnmarshalDifficultyProfileConfig: %v", err)
 		}
 		config.DifficultyProfiles = loadedConfig
+	}
+
+	var targetDifficulty DifficultyProfile
+
+	if config.DifficultyProfiles != nil {
+		difficultyProfiles, exists := config.DifficultyProfiles.GetProfileByTarget("")
+		if !exists {
+			return nil, fmt.Errorf("ErrTargetDifficultyDoesNotExist: %s", config.DifficultyProfiles.Target)
+		}
+
+		targetDifficulty = difficultyProfiles
+	}
+
+	if config.PuzzleImageController == nil {
+		//init first time, otherwise reloading new state
+		var imgController = &PuzzleImageController{}
+		err = imgController.Load(targetDifficulty.NPartitions)
+		if err != nil {
+			return nil, fmt.Errorf("ErrFailedLoadingImageControllerState: %v", err)
+		}
+		config.PuzzleImageController = imgController
+
+	} else {
+		//reloading a new config
+		if targetDifficulty.NPartitions != config.PuzzleImageController.numberOfPartitions {
+			err = config.PuzzleImageController.Load(targetDifficulty.NPartitions)
+			if err != nil {
+				return nil, fmt.Errorf("ErrFailedLoadingImageControllerState: %v", err)
+			}
+		}
 	}
 
 	return config, nil
