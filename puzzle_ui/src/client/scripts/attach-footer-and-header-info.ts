@@ -2,7 +2,7 @@
 /**
     attachFooterHeaderHostname allows us to dynamically inject the footer and header hostname in to match the hostname the requester was accessing
 */
-export default function attachFooterHeaderHostname(users_intended_endpoint:string):{success:boolean, error:Error | null} {
+export default function attachFooterHeaderHostname():{success:boolean, error:Error | null} {
 
     try {
 
@@ -17,13 +17,11 @@ export default function attachFooterHeaderHostname(users_intended_endpoint:strin
         //otherwise, attach it where possible 
 
         if (footerSiteName) {
-            const desired_endpoint_url = new URL(users_intended_endpoint)
-            footerSiteName.textContent = desired_endpoint_url.hostname
+            footerSiteName.textContent = document.location.hostname
         }
     
         if (headerSiteName) {
-            const desired_endpoint_url = new URL(users_intended_endpoint)
-            headerSiteName.textContent = desired_endpoint_url.hostname
+            headerSiteName.textContent = document.location.hostname
         }
         
 
@@ -31,6 +29,6 @@ export default function attachFooterHeaderHostname(users_intended_endpoint:strin
 
     } catch(error) {
         //because its most likely that you didnt provide something that could be expressed as url (ie TypeError: Failed to construct 'URL': Invalid URL)
-        return {success:false, error:new Error(`ErrCaughtException: while attachFooterHeaderHostname(users_intended_endpoint:${users_intended_endpoint}) ${error}`)}
+        return {success:false, error:new Error(`ErrCaughtException: while attachFooterHeaderHostname() ${error}`)}
     }
 }

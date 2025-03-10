@@ -21,3 +21,35 @@ export function getCookieValue(targetCookieName: string): string | Error {
 
     return targetCookieValue
 }
+
+export function attachCookie(
+    
+    name:string, 
+    value:string, 
+    args?:{
+        expirySecondsFromNow?:number, 
+        path?:string, 
+        sameSite?:"Strict" | "Lax" | "None"
+    }
+
+) : void {
+
+    let expiryValue = args?.expirySecondsFromNow ?? 30
+    let sameSiteValue = args?.sameSite ?? "Lax"
+    let pathValue = args?.path ?? "/"
+
+    const expiryDate = new Date()
+    expiryDate.setSeconds(expiryDate.getSeconds() + expiryValue)
+
+    const isHTTPSConnection = window.location.protocol === "https"
+
+    let cookieToAttach = `${name}=${value}; path=${pathValue}; SameSite=${sameSiteValue}; Max-Age=${expiryValue}; expires=${expiryDate.toUTCString()};`
+    
+    //if its https or samesite is 'none', we need to add 'secure' since some 
+    //browsers (like safari) require it and make testing a pain when working over http
+    if (isHTTPSConnection || sameSiteValue === "None") {
+        cookieToAttach += " Secure;"
+    }
+
+    document.cookie = cookieToAttach
+}

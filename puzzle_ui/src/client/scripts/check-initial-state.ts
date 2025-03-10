@@ -38,8 +38,6 @@ export default function checkForInitialState():{success:boolean, error:Error | n
     }
 }
 
-
-
 function isValidPuzzleChallenge(data: any): data is PuzzleChallenge {
     return (
         typeof data === "object" && data !== null &&
@@ -56,22 +54,7 @@ function isValidPuzzleChallenge(data: any): data is PuzzleChallenge {
             //timeToSolve_ms must be a positive integer
             typeof data.timeToSolve_ms === "number" && data.timeToSolve_ms > 0 &&
 
-            //showCountdownTimer must be a boolean (either true or false is valid)
-            typeof data.showCountdownTimer === "boolean" &&
-
-            //integrity_check must be a non-empty string
-            typeof data.integrity_check === "string" && data.integrity_check.trim() !== "" &&
-
-            //users_intended_endpoint must be a non-empty string
-            typeof data.users_intended_endpoint === "string" && data.users_intended_endpoint.trim() !== "" &&
-
-            //challenge_issued_date must be a non-empty string (ISO date expected, but we just check it's present)
-            typeof data.challenge_issued_date === "string" && data.challenge_issued_date.trim() !== "" &&
-
             //click_chain must contain exactly ONE entry at the start
-            Array.isArray(data.click_chain) && data.click_chain.length === 1 &&
-
-            //challenge_difficulty must be a non-empty string
-            typeof data.challenge_difficulty === "string" && data.challenge_difficulty.trim() !== ""
+            Array.isArray(data.click_chain) && data.click_chain.length === 1
     )
 }

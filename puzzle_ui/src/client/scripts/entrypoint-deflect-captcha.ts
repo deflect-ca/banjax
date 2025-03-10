@@ -51,9 +51,12 @@ import 'core-js/stable'
 import attachFooterHeaderHostname from "./attach-footer-and-header-info"
 import attachInfoOverlay from "./puzzle-instructions-info-button"
 import attachThumbnailOverlay from "./inspect-target-image-modal"
+import {stringToBase64WithFallback} from './utils/b64-utils'
 import ClientCaptchaSolver from "./client-captcha-solver"
 import checkForInitialState from './check-initial-state'
 import RefreshPuzzle from "./request-different-puzzle"
+import {attachCookie} from './utils/cookie-utils'
+
 
 
 
@@ -86,14 +89,13 @@ const HOSTNAME_FOOTER_HEADER_ERROR_ENDPOINT = "/__banjax/error/hostname-footer-h
 const REQUEST_NEW_PUZZLE_ERROR_ENDPOINT = "/__banjax/error/request-different-puzzle-error"
 const DETAILED_INSTRUCTION_ERROR_ENDPOINT = "/__banjax/error/detail-instruction-error"
 const INSPECT_THUMBNAIL_ERROR_ENDPOINT = "/__banjax/error/inspect-thumbnail-error"
+const ENTRYPOINT_INIT_ERROR_ENDPOINT = "/__banjax/error/entrypoint-init-error"
 const CAPTCHA_INIT_ERROR_ENDPOINT = "/__banjax/error/captcha-init-error"
-const GENERIC_ERROR_ENDPOINT = "/__banjax/error/generic-error"
 
 
-const VERIFY_SOLUTION_ENDPOINT = "/__banjax/validate_puzzle_solution"
-const NEW_PUZZLE_ENDPOINT = "/__banjax/refresh_puzzle_state"
+const REFRESH_PUZZLE_STATE_ENDPOINT = "/__banjax/refresh/puzzle-state"
 
-
+// const VERIFY_SOLUTION_ENDPOINT = "/__banjax/validate_puzzle_solution"
 
 
 //init CAPTCHA after dom has fully loaded
@@ -111,7 +113,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     all the way back out and exploit the existing retry+fallback mechanisms that exist
 */
 const captchaErrorListener = async (event: CustomEvent) => {
-    console.error(`ErrGlobalCaptcha: ${event.detail}`)
+    if (ENABLE_DEBUG) {
+        console.error(`ErrGlobalCaptcha: ${event.detail}`)
+    }
     await runCaptcha(clientSideAttempt, event.detail)
 }
 
@@ -140,7 +144,7 @@ async function runCaptcha(clientSideAttempt:number=0, error?: any):Promise<void>
 
     } catch(error) {
 
-        let errEndpoint = GENERIC_ERROR_ENDPOINT
+        let errEndpoint = ENTRYPOINT_INIT_ERROR_ENDPOINT
 
         if (error instanceof Error && error.message.includes("ErrFailedClientCaptchaInit")) {
             errEndpoint = CAPTCHA_INIT_ERROR_ENDPOINT
@@ -181,7 +185,8 @@ async function phoneHomeForCaptcha() {
     } else {
 
         //this request will already admit the challenge cookie, so we can acceess that from headers
-        const requestForPuzzle = await fetch(NEW_PUZZLE_ENDPOINT, {
+        //NOTE this uses the refresh endpoint
+        const requestForPuzzle = await fetch(REFRESH_PUZZLE_STATE_ENDPOINT, {
             method:"GET",
             credentials:"include"
         })
@@ -206,15 +211,17 @@ async function phoneHomeForCaptcha() {
     //the constructor sets up the entire puzzle - ie just initializing is enough
     //NOTE: Since this is a critical error, we will immediately check for retry by throwing and catching in the runChallenge.
     // This is unlike the remaining scripts which are nice to have for user experience, but not critical to functionality
-    const clientSideSolver = new ClientCaptchaSolver(puzzleChallenge, VERIFY_SOLUTION_ENDPOINT, CAPTCHA_COOKIE_NAME, ENABLE_DEBUG)
+    const clientSideSolver = new ClientCaptchaSolver(puzzleChallenge, CAPTCHA_COOKIE_NAME, ENABLE_DEBUG)
     const successfullyInitializedCaptcha = clientSideSolver.initCaptcha()
     if (!successfullyInitializedCaptcha.success) {
         throw new Error(`ErrFailedClientCaptchaInit: ${successfullyInitializedCaptcha.error}`)
     }
 
-    //attaches client side rate limited request new puzzle button. NOTE: We also rate limit server side
+    //attaches client side rate limited request new puzzle button. (NOTE: We also rate limit server side)
+    //we also provide a reference to the clientSideSolver defined above such that we can just update state 
+    //on receiving new puzzle without needing to reattach all listeners
     const {maxNumberOfNewPuzzles, unitTimeInMs} = CLIENT_SIDE_RATE_LIMIT_WINDOW
-    const rateLimitedPuzzleRefresher = new RefreshPuzzle(maxNumberOfNewPuzzles, unitTimeInMs, clientSideSolver, NEW_PUZZLE_ENDPOINT, ENABLE_DEBUG)
+    const rateLimitedPuzzleRefresher = new RefreshPuzzle(maxNumberOfNewPuzzles, unitTimeInMs, clientSideSolver, REFRESH_PUZZLE_STATE_ENDPOINT, ENABLE_DEBUG)
     const successfullyAttachedRefresh = rateLimitedPuzzleRefresher.initPuzzleRefresh()
     if (!successfullyAttachedRefresh.success) {
         if (successfullyAttachedRefresh.error instanceof Error) {
@@ -238,7 +245,7 @@ async function phoneHomeForCaptcha() {
         }                
     }
     
-    const successfullyAttachedHostname = attachFooterHeaderHostname(puzzleChallenge.users_intended_endpoint)
+    const successfullyAttachedHostname = attachFooterHeaderHostname()
     if (!successfullyAttachedHostname.success) {
         if (successfullyAttachedHostname.error instanceof Error) {
             await reportError(successfullyAttachedHostname.error, HOSTNAME_FOOTER_HEADER_ERROR_ENDPOINT)
@@ -246,21 +253,28 @@ async function phoneHomeForCaptcha() {
     }
 }
 
-
-async function reportError(error:Error, endpoint:string=GENERIC_ERROR_ENDPOINT):Promise<{allowedToRetry:boolean}> {
+/**
+reportError is limited for the time being to reporting the `errorType` that occured (inferred from the endpoint) and 
+we rely on the user agent in order to recreate the issue. We send additional information about the stack trace through a cookie
+ */
+async function reportError(error:Error, endpoint:string):Promise<{allowedToRetry:boolean}> {
 
     try {
+        
+        const metadata = stringToBase64WithFallback(error.stack ?? error.message).slice(0, 4000) //to guarentee fitting into a cookie
+
+        attachCookie("__banjax_error", metadata, {expirySecondsFromNow:10})
+
         //we will add additional info later
         const somethingWentWrong_requestPermissionToRetry = await fetch(endpoint, {
-            method:"POST",
+            method:"GET",
             headers: {"Content-Type": "application/json"},
             credentials:"include",
-            body:JSON.stringify({error:`${error}`})
         })
 
         if (somethingWentWrong_requestPermissionToRetry.ok) {
             if (somethingWentWrong_requestPermissionToRetry.status === 202) {
-                //we got permission to retry, otherwise we would be blocked
+                //we got permission to retry, otherwise we would be blocked server side
                 return {allowedToRetry:true}
             }
         }
@@ -276,7 +290,10 @@ async function reportError(error:Error, endpoint:string=GENERIC_ERROR_ENDPOINT):
 
 async function runFallbackCaptcha() {
 
-    console.log("RUNNING FALLBACK!")
+    if (ENABLE_DEBUG) {
+        console.debug("RUNNING FALLBACK!")
+    }
+    
     /*
         classic POW challenge - either hardcoded or fetch for the existing deflect challenge? That way the user always has something...
 
@@ -285,3 +302,4 @@ async function runFallbackCaptcha() {
     
     */
 }
+

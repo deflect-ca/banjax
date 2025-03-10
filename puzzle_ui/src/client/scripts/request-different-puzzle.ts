@@ -21,15 +21,15 @@ export default class RefreshPuzzle {
 
     currentMessageTimeout:number | null = null
 
-    NEW_PUZZLE_ENDPOINT:string
+    REFRESH_PUZZLE_STATE_ENDPOINT:string
     
     private debug:boolean
 
-    constructor(maxNumberOfNewPuzzles: number, unitTimeInMs: number, clientSideSolver: ClientCaptchaSolver, NEW_PUZZLE_ENDPOINT:string, debug?:boolean) {
+    constructor(maxNumberOfNewPuzzles: number, unitTimeInMs: number, clientSideSolver: ClientCaptchaSolver, REFRESH_PUZZLE_STATE_ENDPOINT:string, debug?:boolean) {
         this.maxNumberOfNewPuzzles = maxNumberOfNewPuzzles
         this.unitTime = unitTimeInMs
-        this.clientSideSolver = clientSideSolver
-        this.NEW_PUZZLE_ENDPOINT = NEW_PUZZLE_ENDPOINT
+        this.clientSideSolver = clientSideSolver //reference to existing solver
+        this.REFRESH_PUZZLE_STATE_ENDPOINT = REFRESH_PUZZLE_STATE_ENDPOINT
         this.debug = debug ?? false
     }
 
@@ -58,7 +58,6 @@ export default class RefreshPuzzle {
             }
             
             if (requestPuzzleButton !== null) {
-                // requestPuzzleButton.addEventListener("click", this.debounce(this.requestNewPuzzle.bind(this), 150))
                 requestPuzzleButton.removeEventListener("click", this.requestNewPuzzle)
                 requestPuzzleButton.addEventListener("click", this.debounce(this.requestNewPuzzle.bind(this), 150))
                 //if we have access to everything we need we can have the cursor be a pointer so users know the can click it
@@ -80,7 +79,6 @@ export default class RefreshPuzzle {
         if (this.puzzleCount >= this.maxNumberOfNewPuzzles) {
             
             this.showCooldownMessage("You've requested a new puzzle too many times. Please wait before trying again.", messageToUser_type, 60_000, true)
-            // this.showCooldownMessage(`Please wait ${this.unitTime / 1000} seconds before requesting a new puzzle.`, messageToUser_type, 60_000) //60 seconds
             if (this.requestPuzzleButton) {
                 this.requestPuzzleButton.classList.add("not-currently-clickable")
                 this.requestPuzzleButton.classList.remove("enabled")
@@ -132,7 +130,7 @@ export default class RefreshPuzzle {
                 this.addLoadingOverlay(puzzleContainerElement)
             }
 
-            const requestForPuzzle = await fetch(this.NEW_PUZZLE_ENDPOINT, {
+            const requestForPuzzle = await fetch(this.REFRESH_PUZZLE_STATE_ENDPOINT, {
                 method:"GET",
                 credentials:"include"
             })

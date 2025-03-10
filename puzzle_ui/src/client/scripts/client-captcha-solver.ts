@@ -1,6 +1,7 @@
 import {stringToBase64WithFallback, clickChainToBase64WithFallback} from "./utils/b64-utils"
+import {attachCookie, getCookieValue} from "./utils/cookie-utils"
 import {generateHmacWithFallback} from "./utils/hmac-utils"
-import {getCookieValue} from "./utils/cookie-utils"
+
 
 
 
@@ -21,7 +22,7 @@ export default class ClientCaptchaSolver {
     private timerId: number | null = null
     private startTime: number = 0
     private totalTimeAllowed: number = 0
-    private challengeIssuedAtTime:string
+    // private challengeIssuedAtTime:string
 
     private puzzleContainerElement:HTMLElement
     private thumbnailElement: HTMLImageElement
@@ -31,27 +32,27 @@ export default class ClientCaptchaSolver {
 
     currentMessageTimeout: number | null = null
 
-    private challengeDifficulty:difficulty
+    // private challengeDifficulty:difficulty
 
     private tileElements: HTMLElement[][] = []
 
     private gameplayDataCollectionEnabled:boolean
 
-    private desiredEndpoint:string
+    // private desiredEndpoint:string
 
-    private VERIFY_SOLUTION_ENDPOINT:string
+    // private VERIFY_SOLUTION_ENDPOINT:string
     private CAPTCHA_COOKIE_NAME: string
 
     private debug:boolean
 
 
-    constructor(puzzleChallenge: PuzzleChallenge, VERIFY_SOLUTION_ENDPOINT:string, CAPTCHA_COOKIE_NAME:string, debug?:boolean) {
+    constructor(puzzleChallenge: PuzzleChallenge, CAPTCHA_COOKIE_NAME:string, debug?:boolean) {
         
         this.debug = debug ?? false
 
         this.isSubmittingSolution = false
 
-        this.VERIFY_SOLUTION_ENDPOINT = VERIFY_SOLUTION_ENDPOINT
+        // this.VERIFY_SOLUTION_ENDPOINT = VERIFY_SOLUTION_ENDPOINT
         this.CAPTCHA_COOKIE_NAME = CAPTCHA_COOKIE_NAME
 
         this.gameBoard = puzzleChallenge.gameBoard
@@ -65,13 +66,13 @@ export default class ClientCaptchaSolver {
 
         this.gameplayDataCollectionEnabled = puzzleChallenge.collect_data
 
-        this.desiredEndpoint = puzzleChallenge.users_intended_endpoint
+        // this.desiredEndpoint = puzzleChallenge.users_intended_endpoint
 
-        this.challengeIssuedAtTime = puzzleChallenge.challenge_issued_date
+        // this.challengeIssuedAtTime = puzzleChallenge.challenge_issued_date
 
         this.clickChain = puzzleChallenge.click_chain
 
-        this.challengeDifficulty = puzzleChallenge.challenge_difficulty
+        // this.challengeDifficulty = puzzleChallenge.challenge_difficulty
 
         const thumbnailElement = document.getElementById("deflect-puzzle-thumbnail") as HTMLImageElement | null
         if (!thumbnailElement) {
@@ -245,7 +246,7 @@ export default class ClientCaptchaSolver {
         this.clickCountTracker = 0
         
         this.totalTimeAllowed = newPuzzleChallenge.timeToSolve_ms //reset in csae they tried and time elapsed, so we reset the time for them
-        this.challengeIssuedAtTime = newPuzzleChallenge.challenge_issued_date
+        // this.challengeIssuedAtTime = newPuzzleChallenge.challenge_issued_date
 
         this.puzzleChallenge = newPuzzleChallenge
 
@@ -255,7 +256,7 @@ export default class ClientCaptchaSolver {
 
         this.clickChain = newPuzzleChallenge.click_chain
 
-        this.challengeDifficulty = newPuzzleChallenge.challenge_difficulty
+        // this.challengeDifficulty = newPuzzleChallenge.challenge_difficulty
 
         //verify endpoint does not change
 
@@ -282,24 +283,7 @@ export default class ClientCaptchaSolver {
     }
 
 
-    /*
-        gatherSolution collects all of the requirements to confirm the challenge was passed
-        this includes:
-            1) the solution hash of the gameboard to verify the board was solved
-            2) the original hmac and the fields stored in constructor to verify that nothing was tampered with
-                - in particular that the time at which we issued the challenge and when the solution was submitted 
-                lines up with how much time they were allocated
-            3) the click chain to confirm that they did not take more clicks than they were allowed
-            4) data about users gameplay for ML
-    */
     private async gatherSolution():Promise<iClientSolutionSubmissionPayload> {
-
-        /*
-            to verify the board is in the correct order, we use the 
-            computeSolution to take the hash of the tile_hash_ids
-            NOTE: the users challenge cookie string was already embedded in the
-            hash_ids of each tile, so these are integrity checked by definition
-        */
         const solutionHash = await this.computeUserPuzzleSolution()
 
         const resultToVerify:iClientSolutionSubmissionPayload = {
@@ -343,13 +327,33 @@ export default class ClientCaptchaSolver {
             const solutionStringAsCookie:string = stringToBase64WithFallback(usersSolution.solution)
             const clickChainAsBase64Strings:string[] = this.partitionString(clickChainToBase64WithFallback(usersSolution.click_chain), 4000)
 
+            const expiryDate = new Date()
+            expiryDate.setSeconds(expiryDate.getSeconds() + 30) // 30 seconds from now
+
+            //const isHTTPSConnection = window.location.protocol === "https" //if you dont do this, safari misbehaves on dev making testing a pain
+
+            attachCookie("__banjax_sol", solutionStringAsCookie)
+
             //set solution hash as a cookie
-            document.cookie = `__banjax_sol=${solutionStringAsCookie}; path=/; Secure; SameSite=Strict; Max-Age=30;`
+            // let solutionCookie = `__banjax_sol=${solutionStringAsCookie}; path=/; SameSite=Lax; Max-Age=30; expires=${expiryDate.toUTCString()};`
+            // if (isHTTPSConnection) {
+            //     solutionCookie += " Secure;"
+            // }
+            // document.cookie = solutionCookie
+            // document.cookie = `__banjax_sol=${solutionStringAsCookie}; path=/; Secure; SameSite=Lax; Max-Age=30; expires=${expiryDate.toUTCString()};`
 
             //partition click chain & store in multiple cookies
             const nClickChainCookies = clickChainAsBase64Strings.length
             for (let i = 0; i < nClickChainCookies; i++) {
-                document.cookie = `__banjax_cc_${i+1}_${nClickChainCookies}=${clickChainAsBase64Strings[i]}; path=/; Secure; SameSite=Strict; Max-Age=30;`
+
+                attachCookie(`__banjax_cc_${i+1}_${nClickChainCookies}`, clickChainAsBase64Strings[i])
+
+                // document.cookie = `__banjax_cc_${i+1}_${nClickChainCookies}=${clickChainAsBase64Strings[i]}; path=/; Secure; SameSite=Lax; Max-Age=30; expires=${expiryDate.toUTCString()};`
+                // let clickChainCookie = `__banjax_cc_${i+1}_${nClickChainCookies}=${clickChainAsBase64Strings[i]}; path=/; SameSite=Lax; Max-Age=30; expires=${expiryDate.toUTCString()};`
+                // if (isHTTPSConnection) {
+                //     clickChainCookie += " Secure;"
+                // }
+                // document.cookie = clickChainCookie
             }
 
             const solutionRequest = await fetch(document.location.href, {
@@ -605,11 +609,6 @@ export default class ClientCaptchaSolver {
 
 
     //extra helpers - not core to functionality
-    // private getCookieValue(name: string="deflect_challenge4"):string {
-    //     return document.cookie.split("; ").find((row) => row.startsWith(`${name}=`))?.split("=")[1] || ""
-    // }
-
-    
 
 
     //max time limit to solve the puzzle before we start over
