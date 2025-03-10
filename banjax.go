@@ -147,24 +147,6 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	clickChainController := internal.NewClickChainController(config.ClickChainEntropySecret)
-	cache := internal.NewCAPTCHASolutionCache()
-
-	puzzleGenerator := internal.NewCAPTCHAGenerator(
-		config.ThumbnailEntropySecret,
-		config.PuzzleEntropySecret,
-		cache,
-		clickChainController,
-		config.EnableGameplayDataCollection,
-	)
-
-	puzzleVerifier := internal.NewCAPTCHAVerifier(
-		config.PuzzleEntropySecret,
-		cache,
-		clickChainController,
-		config.EnableGameplayDataCollection,
-	)
-
 	go internal.RunHttpServer(
 		ctx,
 		configHolder,
@@ -174,8 +156,6 @@ func main() {
 		regexStates,
 		failedChallengeStates,
 		banner,
-		puzzleGenerator,
-		puzzleVerifier,
 	)
 
 	go internal.RunLogTailer(

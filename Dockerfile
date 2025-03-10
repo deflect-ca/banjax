@@ -21,6 +21,7 @@ COPY ./banjax-config.yaml /etc/banjax/
 #we store the puzzle difficulty profiles such that the configHolder can read them and we can access them via lookup with the configs.PuzzleDifficultyProfileTarget field 
 RUN mkdir -p /etc/banjax/puzzle
 COPY ./banjax-puzzle-difficulty-config.yaml /etc/banjax/puzzle/difficulty_profiles_config.yaml
+COPY ./puzzle_ui/dist/index.html /etc/banjax/puzzle/index.html
 
 # COPY ./caroot.pem /etc/banjax/
 # COPY ./certificate.pem /etc/banjax/

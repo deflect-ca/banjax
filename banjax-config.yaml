@@ -8,7 +8,7 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 8.8.8.8
-    - 192.168.65.1
+    - 192.168.65.1 #for testing 
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
 expiring_decision_ttl_seconds: 300
@@ -142,5 +142,5 @@ puzzle_entropy_secret: "puzzleSecret"
 click_chain_entropy_secret: "clickChainSecret"
 enable_gameplay_data_collection: false
 rate_limit_brute_force_solution_ttl_seconds: 60
-use_fresh_entropy_for_dynamic_tile_removal: true
 path_to_difficulty_profiles: "/etc/banjax/puzzle/difficulty_profiles_config.yaml"
+path_to_puzzle_index_html : "/etc/banjax/puzzle/index.html"

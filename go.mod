@@ -1,6 +1,8 @@
 module github.com/deflect-ca/banjax
 
-go 1.22
+go 1.23.0
+
+toolchain go1.24.0
 
 require (
 	github.com/coreos/go-iptables v0.7.0
@@ -16,7 +18,7 @@ require (
 	github.com/segmentio/kafka-go v0.4.47
 	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
@@ -52,6 +54,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.12.0 // indirect
+	golang.org/x/image v0.25.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
