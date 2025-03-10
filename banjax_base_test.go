@@ -24,6 +24,7 @@ const fixtureConfigTestShaInv = "./fixtures/banjax-config-test-sha-inv.yaml"
 const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner.yaml"
 const fixtureConfigTestReloadCIDR = "./fixtures/banjax-config-test-reload-cidr.yaml"
 const fixtureConfigTestPersiteFail = "./fixtures/banjax-config-test-persite-fail.yaml"
+const fixtureConfigTestPuzzleCaptcha = "./fixtures/banjax-config-test-puzzle-captcha.yaml"
 
 var tmpDir string
 var configFile string
