@@ -12,12 +12,9 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"os"
 	"regexp"
 	"sync"
 	"time"
-
-	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
@@ -80,23 +77,18 @@ type Config struct {
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
 
 	//puzzle captcha requirements
-	ThumbnailEntropySecret                string `yaml:"thumbnail_entropy_secret"`
-	PuzzleEntropySecret                   string `yaml:"puzzle_entropy_secret"`
-	ClickChainEntropySecret               string `yaml:"click_chain_entropy_secret"`
-	EnableGameplayDataCollection          bool   `yaml:"enable_gameplay_data_collection"`
-	RateLimitBruteForceSolutionTTLSeconds int    `yaml:"rate_limit_brute_force_solution_ttl_seconds"`
-
-	PathToPuzzleUiIndex string `yaml:"path_to_puzzle_index_html"` //stores the index.html that we need to serve to users
-	PuzzleUIIndexHtml   string
-
-	PathToDifficultyProfiles string                   `yaml:"path_to_difficulty_profiles"` //stores path to file in etc that stores difficulty profiles
-	DifficultyProfiles       *DifficultyProfileConfig //stores the parsed difficulty profiles & provides getters
-
-	PuzzleImageController *PuzzleImageController //stores all the images we need access to for validation purposes
+	PuzzleThumbnailEntropySecret                string                         `yaml:"puzzle_thumbnail_entropy_secret"`
+	PuzzleEntropySecret                         string                         `yaml:"puzzle_entropy_secret"`
+	PuzzleClickChainEntropySecret               string                         `yaml:"puzzle_click_chain_entropy_secret"`
+	PuzzleEnableGameplayDataCollection          bool                           `yaml:"puzzle_enable_gameplay_data_collection"`
+	PuzzleRateLimitBruteForceSolutionTTLSeconds int                            `yaml:"puzzle_rate_limit_brute_force_solution_ttl_seconds"`
+	PuzzleChallengeHTML                         []byte                         //see embed in config holder
+	PuzzleDifficultyProfiles                    *PuzzleDifficultyProfileConfig `yaml:"puzzle_difficulty_profiles"` //stores the parsed difficulty profiles & provides getters
+	PuzzleImageController                       *PuzzleImageController         //stores all the images we need access to for challeng issuance & validation purposes
 }
 
 /*individual difficulty profiles as desired in the banjax-puzzle-difficulty-config.yaml file*/
-type DifficultyProfile struct {
+type PuzzleDifficultyProfile struct {
 	NPartitions             int    `yaml:"nPartitions"`
 	NShuffles               [2]int `yaml:"nShuffles"`
 	MaxNumberOfMovesAllowed int    `yaml:"maxNumberOfMovesAllowed"`
@@ -105,30 +97,27 @@ type DifficultyProfile struct {
 	ShowCountdownTimer      bool   `yaml:"showCountdownTimer"`
 }
 
-type DifficultyProfileConfig struct {
-	Profiles   map[string]DifficultyProfile `yaml:"profiles"`
-	Target     string                       `yaml:"target"`
+type PuzzleDifficultyProfileConfig struct {
+	Profiles   map[string]PuzzleDifficultyProfile `yaml:"profiles"`
+	Target     string                             `yaml:"target"`
 	configLock sync.RWMutex
 }
 
 /*
-Returns the profile associated with "target" key in the yaml
+Returns the profile associated with "difficulty" key in the yaml
+NOTE: You can access the target using configs.PuzzleDifficultyProfiles.Target and use that as the "difficulty" argument
 
 accepts userChallengeCookie as argument such that if the profile specifies a random index,
 the source of entropy used is the users challenge cookie
 */
-func (profileConfig *DifficultyProfileConfig) GetProfileByTarget(userChallengeCookie string) (DifficultyProfile, bool) {
-	return profileConfig.GetProfileByName(profileConfig.Target, userChallengeCookie)
-}
-
-func (profileConfig *DifficultyProfileConfig) GetProfileByName(difficulty string, userChallengeCookie string) (DifficultyProfile, bool) {
+func (profileConfig *PuzzleDifficultyProfileConfig) PuzzleDifficultyProfileByName(difficulty string, userChallengeCookie string) (PuzzleDifficultyProfile, bool) {
 	profileConfig.configLock.RLock()
 	difficultyProfile, exists := profileConfig.Profiles[difficulty]
 
 	//if dne return early
 	if !exists {
 		profileConfig.configLock.RUnlock()
-		return DifficultyProfile{}, false
+		return PuzzleDifficultyProfile{}, false
 	}
 
 	//if we need not make changes, return the valid profile
@@ -142,43 +131,40 @@ func (profileConfig *DifficultyProfileConfig) GetProfileByName(difficulty string
 	profileConfig.configLock.Lock()
 	defer profileConfig.configLock.Unlock()
 
-	if difficultyProfile.RemoveTileIndex == -1 { //just in case another thread in the time we upgraded changed it...
-		// difficultyProfile.RemoveTileIndex = profileConfig.getRandomTileIndex(userChallengeCookie, difficultyProfile.NPartitions)
-
+	if difficultyProfile.RemoveTileIndex == -1 { //check again just in case another thread in the time we upgraded changed it...
 		/*
 			We use the users challenge cookie so that we can guarentee given the same cookie we can
 			produce the exact same result. This is required for validation!
 
 			NOTE on initVector:
 				- I would use profileConfig.Target as opposed to "tile_index_noise", but we first need to
-				confirm we are going to be selecting difficulty that way and not dynamically
+				confirm we are going to be selecting difficulty that way and not dynamically otherwise we risk not being able to
+				recreate their solution if it changes while the puzzle was being solved by a user
 		*/
 		initVector := "tile_index_noise"
-		difficultyProfile.RemoveTileIndex = EntropyFromRange(initVector, userChallengeCookie, 0, difficultyProfile.NPartitions)
+		difficultyProfile.RemoveTileIndex = PuzzleEntropyFromRange(initVector, userChallengeCookie, 0, difficultyProfile.NPartitions)
 	}
 
 	return difficultyProfile, true
 }
 
-/*Loads the profiles from the yaml file and stores them in a map for user*/
-func (profileConfig *DifficultyProfileConfig) UnmarshalYAML(path string) error {
+/*Loads the profiles from the yaml file and stores them in a map for user when the unmarshal is called by config_holder*/
+func (profileConfig *PuzzleDifficultyProfileConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	profileConfig.configLock.Lock()
 	defer profileConfig.configLock.Unlock()
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read difficulty profiles: %w", err)
+	var loadedConfig struct {
+		Target   string                             `yaml:"target"`
+		Profiles map[string]PuzzleDifficultyProfile `yaml:"profiles"`
 	}
 
-	var loadedConfig DifficultyProfileConfig
-	err = yaml.Unmarshal(data, &loadedConfig)
-	if err != nil {
+	if err := unmarshal(&loadedConfig); err != nil {
 		return fmt.Errorf("failed to unmarshal difficulty profiles: %w", err)
 	}
 
-	validProfiles := make(map[string]DifficultyProfile)
+	validProfiles := make(map[string]PuzzleDifficultyProfile)
 	for profileName, difficultyProfile := range loadedConfig.Profiles {
-		if !loadedConfig.isValidProfile(difficultyProfile, profileName) {
+		if !profileConfig.isValidProfile(difficultyProfile, profileName) {
 			continue
 		}
 		validProfiles[profileName] = difficultyProfile
@@ -189,8 +175,7 @@ func (profileConfig *DifficultyProfileConfig) UnmarshalYAML(path string) error {
 		return errors.New("ErrInvalidDifficultyProfileSettings: Require at least one valid profile")
 	}
 
-	_, ok := validProfiles[loadedConfig.Target]
-	if !ok {
+	if _, ok := validProfiles[loadedConfig.Target]; !ok {
 		log.Printf("Target profile '%s' does not exist in valid profiles. Aborting config load.", loadedConfig.Target)
 		return fmt.Errorf("ErrTargetProfileDoesNotExist: %s", loadedConfig.Target)
 	}
@@ -207,7 +192,7 @@ unnecessarily breaking due to a misconfiguration, the function returns boolean. 
 is tightly coupled with the calling function (UnmarshalYAML) as it will only return an error if none of the
 profiles are valid or if the target profile difficulty you are issuing was invalid and therefore not registered
 */
-func (profileConfig *DifficultyProfileConfig) isValidProfile(difficultyProfile DifficultyProfile, profileName string) bool {
+func (profileConfig *PuzzleDifficultyProfileConfig) isValidProfile(difficultyProfile PuzzleDifficultyProfile, profileName string) bool {
 	//check to see if profile nPartitions are perfect square
 	sqrt := math.Sqrt(float64(difficultyProfile.NPartitions))
 	if sqrt != float64(int(sqrt)) {

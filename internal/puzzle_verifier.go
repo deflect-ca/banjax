@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-type ClientSolutionSubmissionPayload struct {
+type ClientPuzzleSolutionSubmissionPayload struct {
 	Solution   string            `json:"solution"`
 	ClickChain []ClickChainEntry `json:"click_chain"`
 }
@@ -42,14 +42,14 @@ game was played and make a prediction about bot or not as the hypothesis behind 
 puzzle was that bots and people would play the game differently. Regardless, we need to make sure that the solution
 itself is indeed correct and we do so with a call to VerifySolution
 */
-func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString string, userCaptchaSolution ClientSolutionSubmissionPayload) error {
+func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString string, userCaptchaSolution ClientPuzzleSolutionSubmissionPayload) error {
 
 	//we need to derive a solution to their challenge, and recompute their shuffled & unshuffled board
-	var shuffledBoard [][]*TileWithoutImage
-	var unshuffledBoard [][]*TileWithoutImage
+	var shuffledBoard [][]*PuzzleTileWithoutImage
+	var unshuffledBoard [][]*PuzzleTileWithoutImage
 	var expectedSolution string
 	var err error
-	shuffledBoard, unshuffledBoard, expectedSolution, err = GenerateExpectedSolution(config, userChallengeCookieString)
+	shuffledBoard, unshuffledBoard, expectedSolution, err = GeneratePuzzleExpectedSolution(config, userChallengeCookieString)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrRecreating, err)
 	}
@@ -62,24 +62,24 @@ func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString str
 
 	//integrity checks
 
-	err = IntegrityCheckClickChain(userCaptchaSolution.Solution, userChallengeCookieString, config.ClickChainEntropySecret, userCaptchaSolution.ClickChain, shuffledBoard, unshuffledBoard)
+	err = IntegrityCheckPuzzleClickChain(userCaptchaSolution.Solution, userChallengeCookieString, config.PuzzleClickChainEntropySecret, userCaptchaSolution.ClickChain, shuffledBoard, unshuffledBoard)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedClickChainIntegrity, err)
 	}
 
 	//constraints & solutions checks
 
-	err = verifyTimeLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
+	err = verifyPuzzleTimeLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrVerificationFailedTimeLimit, err)
 	}
 
-	err = verifyClickLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
+	err = verifyPuzzleClickLimit(config, userCaptchaSolution.ClickChain, userChallengeCookieString)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrVerificationFailedClickLimit, err)
 	}
 
-	err = VerifySolutionHash(userCaptchaSolution.Solution, expectedSolution)
+	err = VerifyPuzzleSolutionHash(userCaptchaSolution.Solution, expectedSolution)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrVerificationFailedBoardTiles, err)
 	}
@@ -87,54 +87,54 @@ func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString str
 	return nil
 }
 
-func GenerateExpectedSolution(config *Config, userChallengeCookieString string) (shuffledBoard [][]*TileWithoutImage, unshuffledBoard [][]*TileWithoutImage, expectedSolution string, err error) {
+func GeneratePuzzleExpectedSolution(config *Config, userChallengeCookieString string) (shuffledBoard [][]*PuzzleTileWithoutImage, unshuffledBoard [][]*PuzzleTileWithoutImage, expectedSolution string, err error) {
 
 	includeB64ImageData := false // dont need b64 image data when verifying the solution
-	var tileMap TileMap[TileWithoutImage]
+	var tileMap PuzzleTileMap[PuzzleTileWithoutImage]
 
-	tileMap, err = TileMapFromImage[TileWithoutImage](config, userChallengeCookieString, includeB64ImageData)
+	tileMap, err = PuzzleTileMapFromImage[PuzzleTileWithoutImage](config, userChallengeCookieString, includeB64ImageData)
 	if err != nil {
 		err = fmt.Errorf("%w: %v", ErrRecreatingTileMap, err)
 		return
 	}
 
 	var exists bool
-	targetDifficulty, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
+	targetDifficulty, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
 	if !exists {
 		err = ErrTargetDifficultyDoesNotExist
 		return
 	}
 
-	shuffledBoard, err = NewCAPTCHABoard(tileMap, targetDifficulty)
+	shuffledBoard, err = NewPuzzleCAPTCHABoard(tileMap, targetDifficulty)
 	if err != nil {
 		err = fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
 		return
 	}
 
 	// Note: We need to remove the tile prior to making a deep copy such that both shuffled and unshuffled boards have the null tile as needed for validation.
-	if err = RemoveTileFromBoard(shuffledBoard, targetDifficulty); err != nil {
+	if err = RemovePuzzleTileFromBoard(shuffledBoard, targetDifficulty); err != nil {
 		err = fmt.Errorf("%w: %v", ErrFailedRemovingTile, err)
 		return
 	}
 
-	unshuffledBoard, err = DeepCopyTileBoard(shuffledBoard)
+	unshuffledBoard, err = DeepCopyPuzzleTileBoard(shuffledBoard)
 	if err != nil {
 		err = fmt.Errorf("%w: %v", ErrFailedNewGameboard, err)
 		return
 	}
 
 	nReShuffles := 0
-	if err = ShuffleBoard(shuffledBoard, unshuffledBoard, targetDifficulty, nReShuffles, config.PuzzleEntropySecret, userChallengeCookieString); err != nil {
+	if err = ShufflePuzzleBoard(shuffledBoard, unshuffledBoard, targetDifficulty, nReShuffles, config.PuzzleEntropySecret, userChallengeCookieString); err != nil {
 		err = fmt.Errorf("%w: %v", ErrFailedShuffling, err)
 		return
 	}
 
-	expectedSolution = CalculateExpectedSolution(unshuffledBoard, userChallengeCookieString)
+	expectedSolution = CalculateExpectedPuzzleSolution(unshuffledBoard, userChallengeCookieString)
 
 	return
 }
 
-func verifyTimeLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
+func verifyPuzzleTimeLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
 
 	//every click chain will at least admit the genesis block
 	if len(submittedClickChain) == 0 {
@@ -153,7 +153,7 @@ func verifyTimeLimit(config *Config, submittedClickChain []ClickChainEntry, user
 		return fmt.Errorf("ErrFailedToParseData: Expected date of issuance from click chain to be valid ISO 3399 compliant string, got: %s", genesisChainEntryIssuedAtTime)
 	}
 
-	difficultyProfile, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
+	difficultyProfile, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
 	if !exists {
 		return ErrTargetDifficultyDoesNotExist
 	}
@@ -174,7 +174,7 @@ func verifyTimeLimit(config *Config, submittedClickChain []ClickChainEntry, user
 	return nil
 }
 
-func verifyClickLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
+func verifyPuzzleClickLimit(config *Config, submittedClickChain []ClickChainEntry, userChallengeCookieString string) error {
 
 	//every click chain will at least admit the genesis block
 	if len(submittedClickChain) == 0 {
@@ -186,7 +186,7 @@ func verifyClickLimit(config *Config, submittedClickChain []ClickChainEntry, use
 		return errors.New("ErrExpectedAtleastOneClickRequiredToSolve")
 	}
 
-	difficultyProfile, exists := config.DifficultyProfiles.GetProfileByName(config.DifficultyProfiles.Target, userChallengeCookieString)
+	difficultyProfile, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
 	if !exists {
 		return ErrTargetDifficultyDoesNotExist
 	}
@@ -205,7 +205,7 @@ func verifyClickLimit(config *Config, submittedClickChain []ClickChainEntry, use
 because "==" leaks info that can be used for timing attacks (users can just keep making strings bigger and bigger to see how it behaves)
 we use crypto.subtle's ConstantTimeCompare
 */
-func VerifySolutionHash(userSubmittedSolution, locallyStoredPrecomputedSolution string) error {
+func VerifyPuzzleSolutionHash(userSubmittedSolution, locallyStoredPrecomputedSolution string) error {
 
 	solutionA := []byte(userSubmittedSolution)
 	solutionB := []byte(locallyStoredPrecomputedSolution)
@@ -221,6 +221,7 @@ func VerifySolutionHash(userSubmittedSolution, locallyStoredPrecomputedSolution 
 	return fmt.Errorf("ErrInvalidSolution: Expected %s, received %s", locallyStoredPrecomputedSolution, userSubmittedSolution)
 }
 
+/*checks if dateString provided as argument is ISO 8601 timestamp*/
 func isValidISOString(dateString string) (time.Time, error) {
 	parsedTime, err := time.Parse(time.RFC3339, dateString)
 	if err != nil {

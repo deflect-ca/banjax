@@ -8,8 +8,8 @@ import (
 	"math"
 )
 
-type CAPTCHAChallenge struct {
-	GameBoard          [][]*Tile         `json:"gameBoard"`
+type PuzzleCAPTCHAChallenge struct {
+	GameBoard          [][]*PuzzleTile   `json:"gameBoard"`
 	ThumbnailBase64    string            `json:"thumbnail_base64"`
 	MaxAllowedMoves    int               `json:"maxNumberOfMovesAllowed"`
 	TimeToSolveMS      int               `json:"timeToSolve_ms"`
@@ -31,14 +31,13 @@ var (
 
 func GeneratePuzzleCAPTCHA(config *Config, userChallengeCookie string) ([]byte, error) {
 
-	difficulty := config.DifficultyProfiles.Target
-	targetDifficulty, exists := config.DifficultyProfiles.GetProfileByName(difficulty, userChallengeCookie)
+	targetDifficulty, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookie)
 	if !exists {
 		return nil, ErrTargetDifficultyDoesNotExist
 	}
 
 	includeB64ImageData := true
-	tileMap, err := TileMapFromImage[Tile](config, userChallengeCookie, includeB64ImageData)
+	tileMap, err := PuzzleTileMapFromImage[PuzzleTile](config, userChallengeCookie, includeB64ImageData)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
 	}
@@ -47,44 +46,44 @@ func GeneratePuzzleCAPTCHA(config *Config, userChallengeCookie string) ([]byte, 
 		return nil, fmt.Errorf("%w: expected %d partitions, got: %d", ErrFailedNewCAPTCHAGeneration, targetDifficulty.NPartitions, len(tileMap))
 	}
 
-	gameBoard, err := NewCAPTCHABoard(tileMap, targetDifficulty)
+	gameBoard, err := NewPuzzleCAPTCHABoard(tileMap, targetDifficulty)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
 	}
 
-	deepCopyGameBoard, err := DeepCopyTileBoard(gameBoard)
+	deepCopyGameBoard, err := DeepCopyPuzzleTileBoard(gameBoard)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewGameboard, err)
 	}
 
-	err = RemoveTileFromBoard(gameBoard, targetDifficulty)
+	err = RemovePuzzleTileFromBoard(gameBoard, targetDifficulty)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedRemovingTile, err)
 	}
 
-	row, col := TileIndexToRowCol(targetDifficulty.RemoveTileIndex, targetDifficulty.NPartitions)
-	thumbnailAsB64, err := ThumbnailFromImage(config, config.ThumbnailEntropySecret, row, col)
+	row, col := PuzzleTileIndexToRowCol(targetDifficulty.RemoveTileIndex, targetDifficulty.NPartitions)
+	thumbnailAsB64, err := PuzzleThumbnailFromImage(config, config.PuzzleThumbnailEntropySecret, row, col)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedThumbnailCreation, err)
 	}
 
 	nReShuffles := 0
-	err = ShuffleBoard(gameBoard, deepCopyGameBoard, targetDifficulty, nReShuffles, config.PuzzleEntropySecret, userChallengeCookie)
+	err = ShufflePuzzleBoard(gameBoard, deepCopyGameBoard, targetDifficulty, nReShuffles, config.PuzzleEntropySecret, userChallengeCookie)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedShuffling, err)
 	}
 
-	captchaClickChain, err := NewClickChain(userChallengeCookie, config.ClickChainEntropySecret)
+	captchaClickChain, err := NewPuzzleClickChain(userChallengeCookie, config.PuzzleClickChainEntropySecret)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewClickChain, err)
 	}
 
-	captchaToIssueToUser := &CAPTCHAChallenge{
+	captchaToIssueToUser := &PuzzleCAPTCHAChallenge{
 		GameBoard:          gameBoard,
 		ThumbnailBase64:    thumbnailAsB64,
 		MaxAllowedMoves:    targetDifficulty.MaxNumberOfMovesAllowed,
 		TimeToSolveMS:      targetDifficulty.TimeToSolveMs,
-		CollectDataEnabled: config.EnableGameplayDataCollection,
+		CollectDataEnabled: config.PuzzleEnableGameplayDataCollection,
 		ClickChain:         captchaClickChain,
 	}
 
@@ -102,7 +101,7 @@ var (
 	ErrBoardHieghtWidthMismatch = errors.New("gameboard must be a perfect square")
 )
 
-func NewCAPTCHABoard[T TileIdentifier](tileMap TileMap[T], difficultyProfile DifficultyProfile) ([][]*T, error) {
+func NewPuzzleCAPTCHABoard[T PuzzleTileIdentifier](tileMap PuzzleTileMap[T], difficultyProfile PuzzleDifficultyProfile) ([][]*T, error) {
 	nTiles := len(tileMap)
 	size := int(math.Sqrt(float64(nTiles)))
 
@@ -117,7 +116,7 @@ func NewCAPTCHABoard[T TileIdentifier](tileMap TileMap[T], difficultyProfile Dif
 		if !ok {
 			return nil, fmt.Errorf("%w: Expected: %d", ErrMissingTile, i)
 		}
-		row, col := TileIndexToRowCol(i, difficultyProfile.NPartitions)
+		row, col := PuzzleTileIndexToRowCol(i, difficultyProfile.NPartitions)
 		gameBoard[row][col] = &tile
 	}
 
@@ -125,7 +124,7 @@ func NewCAPTCHABoard[T TileIdentifier](tileMap TileMap[T], difficultyProfile Dif
 }
 
 /* Returns a deep copy of a game board for any type implementing TileIdentifier */
-func DeepCopyTileBoard[T TileIdentifier](original [][]*T) ([][]*T, error) {
+func DeepCopyPuzzleTileBoard[T PuzzleTileIdentifier](original [][]*T) ([][]*T, error) {
 	if len(original) == 0 || len(original[0]) == 0 {
 		return nil, fmt.Errorf("%w: deepCopyBoard: original board is empty or nil", ErrBoardEmpty)
 	}
@@ -161,7 +160,7 @@ of the user by recreating the board we provided them without needing to store an
 So, if a request comes in on a different server instance (or after a restart), as long as userChallengeCookie and puzzleSecret are unchanged, the board will
 be reconstructed exactly as it was when the challenge was issued.
 */
-func ShuffleBoard[T TileIdentifier](boardRef [][]*T, boardCopy [][]*T, targetDifficulty DifficultyProfile, nReShuffles int, puzzleSecret, userChallengeCookie string) error {
+func ShufflePuzzleBoard[T PuzzleTileIdentifier](boardRef [][]*T, boardCopy [][]*T, targetDifficulty PuzzleDifficultyProfile, nReShuffles int, puzzleSecret, userChallengeCookie string) error {
 
 	MAX_RESHUFFLES := 5
 
@@ -191,7 +190,7 @@ func ShuffleBoard[T TileIdentifier](boardRef [][]*T, boardCopy [][]*T, targetDif
 	//floor(random * (max-min+1)) + min
 	maxNShuffles := targetDifficulty.NShuffles[1]
 	minNShuffles := targetDifficulty.NShuffles[0]
-	numberOfShufflesToPerform := EntropyFromRange(puzzleSecret, userChallengeCookie, minNShuffles, maxNShuffles)
+	numberOfShufflesToPerform := PuzzleEntropyFromRange(puzzleSecret, userChallengeCookie, minNShuffles, maxNShuffles)
 
 	//now we just apply numberOfShufflesToPerform valid puzzle moves to shuffle!
 
@@ -199,11 +198,11 @@ func ShuffleBoard[T TileIdentifier](boardRef [][]*T, boardCopy [][]*T, targetDif
 	var lastCol int
 
 	for numberOfShufflesToPerform > 0 {
-		row, col, err := getNextValidShuffleMove(boardRef, rowNil, colNil, lastRow, lastCol, puzzleSecret, userChallengeCookie)
+		row, col, err := getNextValidPuzzleShuffleMove(boardRef, rowNil, colNil, lastRow, lastCol, puzzleSecret, userChallengeCookie)
 		if err != nil {
 			return err
 		}
-		Swap(boardRef, rowNil, colNil, row, col)
+		SwapPuzzleTile(boardRef, rowNil, colNil, row, col)
 		lastRow = rowNil
 		lastCol = colNil
 		rowNil = row
@@ -211,13 +210,13 @@ func ShuffleBoard[T TileIdentifier](boardRef [][]*T, boardCopy [][]*T, targetDif
 		numberOfShufflesToPerform--
 	}
 
-	if IsBoardIdentical(boardRef, boardCopy) {
+	if IsPuzzleBoardIdentical(boardRef, boardCopy) {
 		if nReShuffles >= MAX_RESHUFFLES {
 			return errors.New("ErrExceededMaxReshuffleAttempts: Unable to generate a sufficiently shuffled board")
 		}
 
 		log.Printf("Detected identical board, reshuffling... %d/%d", nReShuffles, MAX_RESHUFFLES)
-		return ShuffleBoard(boardRef, boardCopy, targetDifficulty, nReShuffles+1, puzzleSecret, userChallengeCookie)
+		return ShufflePuzzleBoard(boardRef, boardCopy, targetDifficulty, nReShuffles+1, puzzleSecret, userChallengeCookie)
 	}
 
 	return nil
@@ -233,7 +232,7 @@ an essential part of how we verify solutions during runtime without needing to s
 So, if a request comes in on a different server instance (or after a restart), as long as userChallengeCookie and puzzleSecret are unchanged, the board will
 be reconstructed exactly as it was when the challenge was issued.
 */
-func getNextValidShuffleMove[T TileIdentifier](boardRef [][]*T, rowNil, colNil, lastRow, lastCol int, puzzleSecret, userChallengeCookie string) (row int, col int, err error) {
+func getNextValidPuzzleShuffleMove[T PuzzleTileIdentifier](boardRef [][]*T, rowNil, colNil, lastRow, lastCol int, puzzleSecret, userChallengeCookie string) (row int, col int, err error) {
 	valid_X_Moves := []int{1, -1, 0, 0}
 	valid_Y_Moves := []int{0, 0, 1, -1}
 	var possible_valid_moves [][2]int
@@ -256,7 +255,7 @@ func getNextValidShuffleMove[T TileIdentifier](boardRef [][]*T, rowNil, colNil, 
 		It is really important that we derive the randomness from a deterministic source (the users challenge cookie)
 		this way when it comes to validating, we can reconstruct their map as desired
 	*/
-	randomChoice := EntropyFromRange(puzzleSecret, userChallengeCookie, 0, len(possible_valid_moves))
+	randomChoice := PuzzleEntropyFromRange(puzzleSecret, userChallengeCookie, 0, len(possible_valid_moves))
 
 	next_valid_move := possible_valid_moves[randomChoice]
 
@@ -266,14 +265,14 @@ func getNextValidShuffleMove[T TileIdentifier](boardRef [][]*T, rowNil, colNil, 
 	return
 }
 
-func Swap[T TileIdentifier](boardRef [][]*T, rowNil, colNil, row2, col2 int) {
+func SwapPuzzleTile[T PuzzleTileIdentifier](boardRef [][]*T, rowNil, colNil, row2, col2 int) {
 	nilValue := boardRef[rowNil][colNil]
 	boardRef[rowNil][colNil] = boardRef[row2][col2]
 	boardRef[row2][col2] = nilValue
 }
 
 /*returns "not identical" (ie false) if theres at least one difference between the two boards*/
-func IsBoardIdentical[T TileIdentifier](boardRef, copyOfBoard [][]*T) bool {
+func IsPuzzleBoardIdentical[T PuzzleTileIdentifier](boardRef, copyOfBoard [][]*T) bool {
 	for row := 0; row < len(boardRef); row++ {
 		for col := 0; col < len(boardRef[row]); col++ {
 			if (boardRef[row][col] == nil) != (copyOfBoard[row][col] == nil) { // Nil mismatch check
@@ -288,8 +287,8 @@ func IsBoardIdentical[T TileIdentifier](boardRef, copyOfBoard [][]*T) bool {
 	return true
 }
 
-func RemoveTileFromBoard[T TileIdentifier](boardRef [][]*T, targetDifficulty DifficultyProfile) error {
-	row, col := TileIndexToRowCol(targetDifficulty.RemoveTileIndex, targetDifficulty.NPartitions)
+func RemovePuzzleTileFromBoard[T PuzzleTileIdentifier](boardRef [][]*T, targetDifficulty PuzzleDifficultyProfile) error {
+	row, col := PuzzleTileIndexToRowCol(targetDifficulty.RemoveTileIndex, targetDifficulty.NPartitions)
 	boardRef[row][col] = nil //JSON will serialize this as `null`
 	return nil
 }
@@ -299,7 +298,7 @@ converts a specific index of a perfect square number of partitions into a (row, 
 is required due to the possibility of a 'random' RemoveTileIndex being supplied, requiring the ability
 to recalculate a (row, col) pair for any given difficulty profile
 */
-func TileIndexToRowCol(index, nPartitions int) (row int, col int) {
+func PuzzleTileIndexToRowCol(index, nPartitions int) (row int, col int) {
 	square := int(math.Sqrt(float64(nPartitions)))
 	row = index / square
 	col = index % square

@@ -12,24 +12,24 @@ It is important to ensure that the ChainTile and ClickChainEntry match the clien
 do not match, then even if the data is correct, the resultant hash will not be the same.
 */
 
-type ChainTile struct {
+type ClickChainTile struct {
 	Row int    `json:"row"`
 	Col int    `json:"col"`
 	Id  string `json:"id"`
 }
 
-func (ct *ChainTile) MarshalBinary() ([]byte, error) {
+func (ct *ClickChainTile) MarshalBinary() ([]byte, error) {
 	return json.Marshal(ct)
 }
 
-func (ct *ChainTile) UnmarshalBinary(data []byte) error {
+func (ct *ClickChainTile) UnmarshalBinary(data []byte) error {
 	return json.Unmarshal(data, ct)
 }
 
 type ClickChainEntry struct {
-	TimeStamp       string    `json:"time_stamp"`
-	TileClicked     ChainTile `json:"tile_clicked"`
-	TileSwappedWith ChainTile `json:"tile_swapped_with"`
+	TimeStamp       string         `json:"time_stamp"`
+	TileClicked     ClickChainTile `json:"tile_clicked"`
+	TileSwappedWith ClickChainTile `json:"tile_swapped_with"`
 
 	ClickCount int    `json:"click_count"`
 	Hash       string `json:"hash"`
@@ -62,15 +62,15 @@ var (
 NewClickChain is used to create a ClickChain which is a mini blockchain of clicks (clickChainEntries) that a user makes as they try to solve the captcha
 where each block references the previous and we create the genesis with a secret initialization vector the user doesn't have access to
 */
-func NewClickChain(userChallengeCookieString, clickChainEntroy string) ([]ClickChainEntry, error) {
+func NewPuzzleClickChain(userChallengeCookieString, clickChainEntroy string) ([]ClickChainEntry, error) {
 
 	clickChain := make([]ClickChainEntry, 0)
 
 	genesis := ClickChainEntry{
 		TimeStamp:       time.Now().UTC().Format(time.RFC3339),
 		ClickCount:      0,
-		TileClicked:     ChainTile{Id: "", Row: -1, Col: -1},
-		TileSwappedWith: ChainTile{Id: "", Row: -1, Col: -1},
+		TileClicked:     ClickChainTile{Id: "", Row: -1, Col: -1},
+		TileSwappedWith: ClickChainTile{Id: "", Row: -1, Col: -1},
 		Hash:            "",
 	}
 
@@ -97,26 +97,26 @@ finally, we recreate their submitted board using the steps they took to see that
 
 NOTE: This does NOT prove their answer was right. ONLY that given the initial board they started with it was THIS series of steps in particular that got them to the final result they submitted.
 */
-func IntegrityCheckClickChain(
+func IntegrityCheckPuzzleClickChain(
 
 	userSubmittedSolutionHash, userChallengeCookieString, clickChainEntroy string,
 	userSubmittedClickChain []ClickChainEntry,
-	locallyStoredShuffledGameBoard [][]*TileWithoutImage,
-	locallyStoredUnShuffledGamboard [][]*TileWithoutImage,
+	locallyStoredShuffledGameBoard [][]*PuzzleTileWithoutImage,
+	locallyStoredUnShuffledGamboard [][]*PuzzleTileWithoutImage,
 
 ) error {
 
-	err := verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy, userSubmittedClickChain)
+	err := verifyPuzzleClickChainIntegrity(userChallengeCookieString, clickChainEntroy, userSubmittedClickChain)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedClickChainIntegrityCheck, err)
 	}
 
-	err = verifyClickChainMoveValidity(userSubmittedClickChain)
+	err = verifyPuzzleClickChainMoveValidity(userSubmittedClickChain)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedClickChainMoveIntegrityCheck, err)
 	}
 
-	err = recreateAndIntegrityCheckFinalBoardFromClickChain(userSubmittedClickChain, locallyStoredShuffledGameBoard, locallyStoredUnShuffledGamboard, userSubmittedSolutionHash, userChallengeCookieString)
+	err = recreateAndIntegrityCheckFinalPuzzleBoardFromClickChain(userSubmittedClickChain, locallyStoredShuffledGameBoard, locallyStoredUnShuffledGamboard, userSubmittedSolutionHash, userChallengeCookieString)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedClickChainMoveToBoardStateIntegrityCheck, err)
 	}
@@ -131,7 +131,13 @@ fields putting them into a new entry, setting the current count ourselves and se
 items hash as the initial hash field value of the current object, producing the hash of that object and storing that item to be the hash and then hashing that object
 to produce the hash of that object in particular.
 */
-func verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy string, userClickChain []ClickChainEntry) error {
+func verifyPuzzleClickChainIntegrity(
+
+	userChallengeCookieString, clickChainEntroy string,
+	userClickChain []ClickChainEntry,
+
+) error {
+
 	copiedClickChain := make([]ClickChainEntry, len(userClickChain))
 	copy(copiedClickChain, userClickChain)
 
@@ -143,7 +149,7 @@ func verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy strin
 		return fmt.Errorf("%w: Only the genesis is in the click chain, solution cannot be valid", ErrClickChainEmpty)
 	}
 
-	isValidGenesisHash, err := verifyGenesisHash(userChallengeCookieString, clickChainEntroy, copiedClickChain[0])
+	isValidGenesisHash, err := verifyPuzzleClickChainGenesisHash(userChallengeCookieString, clickChainEntroy, copiedClickChain[0])
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrGenesisFailedMarshalBinary, err)
 	}
@@ -157,7 +163,7 @@ func verifyClickChainIntegrity(userChallengeCookieString, clickChainEntroy strin
 	//at this point we know that the genesis entry is valid, so we can continue to verify every other entry is valid using "i" as the click count
 	//starting at 1 since that would have been the first click
 	for i := 1; i < len(copiedClickChain); i++ {
-		expectedHash, err := verifyClickChainEntry(userChallengeCookieString, i, previousHash, copiedClickChain[i])
+		expectedHash, err := verifyPuzzleClickChainEntry(userChallengeCookieString, i, previousHash, copiedClickChain[i])
 		if err != nil {
 			return fmt.Errorf("%w: Entry %d, expected hash: %s, got: %s", ErrChainVerification, i, expectedHash, copiedClickChain[i].Hash)
 		}
@@ -172,7 +178,12 @@ since the user does not know our initialization vector, they are not able to for
 from the direct match comparison as it is meant to also tie the user challenge cookie string and confirm the first hash in the
 entire click chain which is necessary for being able to confirm all subsequent hashes
 */
-func verifyGenesisHash(userChallengeCookieString, clickChainEntroy string, userGenesisEntry ClickChainEntry) (bool, error) {
+func verifyPuzzleClickChainGenesisHash(
+
+	userChallengeCookieString, clickChainEntroy string,
+	userGenesisEntry ClickChainEntry,
+
+) (bool, error) {
 
 	submittedHash := userGenesisEntry.Hash
 	userGenesisEntry.Hash = "" //in order to recreate how the genesis entry was created
@@ -194,7 +205,14 @@ func verifyGenesisHash(userChallengeCookieString, clickChainEntroy string, userG
 we remove the hash and index user provided for this entry, and replace them with the previous entry hash and expected index respectively
 we produce the hash of this entry and compare it to what they actually had to confirm it was indeed correct
 */
-func verifyClickChainEntry(userChallengeCookieString string, expectedIndex int, previousHash string, userSubmittedChainEntry ClickChainEntry) (string, error) {
+func verifyPuzzleClickChainEntry(
+
+	userChallengeCookieString string,
+	expectedIndex int,
+	previousHash string,
+	userSubmittedChainEntry ClickChainEntry,
+
+) (string, error) {
 
 	recreatedEntry := ClickChainEntry{
 		TimeStamp:       userSubmittedChainEntry.TimeStamp,
@@ -219,7 +237,7 @@ func verifyClickChainEntry(userChallengeCookieString string, expectedIndex int, 
 	return expectedHash, nil
 }
 
-func verifyClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) error {
+func verifyPuzzleClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) error {
 
 	if len(userClickChainWithGenesis) == 0 {
 		return fmt.Errorf("%w: %v", ErrChainVerification, errors.New("ErrInvalidClickChain: Missing genesis"))
@@ -242,7 +260,7 @@ func verifyClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) e
 			return fmt.Errorf("%w: ErrInvalidMove: Detected impossible swap: swapping tile clicked: %s with tile:%s", ErrChainVerification, currentTileThatWasClicked.Id, tileSwappedWith.Id)
 		}
 
-		if !isValidMove(currentTileThatWasClicked, tileSwappedWith) {
+		if !isValidPuzzleMove(currentTileThatWasClicked, tileSwappedWith) {
 			return fmt.Errorf("%w: ErrInvalidMove: Swap should not have been possible: tile clicked: %s with tile:%s", ErrChainVerification, currentTileThatWasClicked.Id, tileSwappedWith.Id)
 		}
 	}
@@ -250,7 +268,7 @@ func verifyClickChainMoveValidity(userClickChainWithGenesis []ClickChainEntry) e
 	return nil
 }
 
-func isValidMove(tileClicked, tileSwappedWith ChainTile) bool {
+func isValidPuzzleMove(tileClicked, tileSwappedWith ClickChainTile) bool {
 
 	validMoves_X := []int{1, -1, 0, 0}
 	validMoves_Y := []int{0, 0, 1, -1}
@@ -277,7 +295,13 @@ them by playing back the operations on the gameboard we saved locally and seeing
 the operations they claim to have used via the click chain on the board we gave them. This ONLY proves that the steps they applied to the board result in the hash
 they submitted. It does NOT prove that the hash they submitted is correct.
 */
-func recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis []ClickChainEntry, locallyStoredShuffledGameBoard, locallyStored_Un_ShuffledGamboard [][]*TileWithoutImage, userSubmittedSolutionHash, userChallengeCookieString string) error {
+func recreateAndIntegrityCheckFinalPuzzleBoardFromClickChain(
+
+	userClickChainWithGenesis []ClickChainEntry,
+	locallyStoredShuffledGameBoard, locallyStored_Un_ShuffledGamboard [][]*PuzzleTileWithoutImage,
+	userSubmittedSolutionHash, userChallengeCookieString string,
+
+) error {
 
 	if len(locallyStoredShuffledGameBoard) == 0 {
 		return errors.New("ErrInvalidGameboard: Local gameboard empty")
@@ -322,7 +346,7 @@ func recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis
 			return fmt.Errorf("ErrInvalidNullTileSwap: Attempted swap with non-null tile at row:%d col:%d. Expected null tile with id: 'null_tile'", tileSwappedWith.Row, tileSwappedWith.Col)
 		}
 
-		Swap(locallyStoredShuffledGameBoard, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col, tileSwappedWith.Row, tileSwappedWith.Col)
+		SwapPuzzleTile(locallyStoredShuffledGameBoard, currentTileThatWasClicked.Row, currentTileThatWasClicked.Col, tileSwappedWith.Row, tileSwappedWith.Col)
 	}
 
 	/*
@@ -333,7 +357,7 @@ func recreateAndIntegrityCheckFinalBoardFromClickChain(userClickChainWithGenesis
 		chain steps they submitted. Their solution MAY STILL be wrong, HOWEVER at this stage we know for a fact that they started with the board we gave them, they applied the steps
 		and got their solution as a result of these steps. This is why we still need to compare their submitted solution to the precomputed solution we saved locally
 	*/
-	expectedSolutionDerivedFromGrid := CalculateExpectedSolution(locallyStoredShuffledGameBoard, userChallengeCookieString)
+	expectedSolutionDerivedFromGrid := CalculateExpectedPuzzleSolution(locallyStoredShuffledGameBoard, userChallengeCookieString)
 
 	if expectedSolutionDerivedFromGrid != userSubmittedSolutionHash {
 		return errors.New("ErrTamperedSolution: Users submitted solution hash was NOT derived from this game board")

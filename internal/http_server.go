@@ -31,8 +31,6 @@ const (
 	PuzzleChallengeCookieName = "deflect_challenge4"
 )
 
-var USE_PUZZLE_CHALLENGE = true
-
 func RunHttpServer(
 	ctx context.Context,
 	configHolder *ConfigHolder,
@@ -391,7 +389,7 @@ func accessDenied(c *gin.Context, config *Config, decisionListResultString strin
 }
 
 func accessThrottled(c *gin.Context, config *Config, decisionListResultString string) {
-	msg := fmt.Sprintf("Too many failed attempts. Try again in %d seconds.", config.RateLimitBruteForceSolutionTTLSeconds)
+	msg := fmt.Sprintf("Too many failed attempts. Try again in %d seconds.", config.PuzzleRateLimitBruteForceSolutionTTLSeconds)
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store")    // XXX think about caching
 	c.Header("X-Accel-Redirect", "@access_throttled") // nginx named location that gives a ban page
@@ -414,7 +412,7 @@ func challenge(
 		// Provide the domain so that the cookie is set for subdomains, EX: .example.com
 		domainScope = c.Request.Header.Get("X-Requested-Host")
 	}
-	log.Printf("CALLED challenge() attaching new challenge cookie!: %s %s", cookieName, newCookie)
+	// log.Printf("CALLED challenge() attaching new challenge cookie!: %s %s", cookieName, newCookie)
 	c.SetCookie(cookieName, newCookie, cookieTtlSeconds, "/", domainScope, false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 }
@@ -614,7 +612,7 @@ func sendOrValidateShaChallenge(
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Sha-inverse challenge passed")
 			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassed
-			return
+			return sendOrValidateShaChallengeResult
 		}
 	} else {
 		sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedNoCookie
@@ -638,12 +636,12 @@ func sendOrValidateShaChallenge(
 		if tooManyFailedChallengesResult.Exceeded {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 			accessDenied(c, config, "TooManyFailedChallenges")
-			return
+			return sendOrValidateShaChallengeResult
 		}
 	}
 
 	shaInvChallenge(c, config)
-	return
+	return sendOrValidateShaChallengeResult
 }
 
 type PuzzleCAPTCHAResult uint
@@ -758,18 +756,18 @@ func sendOrValidatePuzzleCAPTCHA(
 		if tooManyFailedChallengesResult.Exceeded {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
 			accessDenied(c, config, "TooManyFailedChallenges")
-			return
+			return sendOrValidatePuzzleCAPTCHAResult
 		}
 	}
 
 	solutionCookieNamesToDelete := make([]string, 0)
-	_, err = ParseSolutionCookie(c, &solutionCookieNamesToDelete)
+	_, err = ParsePuzzleSolutionCookie(c, &solutionCookieNamesToDelete)
 	if err == nil {
-		StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+		StripPuzzleSolutionCookieIfExist(c, solutionCookieNamesToDelete)
 	}
 
 	handlePuzzleCAPTCHAChallenge(config, c)
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
@@ -789,7 +787,7 @@ func handlePuzzleCAPTCHAChallenge(
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
-		return
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	var escapedGameState bytes.Buffer
@@ -797,7 +795,7 @@ func handlePuzzleCAPTCHAChallenge(
 	scriptTag := fmt.Sprintf(`<script id="initial-game-state" type="application/json">%s</script>`, escapedGameState.String())
 
 	modifiedHTML := strings.Replace(
-		config.PuzzleUIIndexHtml,
+		string(config.PuzzleChallengeHTML),
 		"<!-- INITIAL_STATE_PLACEHOLDER: this will be replaced by the initial state containing script when serving the CAPTCHA -->",
 		scriptTag,
 		1, //replace only the first occurrence
@@ -809,7 +807,7 @@ func handlePuzzleCAPTCHAChallenge(
 	sessionCookieEndPoint(c, config)
 	c.String(http.StatusTooManyRequests, modifiedHTML)
 	c.Abort()
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 func handleValidatePuzzleCAPTCHASolution(
@@ -834,17 +832,17 @@ func handleValidatePuzzleCAPTCHASolution(
 
 	solutionCookieNamesToDelete := make([]string, 0)
 	//because appending may trigger reallocation, and we dont know how many are going to be added to slice ahead of time we use ref
-	userSubmission, err := ParseSolutionCookie(c, &solutionCookieNamesToDelete)
+	userSubmission, err := ParsePuzzleSolutionCookie(c, &solutionCookieNamesToDelete)
 	if err != nil {
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailNoCookie
 		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailNoCookie])
-		return
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	err = ValidatePuzzleCAPTCHASolution(config, userChallengeCookieValue, *userSubmission)
 	if err != nil {
 
-		StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+		StripPuzzleSolutionCookieIfExist(c, solutionCookieNamesToDelete)
 
 		integrityErrors := []error{
 			ErrFailedClickChainIntegrityCheck,
@@ -888,7 +886,7 @@ func handleValidatePuzzleCAPTCHASolution(
 					sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleIntegrity
 					ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
 					accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailPuzzleIntegrity])
-					return
+					return sendOrValidatePuzzleCAPTCHAResult
 				}
 
 				/*
@@ -896,11 +894,11 @@ func handleValidatePuzzleCAPTCHASolution(
 					be set in config at the total amount of time you have to solve the puzzle / 4. This way, if you do trigger the rate
 					limiter 4 times, the puzzle is no longer solvable by time constraint forcing them to get a new puzzle
 				*/
-				banner.OverwriteBanWithRateLimit(config, clientIp, config.RateLimitBruteForceSolutionTTLSeconds)
+				banner.OverwriteBanWithRateLimit(config, clientIp, config.PuzzleRateLimitBruteForceSolutionTTLSeconds)
 				sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleValidation
 				ReportPassedFailedBannedMessage(config, "block_ip", clientIp, requestedHost)
 				accessThrottled(c, config, "TooManyFailedChallenges")
-				return
+				return sendOrValidatePuzzleCAPTCHAResult
 			}
 		}
 
@@ -911,17 +909,17 @@ func handleValidatePuzzleCAPTCHASolution(
 
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = puzzleResultCode
 		accessDenied(c, config, PuzzleCAPTCHAResultToString[puzzleResultCode])
-		return
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	StripSolutionCookieIfExist(c, solutionCookieNamesToDelete)
+	StripPuzzleSolutionCookieIfExist(c, solutionCookieNamesToDelete)
 	sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAPass
 	encodedValue := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s[sol]%s", userChallengeCookieValue, userSubmission.Solution)))
 	c.SetCookie(PuzzleChallengeCookieName, encodedValue, config.ShaInvCookieTtlSeconds, "/", "", false, false)
 	accessGranted(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAPass])
 	ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 	c.Abort()
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
@@ -962,9 +960,9 @@ func handleRefreshPuzzleCAPTCHAState(
 		)
 
 		if tooManyFailedChallengesResult.Exceeded {
-			banner.OverwriteBanWithRateLimit(config, clientIp, config.RateLimitBruteForceSolutionTTLSeconds)
+			banner.OverwriteBanWithRateLimit(config, clientIp, config.PuzzleRateLimitBruteForceSolutionTTLSeconds)
 			accessThrottled(c, config, "TooManyFailedChallenges")
-			return
+			return sendOrValidatePuzzleCAPTCHAResult
 		}
 	}
 
@@ -973,14 +971,14 @@ func handleRefreshPuzzleCAPTCHAState(
 	if err != nil {
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
 		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailPuzzleGeneration])
-		return
+		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
 	c.SetCookie(PuzzleChallengeCookieName, userChallengeCookieValue, config.ShaInvCookieTtlSeconds, "/", "", false, false)
 	c.Header("Cache-Control", "no-cache,no-store")
 	c.Data(http.StatusOK, "application/json", serializedCAPTCHAChallenge)
 	c.Abort()
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 /*
@@ -1047,12 +1045,12 @@ func handleLoggingPuzzleCAPTCHAErrorReport(
 
 		if tooManyFailedChallengesResult.Exceeded {
 			accessDenied(c, config, "TooManyErrorReports")
-			return
+			return sendOrValidatePuzzleCAPTCHAResult
 		}
 	}
 
 	c.JSON(http.StatusNoContent, gin.H{})
-	return
+	return sendOrValidatePuzzleCAPTCHAResult
 }
 
 type PasswordChallengeResult uint
@@ -1348,30 +1346,15 @@ func decisionForNginx2(
 	decision, foundInPerSiteList := staticDecisionLists.CheckPerSite(config, requestedHost, clientIp)
 	if foundInPerSiteList {
 		switch decision {
+
 		case Allow:
 			accessGranted(c, config, DecisionListResultToString[PerSiteAccessGranted])
 			// log.Println("access granted from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
 			return
+
 		case Challenge:
 			// log.Println("challenge from per-site lists")
-
-			if USE_PUZZLE_CHALLENGE {
-				puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
-					config,
-					c,
-					banner,
-					failedChallengeStates,
-					Block, // FailAction
-					staticDecisionLists,
-				)
-
-				decisionForNginxResult.DecisionListResult = PerSiteChallenge
-				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
-				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
-				return
-			}
-
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
@@ -1384,6 +1367,22 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
+
+		case PuzzleChallenge:
+			puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+
+			decisionForNginxResult.DecisionListResult = PerSiteChallenge
+			decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
+			return
+
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, config, DecisionListResultToString[PerSiteBlock])
 			// log.Println("block from per-site lists")
@@ -1402,23 +1401,6 @@ func decisionForNginx2(
 			return
 		case Challenge:
 			// log.Println("challenge from global lists")
-
-			if USE_PUZZLE_CHALLENGE {
-				puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
-					config,
-					c,
-					banner,
-					failedChallengeStates,
-					Block, // FailAction
-					staticDecisionLists,
-				)
-
-				decisionForNginxResult.DecisionListResult = GlobalChallenge
-				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
-				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
-				return
-			}
-
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
@@ -1431,6 +1413,22 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
+
+		case PuzzleChallenge:
+			puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+
+			decisionForNginxResult.DecisionListResult = PerSiteChallenge
+			decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
+			return
+
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, config, DecisionListResultToString[GlobalBlock])
 			// log.Println("access denied from global lists")
@@ -1467,22 +1465,6 @@ func decisionForNginx2(
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
 			} else {
 
-				if USE_PUZZLE_CHALLENGE {
-					puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
-						config,
-						c,
-						banner,
-						failedChallengeStates,
-						Block, // FailAction
-						staticDecisionLists,
-					)
-
-					decisionForNginxResult.DecisionListResult = ExpiringChallenge
-					decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
-					decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
-					return
-				}
-
 				// log.Println("challenge from expiring lists")
 				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 					config,
@@ -1497,6 +1479,36 @@ func decisionForNginx2(
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
+
+		case PuzzleChallenge:
+
+			//following the sha challenge example above
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException])
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
+			// Check if expiringDecision.fromBaskerville, if true, check if domain disabled baskerville
+			_, disabled := config.SitesToDisableBaskerville[requestedHost]
+			if expiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
+			} else {
+
+				puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
+
+				decisionForNginxResult.DecisionListResult = ExpiringChallenge
+				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
+				return
+			}
+
 		case NginxBlock, IptablesBlock:
 			accessDenied(c, config, DecisionListResultToString[ExpiringBlock])
 			// log.Println("access denied from expiring lists")
@@ -1518,21 +1530,23 @@ func decisionForNginx2(
 			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException])
 		} else {
 
-			if USE_PUZZLE_CHALLENGE {
-				puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
-					config,
-					c,
-					banner,
-					failedChallengeStates,
-					Block, // FailAction
-					staticDecisionLists,
-				)
+			//this would have to be something anton sends over?
 
-				decisionForNginxResult.DecisionListResult = SiteWideChallenge
-				decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
-				decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
-				return
-			}
+			// if config.USE_PUZZLE_CHALLENGE {
+			// 	puzzleCAPTCHAResult := sendOrValidatePuzzleCAPTCHA(
+			// 		config,
+			// 		c,
+			// 		banner,
+			// 		failedChallengeStates,
+			// 		Block, // FailAction
+			// 		staticDecisionLists,
+			// 	)
+
+			// 	decisionForNginxResult.DecisionListResult = SiteWideChallenge
+			// 	decisionForNginxResult.PuzzleCAPTCHAResult = &puzzleCAPTCHAResult.PuzzleCaptchaResult
+			// 	decisionForNginxResult.TooManyFailedChallengesResult = &puzzleCAPTCHAResult.TooManyFailedChallengesResult
+			// 	return
+			// }
 
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,

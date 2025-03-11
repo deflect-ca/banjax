@@ -26,24 +26,24 @@ var (
 )
 
 // TileNoiseMask represents a grid of RGB noise adjustments
-type TileNoiseMask struct {
+type PuzzleTileNoiseMask struct {
 	Offsets [][][3]int // [y][x][R, G, B] pixel modifications
 }
 
 const NumberOfTileNoiseMasks = 512
 const thumbnailSize = 400
 
-type TileMetadata struct {
+type PuzzleTileMetadata struct {
 	RGBAImagePtr *image.RGBA
 	Hash         string
 }
 
 /*to save memory, we store only the tileIDs without the base64 when storing the copy of the original for verification*/
-type TileWithoutImage struct {
+type PuzzleTileWithoutImage struct {
 	TileGridID string `json:"tile_grid_id"`
 }
 
-type Tile struct {
+type PuzzleTile struct {
 	Base64Image string `json:"base64_image"`
 	TileGridID  string `json:"tile_grid_id"`
 }
@@ -53,19 +53,19 @@ for generics on functions that can apply to both TileWithoutImage and Tile types
 this is particularly important for functions that are used to recreate the gameboard
 when validating a users solution without needing to store state server side
 */
-type TileIdentifier interface {
+type PuzzleTileIdentifier interface {
 	GetTileGridID() string
 }
 
-func (t Tile) GetTileGridID() string {
+func (t PuzzleTile) GetTileGridID() string {
 	return t.TileGridID
 }
 
-func (t TileWithoutImage) GetTileGridID() string {
+func (t PuzzleTileWithoutImage) GetTileGridID() string {
 	return t.TileGridID
 }
 
-type TileMap[T TileIdentifier] map[int]T
+type PuzzleTileMap[T PuzzleTileIdentifier] map[int]T
 
 /*
 Init
@@ -114,9 +114,9 @@ Even with dedicated attacks attempting to brute-force noise values, using the ra
 simply rotating images periodically further mitigates any long-term risks.
 */
 type PuzzleImageController struct {
-	tileNoiseMasks               [NumberOfTileNoiseMasks]TileNoiseMask
-	partitionedImageTileMetadata map[int]TileMetadata
-	thumbnailNoiseMasks          [NumberOfTileNoiseMasks]TileNoiseMask
+	tileNoiseMasks               [NumberOfTileNoiseMasks]PuzzleTileNoiseMask
+	partitionedImageTileMetadata map[int]PuzzleTileMetadata
+	thumbnailNoiseMasks          [NumberOfTileNoiseMasks]PuzzleTileNoiseMask
 	thumbnailPtr                 *image.RGBA
 	partitionTileHeight          int
 	partitionTileWidth           int
@@ -147,7 +147,7 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 		return ErrFailedInitInvalidNumberOfPartitions
 	}
 
-	b64Img := LoadDefaultImageBase64()
+	b64Img := LoadDefaultPuzzleImageBase64()
 
 	img, err := decodeBase64ToImage(b64Img)
 	if err != nil {
@@ -159,7 +159,7 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 	thumbnailHeight := thumbnailRGBA.Bounds().Dy()
 	thumbnailWidth := thumbnailRGBA.Bounds().Dx()
 
-	var thumbnailNoiseMasks [NumberOfTileNoiseMasks]TileNoiseMask
+	var thumbnailNoiseMasks [NumberOfTileNoiseMasks]PuzzleTileNoiseMask
 	for i := 0; i < NumberOfTileNoiseMasks; i++ {
 		//we use i*54321 as entropy so we get deterministic masks across restarts while maintaining pseudo random noise
 		thumbnailNoiseMasks[i] = generateTileNoiseMask(thumbnailHeight, thumbnailWidth, i*54321)
@@ -177,17 +177,17 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 	tileHeight := rgbaImgPartition.Bounds().Dy()
 	tileWidth := rgbaImgPartition.Bounds().Dx()
 
-	var tileNoiseMasks [NumberOfTileNoiseMasks]TileNoiseMask
+	var tileNoiseMasks [NumberOfTileNoiseMasks]PuzzleTileNoiseMask
 	for i := 0; i < NumberOfTileNoiseMasks; i++ {
 		//we use i*12345 as entropy so we get deterministic masks across restarts while maintaining pseudo random noise
 		tileNoiseMasks[i] = generateTileNoiseMask(tileHeight, tileWidth, i*12345)
 	}
 
-	partitionedImageTiles := make(map[int]TileMetadata)
+	partitionedImageTiles := make(map[int]PuzzleTileMetadata)
 	for i, tile := range imgPartitionedAsTiles {
 		rgbaTile := convertToRGBA(tile)
 		hashOfTilePixels := hashTilePixels(rgbaTile)
-		partitionedImageTiles[i] = TileMetadata{RGBAImagePtr: rgbaTile, Hash: hashOfTilePixels}
+		partitionedImageTiles[i] = PuzzleTileMetadata{RGBAImagePtr: rgbaTile, Hash: hashOfTilePixels}
 	}
 
 	imgController.partitionedImageTileMetadata = partitionedImageTiles
@@ -216,14 +216,14 @@ NOTE: set includeBase64Png to false when calculating the TileID's for validation
 If T == Tile, return tiles with Base64 images (Tile)
 If T == TileWithoutImage, return tiles without Base64 images (TileWithoutImage)
 */
-func TileMapFromImage[T TileIdentifier](config *Config, userChallengeCookie string, includeBase64Png bool) (TileMap[T], error) {
+func PuzzleTileMapFromImage[T PuzzleTileIdentifier](config *Config, userChallengeCookie string, includeBase64Png bool) (PuzzleTileMap[T], error) {
 
 	imgController := config.PuzzleImageController
 
 	imgController.rwLock.RLock()
 	defer imgController.rwLock.RUnlock()
 
-	tileMap := make(TileMap[T])
+	tileMap := make(PuzzleTileMap[T])
 	for i := range imgController.numberOfPartitions {
 
 		tileRGBA := imgController.partitionedImageTileMetadata[i].RGBAImagePtr
@@ -253,7 +253,7 @@ func TileMapFromImage[T TileIdentifier](config *Config, userChallengeCookie stri
 			*/
 
 			selectionEntropy := fmt.Sprintf("%s%s", userChallengeCookie, tileHash)
-			randomIndex := EntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
+			randomIndex := PuzzleEntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
 			tileMask := &imgController.tileNoiseMasks[randomIndex]
 
 			// tileMask := selectNoiseMask(userChallengeCookie, tileHash, imgController.puzzleSecret, &imgController.tileNoiseMasks)
@@ -292,10 +292,10 @@ func TileMapFromImage[T TileIdentifier](config *Config, userChallengeCookie stri
 
 		var tile T
 		switch any(tile).(type) {
-		case Tile:
-			tile = any(Tile{Base64Image: noisyTileB64, TileGridID: tileID}).(T)
-		case TileWithoutImage:
-			tile = any(TileWithoutImage{TileGridID: tileID}).(T)
+		case PuzzleTile:
+			tile = any(PuzzleTile{Base64Image: noisyTileB64, TileGridID: tileID}).(T)
+		case PuzzleTileWithoutImage:
+			tile = any(PuzzleTileWithoutImage{TileGridID: tileID}).(T)
 		default:
 			return nil, fmt.Errorf("%w: unsupported tile type", ErrUnsupportedPuzzleType)
 		}
@@ -314,7 +314,7 @@ thumbnail itself has no effect on the users calcualted result and we need not ev
 there exists no correlation between the users current challenge grid image and the thumbnail to avoid a user trying to cheat
 the puzzle by partitioning the thumbnail or trying to get cute in any other way.
 */
-func ThumbnailFromImage(config *Config, thumbnailEntropy string, removeRow, removeCol int) (string, error) {
+func PuzzleThumbnailFromImage(config *Config, thumbnailEntropy string, removeRow, removeCol int) (string, error) {
 
 	imgController := config.PuzzleImageController
 
@@ -345,7 +345,7 @@ func ThumbnailFromImage(config *Config, thumbnailEntropy string, removeRow, remo
 	}
 
 	selectionEntropy := fmt.Sprintf("%s%d", thumbnailEntropy, time.Now().UnixNano())
-	randomIndex := EntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
+	randomIndex := PuzzleEntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
 	tileMask := &imgController.thumbnailNoiseMasks[randomIndex]
 
 	noisyThumbnail := applyNoiseMask(thumbnailCopy, tileMask, thumbnailCopy.Bounds().Dy(), thumbnailCopy.Bounds().Dx())
@@ -367,7 +367,7 @@ So I argue the conventional Big-O N^2 notation is misleading — this is a const
 Also note that noisedImg := image.NewRGBA(img.Bounds()) creates a copy. So we are never actually changing the data in the map
 so you can modify noisedImg freely without affecting tileRGBA (which is just a pointer to the original stored image)
 */
-func applyNoiseMask(img *image.RGBA, mask *TileNoiseMask, tileHeight, tileWidth int) *image.RGBA {
+func applyNoiseMask(img *image.RGBA, mask *PuzzleTileNoiseMask, tileHeight, tileWidth int) *image.RGBA {
 	noisedImg := image.NewRGBA(img.Bounds())
 
 	for y := 0; y < tileHeight; y++ {
@@ -401,7 +401,7 @@ on restarts we generate the exact same masks. This ensures even if a machine cra
 while solving a puzzle, it it is back up by the time they submit their solution, we
 will still be able to validate their solution and/or cookie
 */
-func generateTileNoiseMask(tileHeight, tileWidth, maskSeed int) TileNoiseMask {
+func generateTileNoiseMask(tileHeight, tileWidth, maskSeed int) PuzzleTileNoiseMask {
 	seed := int64(maskSeed)
 	r := rand.New(rand.NewSource(seed))
 
@@ -410,7 +410,7 @@ func generateTileNoiseMask(tileHeight, tileWidth, maskSeed int) TileNoiseMask {
 	maxNoise := 26
 	noiseLevel := r.Intn(maxNoise-minNoise+1) + minNoise
 
-	mask := TileNoiseMask{Offsets: make([][][3]int, tileHeight)}
+	mask := PuzzleTileNoiseMask{Offsets: make([][][3]int, tileHeight)}
 	for y := 0; y < tileHeight; y++ {
 		mask.Offsets[y] = make([][3]int, tileWidth)
 		for x := 0; x < tileWidth; x++ {

@@ -20,7 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func LoadDefaultImageBase64() string {
+func LoadDefaultPuzzleImageBase64() string {
 	relativePath := "internal/static/images/default_baskerville_logo.png"
 	absolutePath, err := getAbsolutePath(relativePath)
 	if err != nil {
@@ -72,7 +72,7 @@ and use them AS the source of entropy enabling generation of pseudo-random numbe
 by recreating the initial challenge we issued at runtime. Anytime the same info is passed in, it will generate
 the same "random" sequence.
 */
-func EntropyFromRange(entropyInitalizationVector, entropyContext string, minValue, maxValue int) int {
+func PuzzleEntropyFromRange(entropyInitalizationVector, entropyContext string, minValue, maxValue int) int {
 
 	// log.Printf("EntropyFromRange called: minValue:%d, maxValue:%d", minValue, maxValue)
 
@@ -96,7 +96,7 @@ func EntropyFromRange(entropyInitalizationVector, entropyContext string, minValu
 same as the function on the client side such that the user can submit their sol to us and we
 can compute our expectation of that sol for comparison
 */
-func CalculateExpectedSolution[T TileIdentifier](boardRef [][]*T, userChallengeCookie string) string {
+func CalculateExpectedPuzzleSolution[T PuzzleTileIdentifier](boardRef [][]*T, userChallengeCookie string) string {
 
 	var boardIDHashesInOrder strings.Builder
 	for _, row := range boardRef {
@@ -114,27 +114,27 @@ func CalculateExpectedSolution[T TileIdentifier](boardRef [][]*T, userChallengeC
 	return expectedSolution
 }
 
-func LogGameBoard[T TileIdentifier](gameBoard [][]*T) {
-	log.Println("=== GAMEBOARD ===")
-	for i, row := range gameBoard {
-		rowStr := fmt.Sprintf("Row %d: ", i)
-		for _, tile := range row {
-			if tile != nil {
-				rowStr += fmt.Sprintf("[%s...] ", (*tile).GetTileGridID()) // Preview first 20 chars
-			} else {
-				rowStr += "[nil] "
-			}
-		}
-		log.Println(rowStr)
-	}
-}
+// func LogPuzzleGameBoard[T TileIdentifier](gameBoard [][]*T) {
+// 	log.Println("=== GAMEBOARD ===")
+// 	for i, row := range gameBoard {
+// 		rowStr := fmt.Sprintf("Row %d: ", i)
+// 		for _, tile := range row {
+// 			if tile != nil {
+// 				rowStr += fmt.Sprintf("[%s...] ", (*tile).GetTileGridID()) // Preview first 20 chars
+// 			} else {
+// 				rowStr += "[nil] "
+// 			}
+// 		}
+// 		log.Println(rowStr)
+// 	}
+// }
 
-func ParseSolutionCookie(c *gin.Context, cookiesToDelete *[]string) (userSolutionSubmission *ClientSolutionSubmissionPayload, err error) {
+func ParsePuzzleSolutionCookie(c *gin.Context, cookiesToDelete *[]string) (userSolutionSubmission *ClientPuzzleSolutionSubmissionPayload, err error) {
 
 	defer func() {
 		if err != nil {
 			// log.Println("stripping solution cookies due to error while parsing solution cookie")
-			StripSolutionCookieIfExist(c, *cookiesToDelete)
+			StripPuzzleSolutionCookieIfExist(c, *cookiesToDelete)
 			*cookiesToDelete = make([]string, 0)
 		}
 	}()
@@ -146,7 +146,7 @@ func ParseSolutionCookie(c *gin.Context, cookiesToDelete *[]string) (userSolutio
 	*cookiesToDelete = append(*cookiesToDelete, "__banjax_sol")
 
 	cookies := c.Request.Cookies()
-	userJSONSerializedClickChain, cookieNames, err := extractClickChainFromCookies(cookies)
+	userJSONSerializedClickChain, cookieNames, err := extractPuzzleClickChainFromCookies(cookies)
 	//the cookieNames are always guarenteed to return at least empty array
 	*cookiesToDelete = append(*cookiesToDelete, cookieNames...)
 	if err != nil {
@@ -167,7 +167,7 @@ func ParseSolutionCookie(c *gin.Context, cookiesToDelete *[]string) (userSolutio
 		return nil, err
 	}
 
-	userSolutionSubmission = &ClientSolutionSubmissionPayload{
+	userSolutionSubmission = &ClientPuzzleSolutionSubmissionPayload{
 		Solution:   string(userSolutionString),
 		ClickChain: userSubmittedClickChain,
 	}
@@ -190,7 +190,7 @@ In order to guarentee always being able to receive user solutions, we cap the nu
 for any puzzle solution at < 80. This ensures that at most 8 cookies will be attached. In practice, most puzzles are
 solvable in < 10 moves so it should only require attaching a single __banjax_cc_1_1 cookie
 */
-func extractClickChainFromCookies(cookies []*http.Cookie) ([]byte, []string, error) {
+func extractPuzzleClickChainFromCookies(cookies []*http.Cookie) ([]byte, []string, error) {
 
 	clickChainParts := make(map[int]string)
 	cookieNames := make([]string, 0)
@@ -254,7 +254,7 @@ func extractClickChainFromCookies(cookies []*http.Cookie) ([]byte, []string, err
 	return clickChainJSON, cookieNames, nil
 }
 
-func StripSolutionCookieIfExist(c *gin.Context, cookieNamesToDelete []string) {
+func StripPuzzleSolutionCookieIfExist(c *gin.Context, cookieNamesToDelete []string) {
 	for _, name := range cookieNamesToDelete {
 		_, err := c.Cookie(name)
 		if err == nil {
@@ -337,7 +337,7 @@ func ValidatePuzzleCAPTCHACookie(config *Config, cookieString string, nowTime ti
 
 		//validate the solution against the original challenge portion
 		var expectedSolution string
-		_, _, expectedSolution, err = GenerateExpectedSolution(config, originalCookiePortion)
+		_, _, expectedSolution, err = GeneratePuzzleExpectedSolution(config, originalCookiePortion)
 
 		if err != nil {
 			return fmt.Errorf("ErrRecreatingExpectedSolution: %v", err)
@@ -347,7 +347,7 @@ func ValidatePuzzleCAPTCHACookie(config *Config, cookieString string, nowTime ti
 			return errors.New("failed to calculate existing solution")
 		}
 
-		return VerifySolutionHash(puzzleSolutionPortion, expectedSolution)
+		return VerifyPuzzleSolutionHash(puzzleSolutionPortion, expectedSolution)
 
 	} else {
 		//malformed cookie (too many `[sol]` delimiters)

@@ -22,7 +22,10 @@ type Decision int
 const (
 	_ Decision = iota
 	Allow
-	Challenge
+
+	Challenge       //int 2
+	PuzzleChallenge //int 3
+
 	NginxBlock
 	IptablesBlock
 )
@@ -37,6 +40,8 @@ func ParseDecision(s string) (Decision, error) {
 		return NginxBlock, nil
 	case "iptables_block":
 		return IptablesBlock, nil
+	case "puzzle_challenge":
+		return PuzzleChallenge, nil
 	default:
 		return 0, fmt.Errorf("invalid decision: %v", s)
 	}
@@ -52,6 +57,8 @@ func (d Decision) String() string {
 		return "NginxBlock"
 	case IptablesBlock:
 		return "IptablesBlock"
+	case PuzzleChallenge:
+		return "puzzle_challenge"
 	default:
 		return ""
 	}
@@ -124,7 +131,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock, PuzzleChallenge} {
 		if instanceIPFilter, ok := c.perSiteDecisionListsIPFilter[site][iterateDecision]; ok && instanceIPFilter != nil {
 			if instanceIPFilter.Allowed(string(clientIp)) {
 				if config.Debug {
@@ -146,7 +153,7 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	if ok {
 		return decision, true
 	} else {
-		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock, PuzzleChallenge} {
 			// check if Ipfilter ref associated to this iterateDecision exists
 			filter, ok := c.globalDecisionListsIPFilter[iterateDecision]
 			if ok && filter.Allowed(clientIp) {
