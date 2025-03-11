@@ -15,7 +15,6 @@ func TestMain(m *testing.M) {
 	logWriter := log.Writer()
 	log.SetOutput(io.Discard)
 	defer log.SetOutput(logWriter)
-
 	setUp()
 	exit_code := m.Run()
 	tearDown()
@@ -30,6 +29,11 @@ func TestPathWithChallengeCookies(t *testing.T) {
 		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3"}},
 		{"GET", prefix + "/wp-admin", 401, nil, []string{"deflect_password3", "3600"}}, // testing max-age
 		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("192.168.1.64"), []string{"deflect_challenge3"}},
+	})
+
+	reloadConfig(fixtureConfigTestPuzzleCaptcha, 1, t)
+	httpTesterWithCookie(t, []TestResource{
+		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("60.50.40.30"), []string{"deflect_challenge4"}},
 	})
 
 	// reload without per site max age, test if default value 14400 present

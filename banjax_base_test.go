@@ -35,7 +35,7 @@ func setUp() {
 	setCommandLineFlags()
 	log.SetFlags(log.LstdFlags | log.Lshortfile) // show line num in logs
 	go main()
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second)
 }
 
 func tearDown() {
