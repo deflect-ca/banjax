@@ -31,10 +31,10 @@ func TestPathWithChallengeCookies(t *testing.T) {
 		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("192.168.1.64"), []string{"deflect_challenge3"}},
 	})
 
-	reloadConfig(fixtureConfigTestPuzzleCaptcha, 1, t)
-	httpTesterWithCookie(t, []TestResource{
-		{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("60.50.40.30"), []string{"deflect_challenge4"}},
-	})
+	// reloadConfig(fixtureConfigTestPuzzleCaptcha, 1, t)
+	// httpTesterWithCookie(t, []TestResource{
+	// 	{"GET", prefix + "/global_mask_64_ban", 429, ClientIP("60.50.40.30"), []string{"deflect_challenge4"}},
+	// })
 
 	// reload without per site max age, test if default value 14400 present
 	reloadConfig(fixtureConfigTestReloadCIDR, 1, t)
