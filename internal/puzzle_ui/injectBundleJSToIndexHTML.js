@@ -20,10 +20,10 @@ export default function injectBundleJSToIndexHTML(writeToDestination = "dist/ind
     let htmlContent = fs.readFileSync(htmlPath, 'utf-8')
 
     //replace the "LOGO_PLACEHOLDER" that we wrote as a comment in the index.html in src with the inlined js bundle
-    htmlContent = htmlContent.replace(
-        /<!-- LOGO_PLACEHOLDER: This will be replaced with the inlined deflect_logo.svg during the build process -->/,
-        svgContent
-    )
+    // htmlContent = htmlContent.replace(
+    //     /<!-- LOGO_PLACEHOLDER: This will be replaced with the inlined deflect_logo.svg during the build process -->/,
+    //     svgContent
+    // )
 
     //replace the "BUNDLE_PLACEHOLDER" that we wrote as a comment in the index.html in src with the inlined js bundle
     htmlContent = htmlContent.replace(

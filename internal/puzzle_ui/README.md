@@ -98,6 +98,9 @@
 - In theory, this could mean that getting the exact right solution may not even be necessary. If we weight behavioral analysis more heavily than correctness, we could allow slightly incorrect solutions as long as the player's interactions strongly indicate human behavior.
 - The really neat part of the project will be in collecting and analyzing gameplay data, identifying patterns that separate human problem-solving strategies from automated solvers.
 
+#### Cool fact about the puzzle:
+- Finding a solution for n-puzzle is easy. However, finding a shortest solution is NP-hard.
+
 ---
 
 
@@ -121,17 +124,12 @@
 
     ```
         type CAPTCHAChallenge struct {
-            GameBoard             [][]*Tile         `json:"gameBoard"`
-            ThumbnailBase64       string            `json:"thumbnail_base64"`
-            MaxAllowedMoves       int               `json:"maxNumberOfMovesAllowed"`
-            TimeToSolveMS         int               `json:"timeToSolve_ms"`
-            ShowCountdownTimer    bool              `json:"showCountdownTimer"`
-            IntegrityCheckHash    string            `json:"integrity_check"`
-            CollectDataEnabled    bool              `json:"collect_data"`
-            UserDesiredEndpoint   string            `json:"users_intended_endpoint"`
-            ChallengeIssuedAtDate string            `json:"challenge_issued_date"`
-            ClickChain            []ClickChainEntry `json:"click_chain"`
-            ChallengeDifficulty   string            `json:"challenge_difficulty"`
+            GameBoard          [][]*Tile         `json:"gameBoard"`
+            ThumbnailBase64    string            `json:"thumbnail_base64"`
+            MaxAllowedMoves    int               `json:"maxNumberOfMovesAllowed"`
+            TimeToSolveMS      int               `json:"timeToSolve_ms"`
+            CollectDataEnabled bool              `json:"collect_data"`
+            ClickChain         []ClickChainEntry `json:"click_chain"`
         }
     ```
 

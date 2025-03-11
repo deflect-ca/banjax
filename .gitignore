@@ -17,15 +17,16 @@ keys
 .env
 
 #ignore node_modules and build artifacts
-puzzle_ui/node_modules/
-puzzle_ui/dist/
+internal/puzzle_ui/node_modules/
+internal/puzzle_ui/dist/
+internal/puzzle_ui/.cache/
 
 #ignore dependency lock files if not needed
-puzzle_ui/package-lock.json
-puzzle_ui/yarn.lock
+internal/puzzle_ui/package-lock.json
+internal/puzzle_ui/yarn.lock
 
 .DS_Store
 .vscode/
-puzzle_ui/src/client/.DS_Store
-puzzle_ui/src/.DS_Store
-puzzle_ui/.DS_Store
+internal/puzzle_ui/src/client/.DS_Store
+internal/puzzle_ui/src/.DS_Store
+internal/puzzle_ui/.DS_Store
