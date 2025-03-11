@@ -18,7 +18,7 @@ keys
 
 #ignore node_modules and build artifacts
 internal/puzzle_ui/node_modules/
-internal/puzzle_ui/dist/
+internal/puzzle_ui/dist/client
 internal/puzzle_ui/.cache/
 
 #ignore dependency lock files if not needed
