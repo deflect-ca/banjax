@@ -11,8 +11,8 @@ global_decision_lists:
     - 8.8.8.8
     - 60.60.60.60
   puzzle_challenge:
-    - 60.50.40.30
-    - 61.51.41.31
+    - 9.9.9.9
+    - 61.61.61.61
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -94,7 +94,6 @@ sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.
 hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
-#puzzle captcha configs:
 #puzzle captcha configs:
 puzzle_thumbnail_entropy_secret: "thumbnailSecret"
 puzzle_entropy_secret: "puzzleSecret"

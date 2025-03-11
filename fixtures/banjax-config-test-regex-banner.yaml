@@ -10,7 +10,7 @@ global_decision_lists:
   challenge:
     - 8.8.8.8
   puzzle_challenge:
-    - 60.50.40.30
+    - 9.9.9.9
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:

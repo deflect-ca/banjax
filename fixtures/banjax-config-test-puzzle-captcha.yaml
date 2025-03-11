@@ -8,7 +8,7 @@ global_decision_lists:
   challenge:
     - 20.20.20.20  # test value change
   puzzle_challenge:
-    - 60.50.40.30
+    - 21.21.21.21
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -73,14 +73,6 @@ sha_inv_cookie_ttl_seconds: 14400  # also modify internal/sha-inverse-challenge.
 hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
-#additional required for puzzle CAPTCHA:
-enable_gameplay_data_collection: false
-rate_limit_brute_force_solution_ttl_seconds: 60
-thumbnail_entropy_secret: "thumbnailSecret"
-puzzle_entropy_secret: "puzzleSecret"
-click_chain_entropy_secret: "clickChainSecret"
-path_to_difficulty_profiles: "/etc/banjax/puzzle/difficulty_profiles_config.yaml"
-path_to_puzzle_index_html: "/etc/banjax/puzzle/index.html"
 #puzzle captcha configs:
 puzzle_thumbnail_entropy_secret: "thumbnailSecret"
 puzzle_entropy_secret: "puzzleSecret"

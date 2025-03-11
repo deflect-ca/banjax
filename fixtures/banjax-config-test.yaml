@@ -9,7 +9,8 @@ global_decision_lists:
     - 60.60.60.60
     - 192.168.1.0/24
   puzzle_challenge:
-    - 60.50.40.30
+    - 9.9.9.9
+    - 61.61.61.61
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
