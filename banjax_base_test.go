@@ -24,7 +24,6 @@ const fixtureConfigTestShaInv = "./fixtures/banjax-config-test-sha-inv.yaml"
 const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner.yaml"
 const fixtureConfigTestReloadCIDR = "./fixtures/banjax-config-test-reload-cidr.yaml"
 const fixtureConfigTestPersiteFail = "./fixtures/banjax-config-test-persite-fail.yaml"
-const fixtureConfigTestPuzzleCaptcha = "./fixtures/banjax-config-test-puzzle-captcha.yaml"
 
 var tmpDir string
 var configFile string
@@ -35,7 +34,7 @@ func setUp() {
 	setCommandLineFlags()
 	log.SetFlags(log.LstdFlags | log.Lshortfile) // show line num in logs
 	go main()
-	time.Sleep(10 * time.Second)
+	time.Sleep(1 * time.Second)
 }
 
 func tearDown() {

@@ -17,7 +17,6 @@ RUN cd /opt/banjax && go test && go build
 
 RUN mkdir -p /etc/banjax
 COPY ./banjax-config.yaml /etc/banjax/
-
 # COPY ./caroot.pem /etc/banjax/
 # COPY ./certificate.pem /etc/banjax/
 # COPY ./key.pem /etc/banjax/

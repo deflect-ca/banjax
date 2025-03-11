@@ -8,8 +8,6 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 8.8.8.8
-  puzzle_challenge:
-    - 192.168.65.1
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
 expiring_decision_ttl_seconds: 300
@@ -52,8 +50,6 @@ per_site_decision_lists:
       - 90.90.90.90
     challenge:
       - 91.91.91.91
-    puzzle_challenge:
-      - 92.92.92.92
 per_site_regexes_with_rates: {}
 regexes_with_rates:
   - decision: nginx_block
