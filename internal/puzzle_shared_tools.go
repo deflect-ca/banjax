@@ -1,7 +1,6 @@
 package internal
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -355,16 +354,6 @@ func ValidatePuzzleCAPTCHACookie(config *Config, cookieString string, nowTime ti
 		//malformed cookie (too many `[sol]` delimiters)
 		return errors.New("malformed CAPTCHA cookie")
 	}
-}
-
-type PuzzleErrorLoggerContextLookupKey struct{}
-
-func GetPuzzleLogger(ctx context.Context) (*PuzzleErrorLogger, error) {
-	logger, ok := ctx.Value(PuzzleErrorLoggerContextLookupKey{}).(*PuzzleErrorLogger)
-	if !ok {
-		return nil, errors.New("ErrMissingPuzzleErrorLogger")
-	}
-	return logger, nil
 }
 
 type PuzzleErrorLogger struct {

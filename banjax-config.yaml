@@ -8,6 +8,8 @@ global_decision_lists:
     - 70.80.90.100
   challenge:
     - 8.8.8.8
+  puzzle_challenge:
+    - 192.168.65.1
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
 expiring_decision_ttl_seconds: 300
@@ -136,6 +138,7 @@ sha_inv_path_exceptions:
 # enable pprof for debugging
 profile: false
 #puzzle captcha configs:
+puzzle_error_log_file_path: "/var/log/banjax/puzzle_error.log"
 puzzle_thumbnail_entropy_secret: "9a96ba30c1190b12360e1c59b0247e534145484bc5ebc635330677c76dc0212a"
 puzzle_entropy_secret: "24c470da7acba2ad36bb6b98713148b6e8d0bbdac05d561d25fb1ae88cc8f2d6"
 puzzle_click_chain_entropy_secret: "8a5ea4dd46011b8ab22f5fa3fee875bc6a2ad7f15593ab7a952090ea4a1db450"

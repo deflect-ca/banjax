@@ -197,10 +197,15 @@ func RunHttpServer(
 			return
 		case "error":
 
-			puzzleErrorLogger, err := GetPuzzleLogger(ctx)
+			// puzzleErrorLogger, err := GetPuzzleLogger(ctx)
+			// if err != nil {
+			// 	log.Printf("Missing puzzle error logger due to: %v. Skipping logging errors...", err)
+			// }
+			puzzleErrorLogger, err := NewPuzzleErrorLogger(config.PuzzleErrorLogFilePath)
 			if err != nil {
-				log.Printf("Missing puzzle error logger due to: %v. Skipping logging errors...", err)
+				log.Fatal(err)
 			}
+			defer puzzleErrorLogger.Close()
 
 			handleLoggingPuzzleCAPTCHAErrorReport(
 				config,

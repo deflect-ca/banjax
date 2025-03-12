@@ -154,8 +154,8 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 		return fmt.Errorf("%w: %v", ErrFailedDecoding, err)
 	}
 
-	thumnail := resizeToThumbnail(img)
-	thumbnailRGBA := convertToRGBA(thumnail)
+	thumbnail := resizeToThumbnail(img)
+	thumbnailRGBA := convertToRGBA(thumbnail)
 	thumbnailHeight := thumbnailRGBA.Bounds().Dy()
 	thumbnailWidth := thumbnailRGBA.Bounds().Dx()
 
