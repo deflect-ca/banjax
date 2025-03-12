@@ -77,6 +77,7 @@ type Config struct {
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
 
 	//puzzle captcha requirements
+	PuzzleErrorLogFilePath                      string                         `yaml:"puzzle_error_log_file_path"`
 	PuzzleThumbnailEntropySecret                string                         `yaml:"puzzle_thumbnail_entropy_secret"`
 	PuzzleEntropySecret                         string                         `yaml:"puzzle_entropy_secret"`
 	PuzzleClickChainEntropySecret               string                         `yaml:"puzzle_click_chain_entropy_secret"`

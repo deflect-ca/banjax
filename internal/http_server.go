@@ -196,6 +196,12 @@ func RunHttpServer(
 			)
 			return
 		case "error":
+
+			puzzleErrorLogger, err := GetPuzzleLogger(ctx)
+			if err != nil {
+				log.Printf("Missing puzzle error logger due to: %v. Skipping logging errors...", err)
+			}
+
 			handleLoggingPuzzleCAPTCHAErrorReport(
 				config,
 				c,
@@ -203,6 +209,7 @@ func RunHttpServer(
 				failedChallengeStates,
 				Block, //fail action is a constant
 				staticDecisionLists,
+				puzzleErrorLogger,
 			)
 			return
 		default:
@@ -395,7 +402,7 @@ func accessThrottled(c *gin.Context, config *Config, decisionListResultString st
 	c.Header("X-Accel-Redirect", "@access_throttled") // nginx named location that gives a ban page
 	c.Header("X-Throttle-Message", msg)               //msg to display
 	sessionCookieEndPoint(c, config)
-	c.String(403, msg)
+	c.String(429, msg)
 }
 
 func challenge(
@@ -997,18 +1004,23 @@ func handleLoggingPuzzleCAPTCHAErrorReport(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
+	puzzleErrorLogger *PuzzleErrorLogger,
 
 ) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
+	if puzzleErrorLogger == nil {
+		//if for whatever reason, we were not able to get the error logger
+		//from ctx on server startup ignore all error non critical client side error reports
+		return sendOrValidatePuzzleCAPTCHAResult
+	}
+
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
-	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	challengeCookie, err := c.Cookie(PuzzleChallengeCookieName)
 	if err != nil {
-		log.Println("Err looking up challenge cookie: ", err)
+		challengeCookie = ""
 	}
-	requestedMethod := c.Request.Method
 
 	errorType := c.Param("errorType")
 	if errorType != "" {
@@ -1017,19 +1029,34 @@ func handleLoggingPuzzleCAPTCHAErrorReport(
 
 	stackTrace, err := c.Cookie("__banjax_error")
 	if err != nil {
-		stackTrace = "Unknown"
+		stackTrace = ""
 	}
 
-	log.Printf("\nERROR: %s", requestedPath)
-	log.Println("IP Address: ", clientIp)
-	log.Println("Host: ", requestedHost)
-	log.Println("User Agent: ", clientUserAgent)
-	log.Println("Challenge Cookie: ", challengeCookie)
-	log.Println("Method: ", requestedMethod)
-	log.Println("error Type: ", errorType)
-	log.Println("stack trace: ", stackTrace)
+	var errorReport strings.Builder
+	errorReport.WriteString(fmt.Sprintf("[CAPTCHA PUZZLE ERROR] Type: %s Hostname: %s UserAgent: %s IP Address: %s",
+		errorType, requestedHost, clientUserAgent, clientIp))
 
-	if failAction == Block {
+	if challengeCookie != "" {
+		errorReport.WriteString(fmt.Sprintf(" Challenge cookie: %s", challengeCookie))
+	}
+
+	if stackTrace != "" {
+		errorReport.WriteString(fmt.Sprintf(" Stack Trace: %s", stackTrace))
+	}
+
+	err = puzzleErrorLogger.WritePuzzleErrorLog(errorReport.String())
+	if err != nil {
+		log.Printf("Failed to write puzzle error log: %v", err)
+	}
+
+	/*
+		//if the endpoint is being abused, then ban them.
+
+		//NOTE: we also have rate limiting
+		//in place at the level of nginx so I don't know if this is necessary
+
+		requestedPath := c.Request.Header.Get("X-Requested-Path")
+		requestedMethod := c.Request.Method
 		tooManyFailedChallengesResult := tooManyFailedChallenges(
 			config,
 			clientIp,
@@ -1042,13 +1069,13 @@ func handleLoggingPuzzleCAPTCHAErrorReport(
 			requestedMethod,
 			decisionLists,
 		)
-
+		sendOrValidatePuzzleCAPTCHAResult.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.Exceeded {
-			accessDenied(c, config, "TooManyErrorReports")
+			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
+			accessDenied(c, config, "TooManyFailedPassword")
 			return sendOrValidatePuzzleCAPTCHAResult
 		}
-	}
-
+	*/
 	c.JSON(http.StatusNoContent, gin.H{})
 	return sendOrValidatePuzzleCAPTCHAResult
 }

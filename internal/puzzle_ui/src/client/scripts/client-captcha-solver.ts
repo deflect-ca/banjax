@@ -371,7 +371,7 @@ export default class ClientCaptchaSolver {
                 
             } else {
 
-                if (solutionRequest.status === 403) {
+                if (solutionRequest.status === 403 || solutionRequest.status === 429) {
                     const response = await solutionRequest.text()
 
                     if (response.trim() === "access denied") {

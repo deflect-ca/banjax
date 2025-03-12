@@ -78,7 +78,7 @@ export default class RefreshPuzzle {
         const messageToUser_type:'success' | 'warning' | 'error' = "warning"
         if (this.puzzleCount >= this.maxNumberOfNewPuzzles) {
             
-            this.showCooldownMessage("You've requested a new puzzle too many times. Please wait before trying again.", messageToUser_type, 60_000, true)
+            this.showCooldownMessage("You've requested a new puzzle too many times. Please wait 60 seconds before trying again.", messageToUser_type, 60_000, true)
             if (this.requestPuzzleButton) {
                 this.requestPuzzleButton.classList.add("not-currently-clickable")
                 this.requestPuzzleButton.classList.remove("enabled")

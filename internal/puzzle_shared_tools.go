@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -353,4 +355,48 @@ func ValidatePuzzleCAPTCHACookie(config *Config, cookieString string, nowTime ti
 		//malformed cookie (too many `[sol]` delimiters)
 		return errors.New("malformed CAPTCHA cookie")
 	}
+}
+
+type PuzzleErrorLoggerContextLookupKey struct{}
+
+func GetPuzzleLogger(ctx context.Context) (*PuzzleErrorLogger, error) {
+	logger, ok := ctx.Value(PuzzleErrorLoggerContextLookupKey{}).(*PuzzleErrorLogger)
+	if !ok {
+		return nil, errors.New("ErrMissingPuzzleErrorLogger")
+	}
+	return logger, nil
+}
+
+type PuzzleErrorLogger struct {
+	mu     sync.Mutex
+	file   *os.File
+	logger *log.Logger
+}
+
+func NewPuzzleErrorLogger(logFilePath string) (*PuzzleErrorLogger, error) {
+	file, err := os.OpenFile(logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PuzzleErrorLogger{
+		file:   file,
+		logger: log.New(file, "", log.LstdFlags),
+	}, nil
+}
+
+func (l *PuzzleErrorLogger) WritePuzzleErrorLog(format string, v ...interface{}) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.logger == nil {
+		return fmt.Errorf("ErrLoggerNil")
+	}
+
+	_, err := l.logger.Writer().Write([]byte(fmt.Sprintf(format+"\n", v...)))
+	return err
+}
+
+func (l *PuzzleErrorLogger) Close() error {
+	return l.file.Close()
 }

@@ -134,8 +134,14 @@ func main() {
 		log.Fatal(err)
 	}
 
+	puzzleErrorLogger, err := internal.NewPuzzleErrorLogger(config.PuzzleErrorLogFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	defer banningLogFile.Close()
 	defer banningLogFileTemp.Close()
+	defer puzzleErrorLogger.Close()
 
 	banner := internal.Banner{
 		DecisionLists: dynamicDecisionLists,
@@ -146,6 +152,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	ctx = context.WithValue(ctx, internal.PuzzleErrorLoggerContextLookupKey{}, puzzleErrorLogger)
 
 	go internal.RunHttpServer(
 		ctx,

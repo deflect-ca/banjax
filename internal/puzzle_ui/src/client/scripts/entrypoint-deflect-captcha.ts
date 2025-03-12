@@ -273,7 +273,7 @@ async function reportError(error:Error, endpoint:string):Promise<{allowedToRetry
         })
 
         if (somethingWentWrong_requestPermissionToRetry.ok) {
-            if (somethingWentWrong_requestPermissionToRetry.status === 202) {
+            if (somethingWentWrong_requestPermissionToRetry.status === 204) {
                 //we got permission to retry, otherwise we would be blocked server side
                 return {allowedToRetry:true}
             }

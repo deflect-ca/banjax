@@ -355,10 +355,9 @@ func (b Banner) OverwriteBanWithRateLimit(config *Config, ip string, banTimeSeco
 	}
 
 	// log.Printf("RateLimitWithBan: Banning IP: %s for %d seconds", ip, banTimeSeconds)
-
 	banErr := b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(banTimeSeconds)*time.Second))
 	if banErr != nil {
 		log.Printf("RateLimitWithBan: Failed to ban %s: %v", ip, banErr)
 	}
-	return
+
 }
