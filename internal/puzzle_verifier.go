@@ -42,14 +42,14 @@ game was played and make a prediction about bot or not as the hypothesis behind 
 puzzle was that bots and people would play the game differently. Regardless, we need to make sure that the solution
 itself is indeed correct and we do so with a call to VerifySolution
 */
-func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString string, userCaptchaSolution ClientPuzzleSolutionSubmissionPayload) error {
+func ValidatePuzzleCAPTCHASolution(config *Config, puzzleImageController *PuzzleImageController, userChallengeCookieString string, userCaptchaSolution ClientPuzzleSolutionSubmissionPayload) error {
 
 	//we need to derive a solution to their challenge, and recompute their shuffled & unshuffled board
 	var shuffledBoard [][]*PuzzleTileWithoutImage
 	var unshuffledBoard [][]*PuzzleTileWithoutImage
 	var expectedSolution string
 	var err error
-	shuffledBoard, unshuffledBoard, expectedSolution, err = GeneratePuzzleExpectedSolution(config, userChallengeCookieString)
+	shuffledBoard, unshuffledBoard, expectedSolution, err = GeneratePuzzleExpectedSolution(config, puzzleImageController, userChallengeCookieString)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrRecreating, err)
 	}
@@ -87,19 +87,19 @@ func ValidatePuzzleCAPTCHASolution(config *Config, userChallengeCookieString str
 	return nil
 }
 
-func GeneratePuzzleExpectedSolution(config *Config, userChallengeCookieString string) (shuffledBoard [][]*PuzzleTileWithoutImage, unshuffledBoard [][]*PuzzleTileWithoutImage, expectedSolution string, err error) {
+func GeneratePuzzleExpectedSolution(config *Config, puzzleImageController *PuzzleImageController, userChallengeCookieString string) (shuffledBoard [][]*PuzzleTileWithoutImage, unshuffledBoard [][]*PuzzleTileWithoutImage, expectedSolution string, err error) {
 
 	includeB64ImageData := false // dont need b64 image data when verifying the solution
 	var tileMap PuzzleTileMap[PuzzleTileWithoutImage]
 
-	tileMap, err = PuzzleTileMapFromImage[PuzzleTileWithoutImage](config, userChallengeCookieString, includeB64ImageData)
+	tileMap, err = PuzzleTileMapFromImage[PuzzleTileWithoutImage](config, puzzleImageController, userChallengeCookieString, includeB64ImageData)
 	if err != nil {
 		err = fmt.Errorf("%w: %v", ErrRecreatingTileMap, err)
 		return
 	}
 
 	var exists bool
-	targetDifficulty, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
+	targetDifficulty, exists := PuzzleDifficultyProfileByName(config, config.PuzzleDifficultyTarget, userChallengeCookieString)
 	if !exists {
 		err = ErrTargetDifficultyDoesNotExist
 		return
@@ -153,7 +153,7 @@ func verifyPuzzleTimeLimit(config *Config, submittedClickChain []ClickChainEntry
 		return fmt.Errorf("ErrFailedToParseData: Expected date of issuance from click chain to be valid ISO 3399 compliant string, got: %s", genesisChainEntryIssuedAtTime)
 	}
 
-	difficultyProfile, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
+	difficultyProfile, exists := PuzzleDifficultyProfileByName(config, config.PuzzleDifficultyTarget, userChallengeCookieString)
 	if !exists {
 		return ErrTargetDifficultyDoesNotExist
 	}
@@ -186,7 +186,7 @@ func verifyPuzzleClickLimit(config *Config, submittedClickChain []ClickChainEntr
 		return errors.New("ErrExpectedAtleastOneClickRequiredToSolve")
 	}
 
-	difficultyProfile, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookieString)
+	difficultyProfile, exists := PuzzleDifficultyProfileByName(config, config.PuzzleDifficultyTarget, userChallengeCookieString)
 	if !exists {
 		return ErrTargetDifficultyDoesNotExist
 	}

@@ -8,7 +8,6 @@ package internal
 
 import (
 	_ "embed"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -164,56 +163,9 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	log.Printf("INIT: Reading Puzzle challenge HTML from embed")
 	config.PuzzleChallengeHTML = puzzleChallengeIndexEmbed
 
-	if config.PuzzleDifficultyProfiles == nil { //type implements UnmarhsalYAML()
-		return nil, errors.New("ErrFailedToLoadDifficultyProfiles")
-	}
-
-	/*
-		right now I am assuming that there is just one image to be served for all challenges. However, if you wanted to make
-		it such that each hostname has its own logo, there would need to be a map of "Image controllers" and "targets" indexed
-		by hostnames such that each hostname has its own difficulty. Then modify the PuzzleDifficultyProfileByName such that it also
-		takes as argument the hostname and performs the lookup to get the target before then using that to lookup the difficulty
-		profile itself. The idea of having a "target" is to be able to create the difficulties ahead of time and then
-		make looking up the profile more convenient by just specifying target.
-	*/
-	var targetDifficulty *PuzzleDifficultyProfile
-
-	if config.PuzzleDifficultyProfiles != nil {
-		difficultyProfiles, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, "")
-		if !exists {
-			return nil, fmt.Errorf("ErrTargetDifficultyDoesNotExist: %s", config.PuzzleDifficultyProfiles.Target)
-		}
-		targetDifficulty = &difficultyProfiles
-	}
-
-	if targetDifficulty == nil {
-		return nil, errors.New("ErrFailedToLoadDifficultyProfiles")
-	}
-
-	/*
-		if you wanted to store multiple images for example different hostnames have different logs & you wanted to issue a puzzle
-		with that organizations hostname, this would be a map[string]*PuzzleImageController such that on challenge just lookup the appropriate one to use
-		at the level of the Generate Puzzle function when invoking the PuzzleTileMapFromImage() and PuzzleThumbnailFromImage() functions
-	*/
-
-	if config.PuzzleImageController == nil {
-
-		//init first time, otherwise reloading new state
-		var imgController = &PuzzleImageController{}
-		err = imgController.Load(targetDifficulty.NPartitions)
-		if err != nil {
-			return nil, fmt.Errorf("ErrFailedLoadingImageControllerState: %v", err)
-		}
-		config.PuzzleImageController = imgController
-
-	} else {
-		//reloading a new config
-		if targetDifficulty.NPartitions != config.PuzzleImageController.numberOfPartitions {
-			err = config.PuzzleImageController.Load(targetDifficulty.NPartitions)
-			if err != nil {
-				return nil, fmt.Errorf("ErrFailedLoadingImageControllerState: %v", err)
-			}
-		}
+	_, exists := config.PuzzleDifficultyProfiles[config.PuzzleDifficultyTarget]
+	if !exists {
+		return nil, fmt.Errorf("target difficulty profile '%s' does not exist", config.PuzzleDifficultyTarget)
 	}
 
 	return config, nil

@@ -144,61 +144,60 @@ puzzle_entropy_secret: "24c470da7acba2ad36bb6b98713148b6e8d0bbdac05d561d25fb1ae8
 puzzle_click_chain_entropy_secret: "8a5ea4dd46011b8ab22f5fa3fee875bc6a2ad7f15593ab7a952090ea4a1db450"
 puzzle_enable_gameplay_data_collection: false
 puzzle_rate_limit_brute_force_solution_ttl_seconds: 60
+puzzle_difficulty_target_profile: medium_hard
 puzzle_difficulty_profiles:
-  target: medium_hard
-  profiles:
-    easy:
-      nPartitions: 9 #3x3
-      nShuffles: [5, 8]
-      maxNumberOfMovesAllowed: 40
-      removeTileIndex: 0
-      timeToSolve_ms: 1_200_000 #20 mins
-      showCountdownTimer: false
+  easy:
+    nPartitions: 9 #3x3
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 1_200_000 #20 mins
+    showCountdownTimer: false
 
-    medium:
-      nPartitions: 16 #4x4
-      nShuffles: [5, 8]
-      maxNumberOfMovesAllowed: 40
-      removeTileIndex: 0
-      timeToSolve_ms: 900_000 #15 mins
-      showCountdownTimer: false
+  medium:
+    nPartitions: 16 #4x4
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
 
-    medium_hard:
-      nPartitions: 25 #5x5
-      nShuffles: [3, 6]
-      maxNumberOfMovesAllowed: 60
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 900_000 #15 mins
-      showCountdownTimer: false
+  medium_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [3, 6]
+    maxNumberOfMovesAllowed: 60
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
 
-    hard:
-      nPartitions: 16 #4x4
-      nShuffles: [12, 22]
-      maxNumberOfMovesAllowed: 60
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 600_000
-      showCountdownTimer: false
+  hard:
+    nPartitions: 16 #4x4
+    nShuffles: [12, 22]
+    maxNumberOfMovesAllowed: 60
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 600_000
+    showCountdownTimer: false
 
-    very_hard:
-      nPartitions: 25 #5x5
-      nShuffles: [20, 40]
-      maxNumberOfMovesAllowed: 80
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 420_000
-      showCountdownTimer: false
+  very_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [20, 40]
+    maxNumberOfMovesAllowed: 80
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 420_000
+    showCountdownTimer: false
 
-    painful:
-      nPartitions: 49 #7x7
-      nShuffles: [30, 60]
-      maxNumberOfMovesAllowed: 80
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 420_000
-      showCountdownTimer: false
+  painful:
+    nPartitions: 49 #7x7
+    nShuffles: [30, 60]
+    maxNumberOfMovesAllowed: 80
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 420_000
+    showCountdownTimer: false
 
-    nightmare_fuel:
-      nPartitions: 100 #10x10
-      nShuffles: [70, 80]
-      maxNumberOfMovesAllowed: 80
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 360_000
-      showCountdownTimer: false
+  nightmare_fuel:
+    nPartitions: 100 #10x10
+    nShuffles: [70, 80]
+    maxNumberOfMovesAllowed: 80
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 360_000
+    showCountdownTimer: false

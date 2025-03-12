@@ -130,6 +130,34 @@ type PuzzleImageController struct {
 	rwLock sync.RWMutex
 }
 
+func NewPuzzleImageController(config *Config) (*PuzzleImageController, error) {
+	if config.PuzzleDifficultyProfiles == nil {
+		return nil, errors.New("ErrFailedToLoadDifficultyProfiles")
+	}
+	/*
+		right now I am assuming that there is just one image to be served for all challenges. However, if you wanted to make
+		it such that each hostname has its own logo, there would need to be a map of "Image controllers" and "targets" indexed
+		by hostnames such that each hostname has its own difficulty. Then modify the PuzzleDifficultyProfileByName such that it also
+		takes as argument the hostname and performs the lookup to get the target before then using that to lookup the difficulty
+		profile itself. The idea of having a "target" is to be able to create the difficulties ahead of time and then
+		make looking up the profile more convenient by just specifying target.
+	*/
+
+	/*
+		if you wanted to store multiple images for example different hostnames have different logs & you wanted to issue a puzzle
+		with that organizations hostname, this would be a map[string]*PuzzleImageController such that on challenge just lookup the appropriate one to use
+		at the level of the Generate Puzzle function when invoking the PuzzleTileMapFromImage() and PuzzleThumbnailFromImage() functions
+	*/
+
+	var puzzleImageController = &PuzzleImageController{}
+	err := puzzleImageController.UpdateFromConfig(config)
+	if err != nil {
+		return nil, fmt.Errorf("ErrFailedLoadingImageControllerState: %v", err)
+	}
+
+	return puzzleImageController, nil
+}
+
 /*
 NewPuzzleImageController is created one time on init with the goal of performing the most costly operations one time. After
 paying this price once on init, we can simply apply O(1) operations when issueing challenges to user during runtime. This
@@ -137,13 +165,27 @@ also applies to validating solutions such that we can avoid storing precomputed 
 scale well if we are under attack as we would allocate memory for each challenge). Instead, we allocate the memory we need
 one time, and subsequently reuse the tools to generate deterministically random results!
 */
-func (imgController *PuzzleImageController) Load(nPartitions int) error {
+func (imgController *PuzzleImageController) UpdateFromConfig(config *Config) error {
 
 	imgController.rwLock.Lock()
 	defer imgController.rwLock.Unlock()
 
-	sqrt := int(math.Sqrt(float64(nPartitions)))
-	if sqrt*sqrt != nPartitions {
+	//not redudant as its subsequently called on hot reload directly via UpdateFromConfig so its an important check
+	if config.PuzzleDifficultyProfiles == nil {
+		return errors.New("ErrFailedToLoadDifficultyProfiles")
+	}
+
+	if config.PuzzleDifficultyTarget == "" {
+		return errors.New("ErrMissingTargetPuzzleDifficultyProfile")
+	}
+
+	targetDifficulty, exists := PuzzleDifficultyProfileByName(config, config.PuzzleDifficultyTarget, "")
+	if !exists {
+		return errors.New("ErrMissingTargetPuzzleDifficultyProfile")
+	}
+
+	sqrt := int(math.Sqrt(float64(targetDifficulty.NPartitions)))
+	if sqrt*sqrt != targetDifficulty.NPartitions {
 		return ErrFailedInitInvalidNumberOfPartitions
 	}
 
@@ -165,7 +207,7 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 		thumbnailNoiseMasks[i] = generateTileNoiseMask(thumbnailHeight, thumbnailWidth, i*54321)
 	}
 
-	imgPartitionedAsTiles, err := partitionImage(img, nPartitions)
+	imgPartitionedAsTiles, err := partitionImage(img, targetDifficulty.NPartitions)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrFailedInitImagePartition, err)
 	}
@@ -192,7 +234,7 @@ func (imgController *PuzzleImageController) Load(nPartitions int) error {
 
 	imgController.partitionedImageTileMetadata = partitionedImageTiles
 
-	imgController.numberOfPartitions = nPartitions
+	imgController.numberOfPartitions = targetDifficulty.NPartitions
 	imgController.tileNoiseMasks = tileNoiseMasks
 	imgController.partitionTileHeight = tileHeight
 	imgController.partitionTileWidth = tileWidth
@@ -216,18 +258,18 @@ NOTE: set includeBase64Png to false when calculating the TileID's for validation
 If T == Tile, return tiles with Base64 images (Tile)
 If T == TileWithoutImage, return tiles without Base64 images (TileWithoutImage)
 */
-func PuzzleTileMapFromImage[T PuzzleTileIdentifier](config *Config, userChallengeCookie string, includeBase64Png bool) (PuzzleTileMap[T], error) {
+func PuzzleTileMapFromImage[T PuzzleTileIdentifier](config *Config, puzzleImageController *PuzzleImageController, userChallengeCookie string, includeBase64Png bool) (PuzzleTileMap[T], error) {
 
-	imgController := config.PuzzleImageController
+	// imgController := config.PuzzleImageController
 
-	imgController.rwLock.RLock()
-	defer imgController.rwLock.RUnlock()
+	puzzleImageController.rwLock.RLock()
+	defer puzzleImageController.rwLock.RUnlock()
 
 	tileMap := make(PuzzleTileMap[T])
-	for i := range imgController.numberOfPartitions {
+	for i := range puzzleImageController.numberOfPartitions {
 
-		tileRGBA := imgController.partitionedImageTileMetadata[i].RGBAImagePtr
-		tileHash := imgController.partitionedImageTileMetadata[i].Hash
+		tileRGBA := puzzleImageController.partitionedImageTileMetadata[i].RGBAImagePtr
+		tileHash := puzzleImageController.partitionedImageTileMetadata[i].Hash
 
 		var noisyTileB64 string
 
@@ -254,10 +296,10 @@ func PuzzleTileMapFromImage[T PuzzleTileIdentifier](config *Config, userChalleng
 
 			selectionEntropy := fmt.Sprintf("%s%s", userChallengeCookie, tileHash)
 			randomIndex := PuzzleEntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
-			tileMask := &imgController.tileNoiseMasks[randomIndex]
+			tileMask := &puzzleImageController.tileNoiseMasks[randomIndex]
 
 			// tileMask := selectNoiseMask(userChallengeCookie, tileHash, imgController.puzzleSecret, &imgController.tileNoiseMasks)
-			noisyTile := applyNoiseMask(tileRGBA, tileMask, imgController.partitionTileHeight, imgController.partitionTileWidth)
+			noisyTile := applyNoiseMask(tileRGBA, tileMask, puzzleImageController.partitionTileHeight, puzzleImageController.partitionTileWidth)
 
 			noisyTileB64, err = encodeImageToBase64(noisyTile)
 			if err != nil {
@@ -314,18 +356,18 @@ thumbnail itself has no effect on the users calcualted result and we need not ev
 there exists no correlation between the users current challenge grid image and the thumbnail to avoid a user trying to cheat
 the puzzle by partitioning the thumbnail or trying to get cute in any other way.
 */
-func PuzzleThumbnailFromImage(config *Config, thumbnailEntropy string, removeRow, removeCol int) (string, error) {
+func PuzzleThumbnailFromImage(config *Config, puzzleImageController *PuzzleImageController, thumbnailEntropy string, removeRow, removeCol int) (string, error) {
 
-	imgController := config.PuzzleImageController
+	// imgController := config.PuzzleImageController
 
-	imgController.rwLock.RLock()
-	defer imgController.rwLock.RUnlock()
+	puzzleImageController.rwLock.RLock()
+	defer puzzleImageController.rwLock.RUnlock()
 
-	thumbnailCopy := image.NewRGBA(imgController.thumbnailPtr.Bounds()) //copy to not affect the ptr for the next guy
-	draw.Draw(thumbnailCopy, thumbnailCopy.Bounds(), imgController.thumbnailPtr, imgController.thumbnailPtr.Bounds().Min, draw.Src)
+	thumbnailCopy := image.NewRGBA(puzzleImageController.thumbnailPtr.Bounds()) //copy to not affect the ptr for the next guy
+	draw.Draw(thumbnailCopy, thumbnailCopy.Bounds(), puzzleImageController.thumbnailPtr, puzzleImageController.thumbnailPtr.Bounds().Min, draw.Src)
 
-	tileWidth := thumbnailCopy.Bounds().Dx() / int(math.Sqrt(float64(imgController.numberOfPartitions)))
-	tileHeight := thumbnailCopy.Bounds().Dy() / int(math.Sqrt(float64(imgController.numberOfPartitions)))
+	tileWidth := thumbnailCopy.Bounds().Dx() / int(math.Sqrt(float64(puzzleImageController.numberOfPartitions)))
+	tileHeight := thumbnailCopy.Bounds().Dy() / int(math.Sqrt(float64(puzzleImageController.numberOfPartitions)))
 
 	transparencyFactor := 0.9
 	for y := 0; y < tileHeight; y++ {
@@ -346,7 +388,7 @@ func PuzzleThumbnailFromImage(config *Config, thumbnailEntropy string, removeRow
 
 	selectionEntropy := fmt.Sprintf("%s%d", thumbnailEntropy, time.Now().UnixNano())
 	randomIndex := PuzzleEntropyFromRange(config.PuzzleEntropySecret, selectionEntropy, 0, NumberOfTileNoiseMasks)
-	tileMask := &imgController.thumbnailNoiseMasks[randomIndex]
+	tileMask := &puzzleImageController.thumbnailNoiseMasks[randomIndex]
 
 	noisyThumbnail := applyNoiseMask(thumbnailCopy, tileMask, thumbnailCopy.Bounds().Dy(), thumbnailCopy.Bounds().Dx())
 

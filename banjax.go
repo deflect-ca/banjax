@@ -90,6 +90,11 @@ func main() {
 		panic(err)
 	}
 
+	puzzleImageController, err := internal.NewPuzzleImageController(config)
+	if err != nil {
+		panic(err)
+	}
+
 	dynamicDecisionLists := internal.NewDynamicDecisionLists()
 
 	sighup_channel := make(chan os.Signal, 1)
@@ -110,6 +115,7 @@ func main() {
 
 			config := configHolder.Get()
 
+			puzzleImageController.UpdateFromConfig(config)
 			staticDecisionLists.UpdateFromConfig(config)
 			dynamicDecisionLists.Clear()
 			passwordProtectedPaths.UpdateFromConfig(config)
@@ -156,6 +162,7 @@ func main() {
 		regexStates,
 		failedChallengeStates,
 		banner,
+		puzzleImageController,
 	)
 
 	go internal.RunLogTailer(

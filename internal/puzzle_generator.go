@@ -29,15 +29,15 @@ var (
 	ErrFailedMarhsalingChallenge    = errors.New("failed to marshal new CAPTCHAChallenge struct")
 )
 
-func GeneratePuzzleCAPTCHA(config *Config, userChallengeCookie string) ([]byte, error) {
+func GeneratePuzzleCAPTCHA(config *Config, puzzleImageController *PuzzleImageController, userChallengeCookie string) ([]byte, error) {
 
-	targetDifficulty, exists := config.PuzzleDifficultyProfiles.PuzzleDifficultyProfileByName(config.PuzzleDifficultyProfiles.Target, userChallengeCookie)
+	targetDifficulty, exists := PuzzleDifficultyProfileByName(config, config.PuzzleDifficultyTarget, userChallengeCookie)
 	if !exists {
 		return nil, ErrTargetDifficultyDoesNotExist
 	}
 
 	includeB64ImageData := true
-	tileMap, err := PuzzleTileMapFromImage[PuzzleTile](config, userChallengeCookie, includeB64ImageData)
+	tileMap, err := PuzzleTileMapFromImage[PuzzleTile](config, puzzleImageController, userChallengeCookie, includeB64ImageData)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedNewCAPTCHAGeneration, err)
 	}
@@ -62,7 +62,7 @@ func GeneratePuzzleCAPTCHA(config *Config, userChallengeCookie string) ([]byte, 
 	}
 
 	row, col := PuzzleTileIndexToRowCol(targetDifficulty.RemoveTileIndex, targetDifficulty.NPartitions)
-	thumbnailAsB64, err := PuzzleThumbnailFromImage(config, config.PuzzleThumbnailEntropySecret, row, col)
+	thumbnailAsB64, err := PuzzleThumbnailFromImage(config, puzzleImageController, config.PuzzleThumbnailEntropySecret, row, col)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrFailedThumbnailCreation, err)
 	}

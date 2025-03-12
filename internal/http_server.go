@@ -40,6 +40,7 @@ func RunHttpServer(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
+	puzzleImageController *PuzzleImageController,
 ) {
 	addr := "127.0.0.1:8081" // XXX config
 
@@ -178,6 +179,7 @@ func RunHttpServer(
 			passwordProtectedPaths,
 			failedChallengeStates,
 			banner,
+			puzzleImageController,
 		),
 	)
 
@@ -193,6 +195,7 @@ func RunHttpServer(
 				failedChallengeStates,
 				Block, //fail action is a constant
 				staticDecisionLists,
+				puzzleImageController,
 			)
 			return
 		case "error":
@@ -710,6 +713,7 @@ func sendOrValidatePuzzleCAPTCHA(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
+	puzzleImageController *PuzzleImageController,
 
 ) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
@@ -727,7 +731,7 @@ func sendOrValidatePuzzleCAPTCHA(
 		if err == nil {
 			_, err := c.Cookie("__banjax_sol")
 			if err == nil {
-				return handleValidatePuzzleCAPTCHASolution(config, c, banner, rateLimitStates, failAction, decisionLists)
+				return handleValidatePuzzleCAPTCHASolution(config, c, banner, rateLimitStates, failAction, decisionLists, puzzleImageController)
 			}
 			/*
 				they have a challenge cookie BUT it is either invalid OR it is a puzzle captcha solution cookie
@@ -737,7 +741,7 @@ func sendOrValidatePuzzleCAPTCHA(
 			*/
 		}
 
-		err := ValidatePuzzleCAPTCHACookie(config, challengeCookie, time.Now(), getUserAgentOrIp(c, config))
+		err := ValidatePuzzleCAPTCHACookie(config, puzzleImageController, challengeCookie, time.Now(), getUserAgentOrIp(c, config))
 		if err != nil {
 			sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailBadCookie
 		} else {
@@ -778,7 +782,7 @@ func sendOrValidatePuzzleCAPTCHA(
 		StripPuzzleSolutionCookieIfExist(c, solutionCookieNamesToDelete)
 	}
 
-	handlePuzzleCAPTCHAChallenge(config, c)
+	handlePuzzleCAPTCHAChallenge(config, c, puzzleImageController)
 	return sendOrValidatePuzzleCAPTCHAResult
 }
 
@@ -790,12 +794,13 @@ func handlePuzzleCAPTCHAChallenge(
 
 	config *Config,
 	c *gin.Context,
+	puzzleImageController *PuzzleImageController,
 
 ) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
 	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, config.ShaInvCookieTtlSeconds, getUserAgentOrIp(c, config))
 
-	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, userChallengeCookieValue)
+	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, puzzleImageController, userChallengeCookieValue)
 	if err != nil {
 		log.Printf("Error generating CAPTCHA: %v", err)
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
@@ -830,6 +835,7 @@ func handleValidatePuzzleCAPTCHASolution(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
+	puzzleImageController *PuzzleImageController,
 
 ) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
@@ -851,7 +857,7 @@ func handleValidatePuzzleCAPTCHASolution(
 		return sendOrValidatePuzzleCAPTCHAResult
 	}
 
-	err = ValidatePuzzleCAPTCHASolution(config, userChallengeCookieValue, *userSubmission)
+	err = ValidatePuzzleCAPTCHASolution(config, puzzleImageController, userChallengeCookieValue, *userSubmission)
 	if err != nil {
 
 		StripPuzzleSolutionCookieIfExist(c, solutionCookieNamesToDelete)
@@ -946,6 +952,7 @@ func handleRefreshPuzzleCAPTCHAState(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
+	puzzleImageController *PuzzleImageController,
 
 ) (sendOrValidatePuzzleCAPTCHAResult SendOrValidatePuzzleCAPTCHAResult) {
 
@@ -979,7 +986,7 @@ func handleRefreshPuzzleCAPTCHAState(
 	}
 
 	userChallengeCookieValue := NewChallengeCookie(config.HmacSecret, config.ShaInvCookieTtlSeconds, getUserAgentOrIp(c, config))
-	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, userChallengeCookieValue)
+	serializedCAPTCHAChallenge, err := GeneratePuzzleCAPTCHA(config, puzzleImageController, userChallengeCookieValue)
 	if err != nil {
 		sendOrValidatePuzzleCAPTCHAResult.PuzzleCaptchaResult = PuzzleCAPTCHAFailPuzzleGeneration
 		accessDenied(c, config, PuzzleCAPTCHAResultToString[PuzzleCAPTCHAFailPuzzleGeneration])
@@ -1279,6 +1286,7 @@ func decisionForNginx(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
+	puzzleImageController *PuzzleImageController,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		config := configHolder.Get()
@@ -1290,6 +1298,7 @@ func decisionForNginx(
 			passwordProtectedPaths,
 			failedChallengeStates,
 			banner,
+			puzzleImageController,
 		)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
@@ -1314,6 +1323,7 @@ func decisionForNginx2(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
+	puzzleImageController *PuzzleImageController,
 ) (decisionForNginxResult DecisionForNginxResult) {
 	// XXX duplication
 	clientIp := c.Request.Header.Get("X-Client-IP")
@@ -1408,6 +1418,7 @@ func decisionForNginx2(
 				failedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
+				puzzleImageController,
 			)
 
 			decisionForNginxResult.DecisionListResult = PerSiteChallenge
@@ -1454,6 +1465,7 @@ func decisionForNginx2(
 				failedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
+				puzzleImageController,
 			)
 
 			decisionForNginxResult.DecisionListResult = PerSiteChallenge
@@ -1533,6 +1545,7 @@ func decisionForNginx2(
 					failedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
+					puzzleImageController,
 				)
 
 				decisionForNginxResult.DecisionListResult = ExpiringChallenge

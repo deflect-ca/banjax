@@ -112,29 +112,28 @@ puzzle_entropy_secret: "puzzleSecret"
 puzzle_click_chain_entropy_secret: "clickChainSecret"
 puzzle_enable_gameplay_data_collection: false
 puzzle_rate_limit_brute_force_solution_ttl_seconds: 60
+puzzle_difficulty_target_profile: medium_hard
 puzzle_difficulty_profiles:
-  target: medium_hard
-  profiles:
-    easy:
-      nPartitions: 9 #3x3
-      nShuffles: [5, 8]
-      maxNumberOfMovesAllowed: 40
-      removeTileIndex: 0
-      timeToSolve_ms: 1_200_000 #20 mins
-      showCountdownTimer: false
+  easy:
+    nPartitions: 9 #3x3
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 1_200_000 #20 mins
+    showCountdownTimer: false
 
-    medium:
-      nPartitions: 16 #4x4
-      nShuffles: [5, 8]
-      maxNumberOfMovesAllowed: 40
-      removeTileIndex: 0
-      timeToSolve_ms: 900_000 #15 mins
-      showCountdownTimer: false
+  medium:
+    nPartitions: 16 #4x4
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
 
-    medium_hard:
-      nPartitions: 25 #5x5
-      nShuffles: [3, 6]
-      maxNumberOfMovesAllowed: 60
-      removeTileIndex: -1 #choose randomly from the board
-      timeToSolve_ms: 900_000 #15 mins
-      showCountdownTimer: false
+  medium_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [3, 6]
+    maxNumberOfMovesAllowed: 60
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
