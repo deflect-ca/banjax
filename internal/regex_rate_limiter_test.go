@@ -25,7 +25,8 @@ import (
 )
 
 type MockBanner struct {
-	bannedIp string
+	bannedIp       string
+	banTimeSeconds int
 }
 
 // XXX confused why this (with a pointer receiver) and the one in iptables.go
@@ -58,19 +59,32 @@ func (mb *MockBanner) LogRegexBan(
 	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
 
+func (mb *MockBanner) OverwriteBanWithRateLimit(config *Config, ip string, banTimeSeconds int) {
+	mb.bannedIp = ip
+	mb.banTimeSeconds = banTimeSeconds
+}
+
 func (mb *MockBanner) IPSetAdd(config *Config, ip string) error {
+	mb.bannedIp = ip
 	return nil
 }
 
 func (mb *MockBanner) IPSetTest(config *Config, ip string) bool {
-	return false
+	//simulate whether an ip is already banned
+	return mb.bannedIp == ip
 }
 
 func (mb *MockBanner) IPSetList() (*ipset.Info, error) {
 	return nil, nil
 }
 
+// to simulate removing as we do in the context of overwrite
 func (mb *MockBanner) IPSetDel(ip string) error {
+	// Simulate removing the ban
+	if mb.bannedIp == ip {
+		mb.bannedIp = ""
+		mb.banTimeSeconds = 0
+	}
 	return nil
 }
 
@@ -376,4 +390,30 @@ func TestMarshalRateLimitMatchType(t *testing.T) {
 		assert.Nil(t, err)
 		assert.Equal(t, expected, string(json))
 	}
+}
+
+func TestOverwriteBanWithRateLimit(t *testing.T) {
+	config := Config{
+		StandaloneTesting: false, //make sure we are not skipping bans in test mode
+	}
+	mockBanner := MockBanner{}
+
+	//this is the first ban attempt
+	ip := "192.168.1.1"
+	mockBanner.OverwriteBanWithRateLimit(&config, ip, 30)
+
+	//make sure that the ip is banned for the right amount of time
+	assert.Equal(t, ip, mockBanner.bannedIp, "Expected IP to be banned")
+	assert.Equal(t, 30, mockBanner.banTimeSeconds, "Expected ban duration to be 30 seconds")
+
+	//try to ban the SAME ip again but with a different duration
+	mockBanner.OverwriteBanWithRateLimit(&config, ip, 60)
+
+	//confirm that this actually went through as desired (ie was overwritten)
+	assert.Equal(t, 60, mockBanner.banTimeSeconds, "Expected ban duration to update to 60 seconds")
+
+	//remove the ban and check that it resets as desired
+	mockBanner.IPSetDel(ip)
+	assert.Equal(t, "", mockBanner.bannedIp, "Expected IP to be unbanned")
+	assert.Equal(t, 0, mockBanner.banTimeSeconds, "Expected ban duration to reset")
 }

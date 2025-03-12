@@ -123,6 +123,9 @@ type BannerInterface interface {
 	IPSetTest(config *Config, ip string) bool
 	IPSetList() (*ipset.Info, error)
 	IPSetDel(ip string) error
+
+	//allows us to ban with a controlled timeout
+	OverwriteBanWithRateLimit(config *Config, ip string, banTimeSeconds int)
 }
 
 type Banner struct {
@@ -311,7 +314,9 @@ func (b Banner) IPSetDel(ip string) error {
 }
 
 func banIp(config *Config, ip string, banner BannerInterface) {
+
 	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
+
 	if ip == "127.0.0.1" {
 		log.Println("banIp: Not going to block localhost")
 		return
@@ -328,4 +333,31 @@ func banIp(config *Config, ip string, banner BannerInterface) {
 	if banErr != nil {
 		log.Printf("banIp ipset add failed: %v", banErr)
 	}
+}
+
+func (b Banner) OverwriteBanWithRateLimit(config *Config, ip string, banTimeSeconds int) {
+	if ip == "127.0.0.1" {
+		log.Println("RateLimitWithBan: Not banning localhost")
+		return
+	}
+	if config.StandaloneTesting {
+		log.Println("RateLimitWithBan: Skipping in test mode")
+		return
+	}
+
+	if b.IPSetTest(config, ip) {
+		//if we detect a double ban attempt, we can override with the rate limit
+		err := b.IPSetDel(ip)
+		if err != nil {
+			log.Printf("Failed to remove existing ban for IP: %s, proceeding with new ban. Error: %v", ip, err)
+			return
+		}
+	}
+
+	// log.Printf("RateLimitWithBan: Banning IP: %s for %d seconds", ip, banTimeSeconds)
+	banErr := b.IPSetInstance.Add(ip, ipset.Timeout(time.Duration(banTimeSeconds)*time.Second))
+	if banErr != nil {
+		log.Printf("RateLimitWithBan: Failed to ban %s: %v", ip, banErr)
+	}
+
 }

@@ -1,0 +1,120 @@
+
+
+
+.thumbnail-wrapper {
+    position: relative;
+    display: grid;
+    width: 100%;
+    height: auto;
+    max-width: 600px;
+    
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+    border-radius: 4px;
+    background-color: white;
+    overflow: hidden;
+}
+
+.thumbnail-wrapper img {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+}
+
+#deflect-puzzle-thumbnail {
+    width: 100%;
+    height: auto;
+    border-radius: 2px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    object-fit: contain;
+    border-radius: 4px;
+
+    /*
+        so that users know they can click on it 
+        to more closely inspect the image they need to recreate
+        but note that this can be disabled if the script cannot find
+        the necessary attachment points
+    */
+    cursor: pointer;
+}
+
+/*model for close inspection of target image*/
+.thumbnail-modal-background {
+    position: relative;
+    background-color: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3);
+
+    animation: zoomIn 0.2s ease-in-out;
+    max-width: 500px;
+    
+    width: 40vw;
+    aspect-ratio: 1/1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.thumbnail-modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.8);
+    justify-content: center;
+    align-items: center;
+    animation: fadeIn 0.2s ease-in-out;
+}
+
+.thumbnail-modal-content {
+    width:86%;
+    max-width: 460px;
+    aspect-ratio: 1/1;
+    padding:0px;
+    border-radius: 4px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.5);
+    
+    user-select: none;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes zoomIn {
+    from {
+        transform: scale(0.8);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+
+.thumbnail-modal-close {
+    position: absolute;
+    top: 0px;
+    right: 10px;
+    color: black;
+    font-size: 40px;
+    font-weight: bold;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+}
+
+.thumbnail-modal-close:hover {
+    color: #f1f1f1;
+}

@@ -15,3 +15,18 @@ logs
 
 keys
 .env
+
+#ignore node_modules and build artifacts
+internal/puzzle_ui/node_modules/
+internal/puzzle_ui/dist/client
+internal/puzzle_ui/.cache/
+
+#ignore dependency lock files if not needed
+internal/puzzle_ui/package-lock.json
+internal/puzzle_ui/yarn.lock
+
+.DS_Store
+.vscode/
+internal/puzzle_ui/src/client/.DS_Store
+internal/puzzle_ui/src/.DS_Store
+internal/puzzle_ui/.DS_Store

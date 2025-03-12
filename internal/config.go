@@ -72,6 +72,27 @@ type Config struct {
 	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
 	SitesToDisableBaskerville   map[string]bool     `yaml:"sites_to_disable_baskerville"`
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
+
+	//puzzle captcha requirements
+	PuzzleErrorLogFilePath                      string                             `yaml:"puzzle_error_log_file_path"`
+	PuzzleThumbnailEntropySecret                string                             `yaml:"puzzle_thumbnail_entropy_secret"`
+	PuzzleEntropySecret                         string                             `yaml:"puzzle_entropy_secret"`
+	PuzzleClickChainEntropySecret               string                             `yaml:"puzzle_click_chain_entropy_secret"`
+	PuzzleEnableGameplayDataCollection          bool                               `yaml:"puzzle_enable_gameplay_data_collection"`
+	PuzzleRateLimitBruteForceSolutionTTLSeconds int                                `yaml:"puzzle_rate_limit_brute_force_solution_ttl_seconds"`
+	PuzzleChallengeHTML                         []byte                             //see embed in config holder
+	PuzzleDifficultyTarget                      string                             `yaml:"puzzle_difficulty_target_profile"`
+	PuzzleDifficultyProfiles                    map[string]PuzzleDifficultyProfile `yaml:"puzzle_difficulty_profiles"`
+}
+
+/*individual difficulty profiles as desired in the banjax-puzzle-difficulty-config.yaml file*/
+type PuzzleDifficultyProfile struct {
+	NPartitions             int    `yaml:"nPartitions"`
+	NShuffles               [2]int `yaml:"nShuffles"`
+	MaxNumberOfMovesAllowed int    `yaml:"maxNumberOfMovesAllowed"`
+	RemoveTileIndex         int    `yaml:"removeTileIndex"`
+	TimeToSolveMs           int    `yaml:"timeToSolve_ms"`
+	ShowCountdownTimer      bool   `yaml:"showCountdownTimer"`
 }
 
 type RegexWithRate struct {

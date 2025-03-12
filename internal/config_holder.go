@@ -20,6 +20,9 @@ import (
 //go:embed sha-inverse-challenge.html
 var shaInvChallengeEmbed []byte
 
+//go:embed puzzle_ui/dist/index.html
+var puzzleChallengeIndexEmbed []byte
+
 //go:embed password-protected-path.html
 var passProtPathEmbed []byte
 
@@ -156,6 +159,14 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("config needs kafka_brokers")
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
+
+	log.Printf("INIT: Reading Puzzle challenge HTML from embed")
+	config.PuzzleChallengeHTML = puzzleChallengeIndexEmbed
+
+	_, exists := config.PuzzleDifficultyProfiles[config.PuzzleDifficultyTarget]
+	if !exists {
+		return nil, fmt.Errorf("target difficulty profile '%s' does not exist", config.PuzzleDifficultyTarget)
+	}
 
 	return config, nil
 }

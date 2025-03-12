@@ -1,0 +1,149 @@
+body,
+html {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
+        sans-serif;
+    overflow-x: hidden;
+    position: relative;
+}
+a {
+    color: #e33624;
+    text-decoration: none;
+}
+h1,
+h2 {
+    font-weight: 400;
+}
+.header {
+    height: 33%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.header-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    flex-direction: column;
+    
+    top:50px;
+    position: absolute;
+}
+
+
+.website {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.website-favicon {
+    width: 32px;
+    margin-right: 15px;
+}
+.website-title {
+    font-size: 32px;
+}
+
+.footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 67vh;
+    background-color: #ecece2;
+    z-index: -1;
+
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-end;
+    align-items: center;
+
+    transition: all 0.3s ease-in-out;
+
+    padding-bottom:10px;
+}
+
+/* .footer-logo {
+    margin-bottom: 20px;
+} */
+
+
+.footer-wrapper {
+    position: absolute;
+    top: calc(240px + 100% / 3 + 20px);
+    left: 0;
+    width: 100%;
+    /* display: flex;
+    justify-content: space-between;
+    flex-direction: column; */
+    text-align: center;
+    transition: color 0.5s ease-in-out, opacity 0.5s ease-in-out;
+}
+
+.footer-title {
+    font-size: 24px;
+    transition: color 0.5s ease-in-out, opacity 0.5s ease-in-out;
+    padding-top:20px;
+}
+
+
+
+.footer-logo svg {
+    width: 50px;
+    height: 80px;
+}
+
+.footer-logo-caption {
+    font-size: 18px;
+}
+
+@media screen and (min-width: 2400px) {
+    .footer-logo svg {
+        width: 2vw;
+        height: 3vw;
+    }
+    .footer-logo-caption {
+        font-size: 1vw;
+    }
+    .website-title {
+        font-size: 2vw;
+    }
+    .website-favicon {
+        width: 2vw;
+    }
+    .footer-title {
+        font-size: 1.7vw;
+    }
+}
+
+
+/* for all width > 800px  make the "verifiing if your connection secure" and deflect branding disappear just before going under puzzle board*/
+@media screen and (min-width: 801px) and (max-height: 1290px) {
+    .footer-title {
+        color: transparent;
+        opacity: 0;
+    }
+}
+
+@media screen and (min-width: 801px) and (max-height: 1090px) {
+    .footer-wrapper {
+        color: transparent;
+        opacity: 0;
+    }
+}
+
+/* for all width <= 800px make the "verifiing if your connection secure" and deflect branding disappear later since the puzzle board also shrinks to screen dimensions*/
+@media screen and (max-width: 800px) and (max-height: 1060px) {
+    .footer-title {
+        color: transparent;
+        opacity: 0;
+    }
+}
+
+@media screen and (max-width: 800px) and (max-height: 960px) {
+    .footer-wrapper {
+        color: transparent;
+        opacity: 0;
+    }
+}

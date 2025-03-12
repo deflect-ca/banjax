@@ -8,6 +8,9 @@ global_decision_lists:
     - 8.8.8.8
     - 60.60.60.60
     - 192.168.1.0/24
+  # puzzle_challenge:
+  #   - 9.9.9.9
+  #   - 61.61.61.61
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -99,3 +102,35 @@ hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
 standalone_testing: true
+#puzzle captcha configs:
+puzzle_error_log_file_path: "/var/log/banjax/puzzle_error.log"
+puzzle_thumbnail_entropy_secret: "thumbnailSecret"
+puzzle_entropy_secret: "puzzleSecret"
+puzzle_click_chain_entropy_secret: "clickChainSecret"
+puzzle_enable_gameplay_data_collection: false
+puzzle_rate_limit_brute_force_solution_ttl_seconds: 60
+puzzle_difficulty_target_profile: medium_hard
+puzzle_difficulty_profiles:
+  easy:
+    nPartitions: 9 #3x3
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 1_200_000 #20 mins
+    showCountdownTimer: false
+
+  medium:
+    nPartitions: 16 #4x4
+    nShuffles: [5, 8]
+    maxNumberOfMovesAllowed: 40
+    removeTileIndex: 0
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false
+
+  medium_hard:
+    nPartitions: 25 #5x5
+    nShuffles: [3, 6]
+    maxNumberOfMovesAllowed: 60
+    removeTileIndex: -1 #choose randomly from the board
+    timeToSolve_ms: 900_000 #15 mins
+    showCountdownTimer: false

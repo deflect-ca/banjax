@@ -34,7 +34,7 @@ func setUp() {
 	setCommandLineFlags()
 	log.SetFlags(log.LstdFlags | log.Lshortfile) // show line num in logs
 	go main()
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second) //we need MORE time because of the image controller, it needs the time to partition the image BEFORE starting up
 }
 
 func tearDown() {
@@ -225,6 +225,6 @@ func reloadConfig(path string, randomReqCount int, t *testing.T) {
 
 	copyConfigFile(path)
 	syscall.Kill(syscall.Getpid(), syscall.SIGHUP)
-	time.Sleep(1 * time.Second)
+	time.Sleep(10 * time.Second) //we need MORE time because of the image controller, it needs the time to partition the image BEFORE starting up
 	<-done
 }
