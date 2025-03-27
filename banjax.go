@@ -7,125 +7,20 @@
 package main
 
 import (
-	"embed"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"regexp"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/deflect-ca/banjax/internal"
 	"github.com/gonetx/ipset"
-	"gopkg.in/yaml.v2"
 )
-
-//go:embed internal/sha-inverse-challenge.html
-var shaInvChallengeEmbed embed.FS
-
-//go:embed internal/password-protected-path.html
-var passProtPathEmbed embed.FS
-
-func load_config(config *internal.Config, standaloneTestingPtr *bool, configFilenamePtr *string, restartTime int, debugPtr *bool) {
-	config.RestartTime = restartTime
-	config.ReloadTime = int(time.Now().Unix()) // XXX
-
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Println("couldn't get hostname! using dummy")
-		hostname = "unknown-hostname"
-	}
-	config.Hostname = hostname
-	log.Printf("INIT: hostname: %s", hostname)
-
-	configBytes, err := os.ReadFile(*configFilenamePtr) // XXX allow different location
-	if err != nil {
-		panic(err)
-	}
-	// log.Printf("read %v\n", string(configBytes[:]))
-
-	config.StandaloneTesting = *standaloneTestingPtr
-	err = yaml.Unmarshal(configBytes, config)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// boolean default = false
-	if config.Debug {
-		log.Printf("read config %v\n", *config)
-	}
-
-	if config.ShaInvChallengeHTML != "" {
-		log.Printf("INIT: Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
-		challengerBytes, err := os.ReadFile(config.ShaInvChallengeHTML)
-		if err != nil {
-			panic("!!! couldn't read sha-inverse-challenge.html")
-		}
-		config.ChallengerBytes = challengerBytes
-	} else {
-		log.Printf("INIT: Reading SHA-inverse challenge HTML from embed")
-		challengerBytes, err := shaInvChallengeEmbed.ReadFile("internal/sha-inverse-challenge.html")
-		if err != nil {
-			panic("!!! couldn't read sha-inverse-challenge.html")
-		}
-		config.ChallengerBytes = challengerBytes
-	}
-
-	if config.PasswordProtectedPathHTML != "" {
-		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
-		passwordPageBytes, err := os.ReadFile(config.PasswordProtectedPathHTML)
-		if err != nil {
-			panic("!!! couldn't read password-protected-path.html")
-		}
-		config.PasswordPageBytes = passwordPageBytes
-	} else {
-		log.Printf("INIT: Reading Password protected path HTML from embed")
-		passwordPageBytes, err := passProtPathEmbed.ReadFile("internal/password-protected-path.html")
-		if err != nil {
-			panic("!!! couldn't read password-protected-path.html")
-		}
-		config.PasswordPageBytes = passwordPageBytes
-	}
-
-	for i, _ := range config.RegexesWithRates {
-		re, err := regexp.Compile(config.RegexesWithRates[i].Regex)
-		if err != nil {
-			panic("bad regex")
-		}
-		config.RegexesWithRates[i].CompiledRegex = *re
-	}
-
-	for site, p_regex := range config.PerSiteRegexWithRates {
-		log.Printf("PerSiteRegexWithRates: %s\n", site)
-		for i, _ := range p_regex {
-			re, err := regexp.Compile(config.PerSiteRegexWithRates[site][i].Regex)
-			if err != nil {
-				panic("bad regex")
-			}
-			config.PerSiteRegexWithRates[site][i].CompiledRegex = *re
-		}
-	}
-
-	if config.Debug {
-		for site, failAction := range config.SitewideShaInvList {
-			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
-		}
-	}
-
-	if !config.Debug && *debugPtr {
-		log.Printf("debug mode enabled by command line param")
-		config.Debug = true
-	}
-
-	if config.StandaloneTesting {
-		config.DisableKafka = true
-	}
-}
 
 const (
 	IPSetName = "banjax_ipset"
@@ -169,29 +64,33 @@ func init_ipset(config *internal.Config) ipset.IPSet {
 }
 
 func main() {
-	// XXX protects ipToRegexStates and failedChallengeStates
-	// (why both? because there are too many parameters already?)
-	var rateLimitMutex sync.Mutex
-	ipToRegexStates := internal.IpToRegexStates{}
-	failedChallengeStates := internal.FailedChallengeStates{}
-
-	var passwordProtectedPaths internal.PasswordProtectedPaths
-
-	// XXX protects decisionLists
-	var decisionListsMutex sync.Mutex
-	var decisionLists internal.DecisionLists
-
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	debugPtr := flag.Bool("debug", false, "debug mode with verbose logging")
 	flag.Parse()
 
-	restartTime := int(time.Now().Unix()) // XXX
-
 	log.Println("INIT: config file: ", *configFilenamePtr)
 
-	config := internal.Config{}
-	load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
+	configHolder, err := internal.NewConfigHolder(*configFilenamePtr, *standaloneTestingPtr, *debugPtr)
+	if err != nil {
+		panic(err)
+	}
+	config := configHolder.Get()
+
+	regexStates := internal.NewRegexRateLimitStates()
+	failedChallengeStates := internal.NewFailedChallengeRateLimitStates()
+
+	passwordProtectedPaths, err := internal.NewPasswordProtectedPaths(config)
+	if err != nil {
+		panic(err)
+	}
+
+	staticDecisionLists, err := internal.NewStaticDecisionLists(config)
+	if err != nil {
+		panic(err)
+	}
+
+	dynamicDecisionLists := internal.NewDynamicDecisionLists()
 
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
@@ -200,38 +99,22 @@ func main() {
 	// RunHttpServer, RunLogTailer, etc. because they might have internal state that
 	// referenced old config values.
 	go func() {
-		for _ = range sighup_channel {
+		for range sighup_channel {
 			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
-			rateLimitMutex.Lock()
-			config = internal.Config{}
-			load_config(&config, standaloneTestingPtr, configFilenamePtr, restartTime, debugPtr)
-			rateLimitMutex.Unlock()
-			configToStructs(&config, &passwordProtectedPaths, &decisionLists)
+
+			err := configHolder.Reload()
+			if err != nil {
+				log.Println("failed to reload config:", err)
+				continue
+			}
+
+			config := configHolder.Get()
+
+			staticDecisionLists.UpdateFromConfig(config)
+			dynamicDecisionLists.Clear()
+			passwordProtectedPaths.UpdateFromConfig(config)
 		}
 	}()
-
-	if config.StandaloneTesting {
-		log.Println("!!! setting ServerLogFile to testing-log-file.txt")
-		config.ServerLogFile = "testing-log-file.txt"
-		config.BanningLogFile = "banning-log-file.txt"
-	}
-
-	if config.ServerLogFile == "" {
-		panic("config needs server_log_file!!")
-	}
-
-	// XXX should i verify all the config stuff is here before we get further?
-	if config.IptablesBanSeconds == 0 {
-		panic("config needs iptables_ban_seconds!!")
-	}
-
-	// XXX should i verify all the config stuff is here before we get further?
-	if len(config.KafkaBrokers) < 1 {
-		panic("config needs kafka_brokers!!")
-	}
-	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
-
-	configToStructs(&config, &passwordProtectedPaths, &decisionLists)
 
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
@@ -255,115 +138,130 @@ func main() {
 	defer banningLogFileTemp.Close()
 
 	banner := internal.Banner{
-		&decisionListsMutex,
-		&decisionLists,
-		log.New(banningLogFile, "", 0),
-		log.New(banningLogFileTemp, "", 0),
-		init_ipset(&config),
+		DecisionLists: dynamicDecisionLists,
+		Logger:        log.New(banningLogFile, "", 0),
+		LoggerTemp:    log.New(banningLogFileTemp, "", 0),
+		IPSetInstance: init_ipset(config),
 	}
 
-	var wg sync.WaitGroup
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-	wg.Add(1)
 	go internal.RunHttpServer(
-		&config,
-		&decisionListsMutex,
-		&decisionLists,
-		&passwordProtectedPaths,
-		&rateLimitMutex,
-		&ipToRegexStates,
-		&failedChallengeStates,
+		ctx,
+		configHolder,
+		staticDecisionLists,
+		dynamicDecisionLists,
+		passwordProtectedPaths,
+		regexStates,
+		failedChallengeStates,
 		banner,
-		&wg,
 	)
 
-	wg.Add(1)
 	go internal.RunLogTailer(
-		&config,
+		ctx,
+		configHolder,
 		banner,
-		&rateLimitMutex,
-		&ipToRegexStates,
-		&decisionListsMutex,
-		&decisionLists,
-		&wg,
+		staticDecisionLists,
+		regexStates,
 	)
 
 	if !config.DisableKafka {
 		log.Println("INIT: starting RunKafkaReader/RunKafkaWriter")
 
-		wg.Add(1)
 		go internal.RunKafkaReader(
-			&config,
-			&decisionListsMutex,
-			&decisionLists,
-			&wg,
+			ctx,
+			configHolder,
+			dynamicDecisionLists,
 		)
 
-		wg.Add(1)
 		go internal.RunKafkaWriter(
-			&config,
-			&wg,
+			ctx,
+			configHolder,
 		)
 	} else {
 		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
-	metricsLogFileName := ""
-	if config.StandaloneTesting {
-		metricsLogFileName = "list-metrics.log"
-	} else {
-		metricsLogFileName = config.MetricsLogFileName
+	go reportMetrics(
+		ctx,
+		29*time.Second,
+		configHolder,
+		dynamicDecisionLists,
+		regexStates,
+		failedChallengeStates,
+	)
+
+	if !config.DisableKafka {
+		go reportKafkaStatusMessage(ctx, 19*time.Second, configHolder)
 	}
 
-	metricsLogFile, _ := os.Create(metricsLogFileName)
-	defer metricsLogFile.Close()
-	metricsLogEncoder := json.NewEncoder(metricsLogFile)
-
-	// statusTicker := time.NewTicker(5 * time.Second)
-	expireTicker := time.NewTicker(9 * time.Second)
-	statusTicker := time.NewTicker(19 * time.Second)
-	metricsTicker := time.NewTicker(29 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-statusTicker.C:
-				// log.Println("calling ReportStatusMessage")
-				if !config.DisableKafka {
-					internal.ReportStatusMessage(
-						&config,
-					)
-				}
-			case <-expireTicker.C:
-				internal.RemoveExpiredDecisions(
-					&decisionListsMutex,
-					&decisionLists,
-				)
-			case <-metricsTicker.C:
-				internal.WriteMetricsToEncoder(
-					metricsLogEncoder,
-					&decisionListsMutex,
-					&decisionLists,
-					&rateLimitMutex,
-					&ipToRegexStates,
-					&failedChallengeStates,
-				)
-			}
-		}
-	}()
-
-	wg.Wait()
+	// Wait for SIGINT/SIGTERM
+	<-ctx.Done()
 }
 
-var configToStructsMutex sync.Mutex
-
-func configToStructs(
-	config *internal.Config,
-	passwordProtectedPaths *internal.PasswordProtectedPaths,
-	decisionLists *internal.DecisionLists,
+func reportKafkaStatusMessage(
+	ctx context.Context,
+	interval time.Duration,
+	configHolder *internal.ConfigHolder,
 ) {
-	configToStructsMutex.Lock()
-	defer configToStructsMutex.Unlock()
+	ticker := time.NewTicker(interval)
 
-	*passwordProtectedPaths = internal.ConfigToPasswordProtectedPaths(config)
-	*decisionLists = internal.ConfigToDecisionLists(config)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			config := configHolder.Get()
+			if !config.DisableKafka {
+				internal.ReportStatusMessage(config)
+			}
+		}
+	}
+}
+
+func reportMetrics(
+	ctx context.Context,
+	interval time.Duration,
+	configHolder *internal.ConfigHolder,
+	decisionLists *internal.DynamicDecisionLists,
+	regexStates *internal.RegexRateLimitStates,
+	failedChallengeStates *internal.FailedChallengeRateLimitStates,
+) {
+	config := configHolder.Get()
+	logFileName := ""
+	if config.StandaloneTesting {
+		logFileName = "list-metrics.log"
+	} else {
+		logFileName = config.MetricsLogFileName
+	}
+
+	if logFileName == "" {
+		return
+	}
+
+	logFile, err := os.Create(logFileName)
+	if err != nil {
+		log.Println("failed to create metrics log file:", err)
+		return
+	}
+
+	defer logFile.Close()
+
+	logEncoder := json.NewEncoder(logFile)
+	ticker := time.NewTicker(interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			internal.WriteMetricsToEncoder(
+				logEncoder,
+				decisionLists,
+				regexStates,
+				failedChallengeStates,
+			)
+		}
+	}
 }
