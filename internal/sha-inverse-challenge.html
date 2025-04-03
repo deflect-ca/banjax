@@ -205,6 +205,59 @@
         function setFavicon() {
             getFavicon(document.getElementsByClassName("website-favicon")[0])
         }
+
+        (async () => {
+            const payload = {};
+
+            // navigator.webdriver
+            payload.webdriver = navigator.webdriver;
+
+            // Plugins counts
+            payload.hasPlugins = navigator.plugins.length > 0;
+
+            // WebGL GPU
+            try {
+                const canvas = document.createElement("canvas");
+                const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+                const debugInfo = gl?.getExtension("WEBGL_debug_renderer_info");
+                const gpu = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unavailable";
+                payload.gpuRenderer = gpu;
+            } catch {
+                payload.gpuRenderer = "Error";
+            }
+
+            // Hardware
+            payload.cpu = navigator.hardwareConcurrency || 0;
+            payload.memory = navigator.deviceMemory || 0;
+
+            // Screen vs window size
+            payload.screen = {
+                width: screen.width,
+                height: screen.height,
+            }
+            payload.window = {
+                innerWidth: window.innerWidth,
+                innerHeight: window.innerHeight,
+            }
+
+            navigator.mediaDevices.enumerateDevices().then((devices) => {
+                const hasWebcam = devices.some(device => device.kind === "videoinput");
+                if (hasWebcam) {
+                    payload.webcam = true;
+                } else {
+                    payload.webcam = false;
+                }
+            }).catch((error) => {
+                payload.webcam = false;
+            });
+
+            payload.colorDepth = window.screen.colorDepth;
+            payload.langLength = navigator.languages.length;
+
+            // console.log(JSON.stringify(payload));
+            document.cookie = "deflect_integrity=" + btoa(JSON.stringify(payload)) + ";SameSite=Lax;path=/;";
+        })();
+
     </script>
     <style>
         body,
