@@ -114,7 +114,7 @@ func integrityCheckCalcBotScore(p IntegrityCheckPayload) (float64, string) {
     topFactor := ""
     topScore := 0
     for k, v := range factorScores {
-        if v >= topScore {
+        if v > topScore {
             topScore = v
             topFactor = k
         }
