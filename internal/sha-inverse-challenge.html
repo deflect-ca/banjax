@@ -214,56 +214,56 @@
             getFavicon(document.getElementsByClassName("website-favicon")[0])
         }
 
-        (async () => {
-            const payload = {};
+        (function () {
+            var payload = {};
 
             // navigator.webdriver
-            payload.webdriver = navigator.webdriver;
+            payload.webdriver = 'webdriver' in navigator ? navigator.webdriver : false;
 
             // Plugins counts
-            payload.hasPlugins = navigator.plugins.length > 0;
+            payload.hasPlugins = 'plugins' in navigator && navigator.plugins.length > 0;
 
             // WebGL GPU
-            try {
-                const canvas = document.createElement("canvas");
-                const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-                const debugInfo = gl?.getExtension("WEBGL_debug_renderer_info");
-                const gpu = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unavailable";
-                payload.gpuRenderer = gpu;
-            } catch {
+            var canvas = document.createElement("canvas");
+            var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+            if (gl) {
+                var debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+                payload.gpuRenderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : "Unavailable";
+            } else {
                 payload.gpuRenderer = "Error";
             }
 
             // Hardware
-            payload.cpu = navigator.hardwareConcurrency || 0;
-            payload.memory = navigator.deviceMemory || 0;
+            payload.cpu = 'hardwareConcurrency' in navigator ? navigator.hardwareConcurrency : 0;
+            payload.memory = 'deviceMemory' in navigator ? navigator.deviceMemory : 0;
 
             // Screen vs window size
             payload.screen = {
                 width: screen.width,
                 height: screen.height,
-            }
+            };
             payload.window = {
                 innerWidth: window.innerWidth,
                 innerHeight: window.innerHeight,
+            };
+
+            if ('mediaDevices' in navigator && navigator.mediaDevices.enumerateDevices) {
+                navigator.mediaDevices.enumerateDevices().then(function (devices) {
+                    var hasWebcam = devices.some(function (device) { return device.kind === "videoinput"; });
+                    payload.webcam = hasWebcam;
+                }).catch(function (error) {
+                    payload.webcam = false;
+                });
+            } else {
+                payload.webcam = false;
             }
 
-            navigator.mediaDevices.enumerateDevices().then((devices) => {
-                const hasWebcam = devices.some(device => device.kind === "videoinput");
-                if (hasWebcam) {
-                    payload.webcam = true;
-                } else {
-                    payload.webcam = false;
-                }
-            }).catch((error) => {
-                payload.webcam = false;
-            });
-
             payload.colorDepth = window.screen.colorDepth;
-            payload.langLength = navigator.languages.length;
+            payload.langLength = 'languages' in navigator ? navigator.languages.length : 1;
 
-            // console.log(JSON.stringify(payload));
-            document.cookie = "deflect_integrity=" + btoa(JSON.stringify(payload)) + ";SameSite=Lax;path=/;";
+            var dataString = JSON.stringify(payload);
+            var encodedData = window.btoa ? btoa(dataString) : Base64.encode(dataString);
+            document.cookie = "deflect_integrity=" + encodedData + ";SameSite=Lax;path=/;";
         })();
 
     </script>
