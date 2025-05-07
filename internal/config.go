@@ -67,6 +67,7 @@ type Config struct {
 	DisableLogging              map[string]bool     `yaml:"disable_logging"`
 	BanningLogFileTemp          string              `yaml:"banning_log_file_temp"`
 	DisableKafka                bool                `yaml:"disable_kafka"`
+	DisableKafkaWriter          bool                `yaml:"disable_kafka_writer"`
 	SessionCookieHmacSecret     string              `yaml:"session_cookie_hmac_secret"`
 	SessionCookieTtlSeconds     int                 `yaml:"session_cookie_ttl_seconds"`
 	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
