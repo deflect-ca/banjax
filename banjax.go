@@ -166,7 +166,17 @@ func main() {
 		regexStates,
 	)
 
-	if !config.DisableKafka {
+	if config.DisableKafka {
+		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
+	} else if config.DisableKafkaWriter {
+		log.Println("INIT: starting RunKafkaReader only due to config.DisableKafkaWriter")
+
+		go internal.RunKafkaReader(
+			ctx,
+			configHolder,
+			dynamicDecisionLists,
+		)
+	} else {
 		log.Println("INIT: starting RunKafkaReader/RunKafkaWriter")
 
 		go internal.RunKafkaReader(
@@ -179,8 +189,6 @@ func main() {
 			ctx,
 			configHolder,
 		)
-	} else {
-		log.Println("INIT: not running RunKafkaReader/RunKafkaWriter due to config.DisableKafka")
 	}
 
 	go reportMetrics(
