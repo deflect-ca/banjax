@@ -49,12 +49,15 @@ func TestCalculateBotScore(t *testing.T) {
 
     for _, c := range cases {
         t.Run(c.name, func(t *testing.T) {
-            score, factor := integrityCheckCalcBotScore(c.payload)
+            score, factor, fingerprint := integrityCheckCalcBotScore(c.payload)
             if score != c.expected {
                 t.Errorf("Test %s failed: expected score %.2f, got %.2f", c.name, c.expected, score)
             }
             if factor != c.expectedFactor {
                 t.Errorf("Test %s failed: expected factor %s, got %s", c.name, c.expectedFactor, factor)
+            }
+            if fingerprint == "" {
+                t.Errorf("Test %s failed: expected non-empty fingerprint, got empty", c.name)
             }
         })
     }
@@ -80,35 +83,42 @@ func TestCalculateBotScoreWrapper(t *testing.T) {
         base64Input string
         expectedScore float64
         expectedFactor string
+        expectedFingerprint string
     }{
         {
             name: "Valid payload",
             base64Input: encoded,
             expectedScore: 1.0,
             expectedFactor: "webdriver",
+            expectedFingerprint: integrityCheckCalcFingerprint(payload),
         },
         {
             name: "Invalid base64",
             base64Input: "not a base64 string",
             expectedScore: 1.0,
             expectedFactor: "err_payload",
+            expectedFingerprint: "",
         },
         {
             name: "No payload",
             base64Input: "",
             expectedScore: 1.0,
             expectedFactor: "no_payload",
+            expectedFingerprint: "",
         },
     }
 
     for _, c := range cases {
         t.Run(c.name, func(t *testing.T) {
-            score, factor := integrityCheckCalcBotScoreWrapper(c.base64Input)
+            score, factor, fingerprint := integrityCheckCalcBotScoreWrapper(c.base64Input)
             if score != c.expectedScore {
                 t.Errorf("Test %s failed: expected score %.2f, got %.2f", c.name, c.expectedScore, score)
             }
             if factor != c.expectedFactor {
                 t.Errorf("Test %s failed: expected factor %s, got %s", c.name, c.expectedFactor, factor)
+            }
+            if fingerprint != c.expectedFingerprint {
+                t.Errorf("Test %s failed: expected fingerprint %s, got %s", c.name, c.expectedFingerprint, fingerprint)
             }
         })
     }
