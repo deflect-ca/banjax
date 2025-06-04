@@ -348,11 +348,13 @@ func accessGranted(
 	decisionListResultString string,
 	botScore float64,
 	botScoreTopFactor string,
-	botFingerprint string) {
+	botFingerprint IntegrityCheckPayloadWrapper) {
 	if botScore >= 0 {
 		c.Header("X-Banjax-Bot-Score", fmt.Sprintf("%f", botScore))
 		c.Header("X-Banjax-Bot-Score-Top-Factor", botScoreTopFactor)
-		c.Header("X-Banjax-Bot-Fingerprint", botFingerprint)
+		c.Header("X-Banjax-Bot-Fingerprint", botFingerprint.Hash)
+		jsonPayload, _ := json.Marshal(botFingerprint.Payload)
+		c.Header("X-Banjax-Bot-Fingerprint-Full", string(jsonPayload))
 	}
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("X-Accel-Redirect", "@access_granted") // nginx named location that proxy_passes to origin
@@ -366,11 +368,13 @@ func accessDenied(
 	decisionListResultString string,
 	botScore float64,
 	botScoreTopFactor string,
-	botFingerprint string) {
+	botFingerprint IntegrityCheckPayloadWrapper) {
 	if botScore >= 0 {
 		c.Header("X-Banjax-Bot-Score", fmt.Sprintf("%f", botScore))
 		c.Header("X-Banjax-Bot-Score-Top-Factor", botScoreTopFactor)
-		c.Header("X-Banjax-Bot-Fingerprint", botFingerprint)
+		c.Header("X-Banjax-Bot-Fingerprint", botFingerprint.Hash)
+		jsonPayload, _ := json.Marshal(botFingerprint.Payload)
+		c.Header("X-Banjax-Bot-Fingerprint-Full", string(jsonPayload))
 	}
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store") // XXX think about caching
@@ -694,7 +698,7 @@ func sendOrValidatePassword(
 				err := ValidatePasswordCookie(config.HmacSecret, passwordCookie, time.Now(), getUserAgentOrIp(c, config), expectedHashedPassword2)
 				if err == nil {
 					// roaming password passed, we do not record fail specifically for roaming fail
-					accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengeRoamingPassed], -1.0, "", "")
+					accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengeRoamingPassed], -1.0, "", IntegrityCheckPayloadWrapper{})
 					ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 					sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeRoamingPassed
 					return sendOrValidatePasswordResult
@@ -703,7 +707,7 @@ func sendOrValidatePassword(
 				sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengeFailedBadCookie
 			}
 		} else {
-			accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengePassed], -1.0, "", "")
+			accessGranted(c, config, PasswordChallengeResultToString[PasswordChallengePassed], -1.0, "", IntegrityCheckPayloadWrapper{})
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			// log.Println("Password challenge passed")
 			sendOrValidatePasswordResult.PasswordChallengeResult = PasswordChallengePassed
@@ -729,7 +733,7 @@ func sendOrValidatePassword(
 	// log.Println(tooManyFailedChallengesResult)
 	if tooManyFailedChallengesResult.Exceeded {
 		ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-		accessDenied(c, config, "TooManyFailedPassword", -1.0, "", "")
+		accessDenied(c, config, "TooManyFailedPassword", -1.0, "", IntegrityCheckPayloadWrapper{})
 		return sendOrValidatePasswordResult
 	}
 	_, allowRoaming := passwordProtectedPaths.GetExpandCookieDomain(requestedHost)
@@ -880,7 +884,7 @@ func decisionForNginx2(
 		}
 		if grantPriorityPass {
 			decisionForNginxResult.DecisionListResult = PasswordProtectedPriorityPass
-			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPriorityPass], -1.0, "", "")
+			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPriorityPass], -1.0, "", IntegrityCheckPayloadWrapper{})
 			return
 		}
 	}
@@ -902,7 +906,7 @@ func decisionForNginx2(
 	case PasswordProtectedException:
 		decisionForNginxResult.DecisionListResult = PasswordProtectedPathException
 		// FIXED: prevent password challenge exception path getting challenge
-		accessGranted(c, config, DecisionListResultToString[PasswordProtectedPathException], -1.0, "", "")
+		accessGranted(c, config, DecisionListResultToString[PasswordProtectedPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 		return
 	case NotPasswordProtected:
 	default:
@@ -916,7 +920,7 @@ func decisionForNginx2(
 	if foundInPerSiteList {
 		switch decision {
 		case Allow:
-			accessGranted(c, config, DecisionListResultToString[PerSiteAccessGranted], -1.0, "", "")
+			accessGranted(c, config, DecisionListResultToString[PerSiteAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
 			return
@@ -935,7 +939,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, config, DecisionListResultToString[PerSiteBlock], -1.0, "", "")
+			accessDenied(c, config, DecisionListResultToString[PerSiteBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("block from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteBlock
 			return
@@ -946,7 +950,7 @@ func decisionForNginx2(
 	if foundInGlobalList {
 		switch decision {
 		case Allow:
-			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted], -1.0, "", "")
+			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
 			return
@@ -965,7 +969,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, config, DecisionListResultToString[GlobalBlock], -1.0, "", "")
+			accessDenied(c, config, DecisionListResultToString[GlobalBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
 			return
@@ -982,14 +986,14 @@ func decisionForNginx2(
 	} else {
 		switch expiringDecision.Decision {
 		case Allow:
-			accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted], -1.0, "", "")
+			accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
 		case Challenge:
 			// apply exception to both challenge from baskerville and regex banner
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
-				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", "")
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
 				return
 			}
@@ -1013,7 +1017,7 @@ func decisionForNginx2(
 				return
 			}
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", "")
+			accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access denied from expiring lists")
 			decisionForNginxResult.DecisionListResult = ExpiringBlock
 			return
@@ -1030,7 +1034,7 @@ func decisionForNginx2(
 		// Reuse the exception from password prot for site-wide sha inv exceptions path
 		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
 			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
-			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException], -1.0, "", "")
+			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException], -1.0, "", IntegrityCheckPayloadWrapper{})
 		} else {
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
@@ -1052,7 +1056,7 @@ func decisionForNginx2(
 	if decisionForNginxResult.DecisionListResult == NotSet {
 		decisionForNginxResult.DecisionListResult = NoMention
 	}
-	accessGranted(c, config, DecisionListResultToString[decisionForNginxResult.DecisionListResult], -1.0, "", "")
+	accessGranted(c, config, DecisionListResultToString[decisionForNginxResult.DecisionListResult], -1.0, "", IntegrityCheckPayloadWrapper{})
 	return
 }
 

@@ -56,7 +56,7 @@ func TestCalculateBotScore(t *testing.T) {
             if factor != c.expectedFactor {
                 t.Errorf("Test %s failed: expected factor %s, got %s", c.name, c.expectedFactor, factor)
             }
-            if fingerprint == "" {
+            if fingerprint.Hash == "" {
                 t.Errorf("Test %s failed: expected non-empty fingerprint, got empty", c.name)
             }
         })
@@ -117,8 +117,8 @@ func TestCalculateBotScoreWrapper(t *testing.T) {
             if factor != c.expectedFactor {
                 t.Errorf("Test %s failed: expected factor %s, got %s", c.name, c.expectedFactor, factor)
             }
-            if fingerprint != c.expectedFingerprint {
-                t.Errorf("Test %s failed: expected fingerprint %s, got %s", c.name, c.expectedFingerprint, fingerprint)
+            if fingerprint.Hash != c.expectedFingerprint {
+                t.Errorf("Test %s failed: expected fingerprint %s, got %s", c.name, c.expectedFingerprint, fingerprint.Hash)
             }
         })
     }
