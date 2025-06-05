@@ -1,8 +1,11 @@
 package internal
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"strings"
@@ -28,10 +31,50 @@ type IntegrityCheckPayload struct {
     Window      IntegrityCheckWindowSize `json:"window"`
     ColorDepth  int        `json:"colorDepth"`
     LangLength  int        `json:"langLength"`
+    Language    string     `json:"language"`
+    Languages   []string   `json:"languages"`
+    Timezone    string     `json:"timezone"`
+    Platform    string     `json:"platform"`
+    CanvasFp    string     `json:"canvasFp"`
+    WebglFp     string     `json:"webglFp"`
+    MathFp      string     `json:"mathFp"`
+    Webcam      bool       `json:"webcam"`
+}
+
+type IntegrityCheckPayloadWrapper struct {
+    Payload IntegrityCheckPayload
+    Hash    string
+}
+
+func integrityCheckCalcFingerprint(p IntegrityCheckPayload) string {
+    languages := strings.Join(p.Languages, ",")
+
+    raw := fmt.Sprintf(
+        "%s|%s|%s|%s|%d|%d|%d|%d|%dx%d|%s|%s|%s|%s|%t|%t|%t",
+        p.Platform,
+        p.Timezone,
+        p.Language,
+        languages,
+        p.CPU,
+        p.Memory,
+        p.ColorDepth,
+        p.LangLength,
+        p.Screen.Width, p.Screen.Height,
+        p.GPURenderer,
+        p.CanvasFp,
+        p.WebglFp,
+        p.MathFp,
+        p.Webdriver,
+        p.HasPlugins,
+        p.Webcam,
+    )
+
+    hash := sha256.Sum256([]byte(raw))
+    return hex.EncodeToString(hash[:])
 }
 
 // calculateBotScore calculates a bot score based on various payload properties
-func integrityCheckCalcBotScore(p IntegrityCheckPayload) (float64, string) {
+func integrityCheckCalcBotScore(p IntegrityCheckPayload) (float64, string, IntegrityCheckPayloadWrapper) {
     factorWeights := map[string]int{
         "webdriver":    10,
         "no_plugins":   3,
@@ -121,17 +164,34 @@ func integrityCheckCalcBotScore(p IntegrityCheckPayload) (float64, string) {
     }
 
     normalized := math.Min(float64(score)/float64(maxScore), 1.0)
-    return normalized, topFactor
+    fingerprint := integrityCheckCalcFingerprint(p)
+    // log.Printf("Calculated bot score: %.2f, top factor: %s, fingerprint: %s", normalized, topFactor, fingerprint)
+
+    // Create a wrapper to return the payload and its hash
+    payloadWrapper := IntegrityCheckPayloadWrapper{
+        Payload: p,
+        Hash:    fingerprint,
+    }
+
+    return normalized, topFactor, payloadWrapper
 }
 
-func integrityCheckCalcBotScoreWrapper(base64Payload string) (float64, string) {
+func integrityCheckCalcBotScoreWrapper(base64Payload string) (float64, string, IntegrityCheckPayloadWrapper) {
 	// check if base64Payload is empty
     if base64Payload == "" {
-        return 1.0, "no_payload" // return a high score if payload is empty
+        // return a high score if payload is empty
+        return 1.0, "no_payload", IntegrityCheckPayloadWrapper{
+            Payload: IntegrityCheckPayload{},
+            Hash:    "",
+        }
     }
     payload, err := integrityCheckDecodePayload(base64Payload)
 	if err != nil {
-		return 1.0, "err_payload" // return a high score if payload is invalid
+        // return a high score if payload is invalid
+		return 1.0, "err_payload", IntegrityCheckPayloadWrapper{
+            Payload: IntegrityCheckPayload{},
+            Hash:    "",
+        }
 	}
 	return integrityCheckCalcBotScore(payload)
 }

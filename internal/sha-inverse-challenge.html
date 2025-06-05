@@ -214,7 +214,7 @@
             getFavicon(document.getElementsByClassName("website-favicon")[0])
         }
 
-        (function () {
+        (async () => {
             var payload = {};
 
             // navigator.webdriver
@@ -260,11 +260,89 @@
 
             payload.colorDepth = window.screen.colorDepth;
             payload.langLength = 'languages' in navigator ? navigator.languages.length : 1;
+            payload.language = navigator.language || '';
+            payload.languages = navigator.languages || [];
+            payload.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+            payload.platform = navigator.platform || '';
+            payload.touchSupport = {
+                touchEvent: 'ontouchstart' in window,
+                maxTouchPoints: navigator.maxTouchPoints || 0
+            };
 
+            //console.log(payload);
+
+            function hashString(str) {
+                var hash = 5381;
+                for (var i = 0; i < str.length; i++) {
+                    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+                }
+                return (hash >>> 0).toString(16);
+            }
+
+            function canvasFingerprintHash() {
+                try {
+                    var canvas = document.createElement('canvas');
+                    var ctx = canvas.getContext('2d');
+                    ctx.textBaseline = 'top';
+                    ctx.font = '14px Arial';
+                    ctx.fillStyle = '#f60';
+                    ctx.fillRect(0, 0, 100, 100);
+                    ctx.fillStyle = '#069';
+                    ctx.fillText('Baskerville', 10, 50);
+                    return hashString(canvas.toDataURL());
+                } catch {
+                    return "0";
+                }
+            }
+
+            function webglFingerprintHash() {
+                try {
+                    var canvas = document.createElement('canvas');
+                    var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                    var debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    var vendor = debugInfo ? gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) : 'unknown';
+                    var renderer = debugInfo ? gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) : 'unknown';
+                    return hashString(`${vendor}~${renderer}`);
+                } catch {
+                    return "0";
+                }
+            }
+
+            function mathPrecisionQuirkHash() {
+                try {
+                    var str = [
+                        Math.acos(0.123),
+                        Math.tan(0.5),
+                        Math.log(42),
+                        Math.sin(Math.PI / 3),
+                    ].map(x => x.toPrecision(15)).join(',');
+                    return hashString(str);
+                } catch {
+                    return "0";
+                }
+            }
+
+            payload.canvasFp = canvasFingerprintHash();
+            payload.webglFp = webglFingerprintHash();
+            payload.mathFp = mathPrecisionQuirkHash();
+
+            if (navigator.mediaDevices?.enumerateDevices) {
+                try {
+                    var devices = await navigator.mediaDevices.enumerateDevices();
+                    payload.webcam = devices.some(d => d.kind === "videoinput");
+                } catch {
+                    payload.webcam = false;
+                }
+            }
+
+            //console.log(payload);
             var dataString = JSON.stringify(payload);
+            //console.log(dataString);
             var encodedData = window.btoa ? btoa(dataString) : Base64.encode(dataString);
             document.cookie = "deflect_integrity=" + encodedData + ";SameSite=Lax;path=/;";
-        })();
+        })().catch(err => {
+            console.error(err);
+        });
 
     </script>
     <style>
