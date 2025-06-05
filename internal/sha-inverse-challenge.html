@@ -98,7 +98,6 @@
                     // console.log(hash_view);
                     // XXX: http_server.go applyCookieMaxAge() func will apply Max-Age dynamically to this line
                     //      Please be aware when attempting to modify this block of code
-                    await getPayload();
                     document.cookie = "deflect_challenge3=" + base64_cookie + ";SameSite=Lax;path=/;";
                     location.reload();
                     return;
@@ -215,7 +214,7 @@
             getFavicon(document.getElementsByClassName("website-favicon")[0])
         }
 
-        async function getPayload() {
+        (async () => {
             var payload = {};
 
             // navigator.webdriver
@@ -261,7 +260,7 @@
 
             payload.colorDepth = window.screen.colorDepth;
             payload.langLength = 'languages' in navigator ? navigator.languages.length : 1;
-            payload.language = navigator.language || '',
+            payload.language = navigator.language || '';
             payload.languages = navigator.languages || [];
             payload.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
             payload.platform = navigator.platform || '';
@@ -341,7 +340,9 @@
             //console.log(dataString);
             var encodedData = window.btoa ? btoa(dataString) : Base64.encode(dataString);
             document.cookie = "deflect_integrity=" + encodedData + ";SameSite=Lax;path=/;";
-        }
+        })().catch(err => {
+            console.error(err);
+        });
 
     </script>
     <style>
