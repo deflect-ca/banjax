@@ -165,7 +165,7 @@ func integrityCheckCalcBotScore(p IntegrityCheckPayload) (float64, string, Integ
 
     normalized := math.Min(float64(score)/float64(maxScore), 1.0)
     fingerprint := integrityCheckCalcFingerprint(p)
-    log.Printf("Calculated bot score: %.2f, top factor: %s, fingerprint: %s", normalized, topFactor, fingerprint)
+    // log.Printf("Calculated bot score: %.2f, top factor: %s, fingerprint: %s", normalized, topFactor, fingerprint)
 
     // Create a wrapper to return the payload and its hash
     payloadWrapper := IntegrityCheckPayloadWrapper{
