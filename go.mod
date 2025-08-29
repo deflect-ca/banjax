@@ -1,6 +1,8 @@
 module github.com/deflect-ca/banjax
 
-go 1.22
+go 1.23.0
+
+toolchain go1.23.1
 
 require (
 	github.com/coreos/go-iptables v0.7.0
@@ -13,10 +15,10 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
-	github.com/segmentio/kafka-go v0.4.47
-	golang.org/x/crypto v0.31.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	github.com/segmentio/kafka-go v0.4.49
+	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
 	gopkg.in/fsnotify.v1 v1.4.7 // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
@@ -25,6 +27,7 @@ require (
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.16.0
+	github.com/gin-contrib/pprof v1.5.2
 	github.com/gonetx/ipset v0.1.0
 	github.com/jeremy5189/ipfilter-no-iploc/v2 v2.0.3
 	github.com/stretchr/testify v1.9.0
@@ -37,7 +40,6 @@ require (
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.7 // indirect
-	github.com/gin-contrib/pprof v1.5.2 // indirect
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
@@ -52,6 +54,6 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect
 	golang.org/x/arch v0.12.0 // indirect
-	golang.org/x/net v0.33.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

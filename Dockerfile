@@ -29,7 +29,8 @@ RUN mkdir -p /var/log/banjax
 # container.
 COPY ./.air.toml /opt/banjax/
 RUN mkdir -p /opt/banjax/tmp
-RUN go install github.com/air-verse/air@latest
+# For go 1.23, we need to stay on v1.61.7
+RUN go install github.com/air-verse/air@v1.61.7
 
 EXPOSE 8081
 
