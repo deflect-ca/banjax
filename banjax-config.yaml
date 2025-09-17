@@ -136,3 +136,9 @@ sha_inv_path_exceptions:
     - /no_challenge
 # enable pprof for debugging
 profile: false
+# deflect dnet the banjax instance is currently in
+dnet: dnext1
+# deflect dnet mapping to kafka partision
+dnet_to_partition:
+  dnext1: 0
+  dnext2: 1

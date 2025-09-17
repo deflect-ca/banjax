@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -42,6 +41,17 @@ type commandMessage struct {
 	Host      string `json:"host"`
 	SessionId string `json:"session_id"`
 	Source    string `json:"source"`
+	PrintLog  bool   `json:"print_log"`
+}
+
+func getDNetPartition(config *Config) int {
+	if partition, ok := config.DNetToPartition[config.DNet]; ok {
+		log.Printf("KAFKA: init using dnet %s maping to partition %d\n", config.DNet, partition)
+		return partition
+	} else {
+		log.Printf("KAFKA: dnet %s not found in dnet_to_partition mapping, using partition 0\n", config.DNet)
+	}
+	return 0
 }
 
 func getDialer(config *Config) *kafka.Dialer {
@@ -89,15 +99,15 @@ func RunKafkaReader(
 		config := configHolder.Get()
 		r := kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        config.KafkaBrokers,
-			GroupID:        uuid.New().String(),
 			StartOffset:    kafka.LastOffset,
+			Partition:      getDNetPartition(config),
 			Topic:          config.KafkaCommandTopic,
 			Dialer:         getDialer(config),
 			CommitInterval: time.Second * 10,
 		})
 		defer r.Close()
 
-		log.Printf("KAFKA: NewReader started")
+		log.Printf("KAFKA: NewReader started, log supressed unless debug or command.PrintLog = True")
 
 		for {
 			m, err := r.ReadMessage(ctx)
@@ -120,8 +130,10 @@ func RunKafkaReader(
 				continue
 			}
 
-			log.Printf("KAFKA: message %s (%d/%d) = N: %s, V: %s, S: %s: Src: %s\n",
-				string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
+			if config.Debug || command.PrintLog {
+				log.Printf("KAFKA: message %s (%d/%d) = N: %s, V: %s, S: %s: Src: %s\n",
+					string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
+			}
 
 			handleCommand(
 				configHolder.Get(),
@@ -132,8 +144,10 @@ func RunKafkaReader(
 
 		select {
 		case <-ctx.Done():
+			log.Println("KAFKA: context done, exiting kafka reader")
 			return
 		case <-time.After(5 * time.Second):
+			log.Println("KAFKA: reconnecting to kafka reader")
 			continue
 		}
 	}
@@ -163,7 +177,7 @@ func handleCommand(
 	decisionLists *DynamicDecisionLists,
 ) {
 	// exempt a site from baskerville according to config
-	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled {
+	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled && config.Debug {
 		log.Printf("KAFKA: %s disabled baskerville, skipping %s\n", command.Host, command.Name)
 		return
 	}
@@ -185,7 +199,9 @@ func handleCommand(
 		handleSessionCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	default:
-		log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
+		if config.Debug {
+			log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
+		}
 	}
 }
 
@@ -201,8 +217,10 @@ func handleIPCommand(
 		return
 	}
 
-	log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
-		command.Host, command.Value, decision, expireDuration)
+	if config.Debug {
+		log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
+			command.Host, command.Value, decision, expireDuration)
+	}
 
 	decisionLists.Update(
 		config,
@@ -228,8 +246,10 @@ func handleSessionCommand(
 		return
 	}
 
-	log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
-		command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
+	if config.Debug {
+		log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
+			command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
+	}
 
 	decisionLists.UpdateBySessionId(
 		config,
