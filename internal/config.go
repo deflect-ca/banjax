@@ -73,6 +73,8 @@ type Config struct {
 	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
 	SitesToDisableBaskerville   map[string]bool     `yaml:"sites_to_disable_baskerville"`
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
+	DNet                        string              `yaml:"dnet"`
+	DNetToPartition             map[string]int      `yaml:"dnet_to_partition"`
 }
 
 type RegexWithRate struct {
