@@ -82,7 +82,8 @@ func getDialer(config *Config) *kafka.Dialer {
 	}
 
 	dialer := &kafka.Dialer{
-		Timeout:   10 * time.Second,
+		Timeout:   time.Duration(config.KafkaDialerTimeoutSeconds) * time.Second,
+		KeepAlive: time.Duration(config.KafkaDialerKeepAliveSeconds) * time.Second,
 		DualStack: true,
 		TLS:       tlsConfig,
 	}
@@ -97,13 +98,26 @@ func RunKafkaReader(
 	// XXX this infinite loop is so we reconnect if we get dropped.
 	for {
 		config := configHolder.Get()
+
+		log.Printf(
+			"KAFKA: starting NewReader with config MinBytes: %d MaxBytes: %d MaxWaitMs: %d "+
+				"Dialer TimeoutSeconds: %d KeepAliveSeconds: %d",
+			config.KafkaMinBytes,
+			config.KafkaMaxBytes,
+			config.KafkaMaxWaitMs,
+			config.KafkaDialerTimeoutSeconds,
+			config.KafkaDialerKeepAliveSeconds,
+		)
+
 		r := kafka.NewReader(kafka.ReaderConfig{
 			Brokers:        config.KafkaBrokers,
 			StartOffset:    kafka.LastOffset,
 			Partition:      getDNetPartition(config),
 			Topic:          config.KafkaCommandTopic,
 			Dialer:         getDialer(config),
-			CommitInterval: time.Second * 10,
+			MinBytes:       config.KafkaMinBytes,  // 1MB - batch
+			MaxBytes:       config.KafkaMaxBytes,  // 10MB max fetch size
+			MaxWait:        time.Duration(config.KafkaMaxWaitMs) * time.Millisecond,  // 500ms max wait
 		})
 		defer r.Close()
 

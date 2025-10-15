@@ -29,6 +29,11 @@ type Config struct {
 	KafkaSslKeyPassword                    string                         `yaml:"kafka_ssl_key_password"`
 	KafkaCommandTopic                      string                         `yaml:"kafka_command_topic"`
 	KafkaReportTopic                       string                         `yaml:"kafka_report_topic"`
+	KafkaMinBytes                          int                            `yaml:"kafka_min_bytes"`
+	KafkaMaxBytes                          int                            `yaml:"kafka_max_bytes"`
+	KafkaMaxWaitMs                         int                            `yaml:"kafka_max_wait_ms"`
+	KafkaDialerTimeoutSeconds              int                            `yaml:"kafka_dialer_timeout_seconds"`
+	KafkaDialerKeepAliveSeconds            int                            `yaml:"kafka_dialer_keep_alive_seconds"`
 	PerSiteDecisionLists                   map[string]map[string][]string `yaml:"per_site_decision_lists"`
 	GlobalDecisionLists                    map[string][]string            `yaml:"global_decision_lists"`
 	ConfigVersion                          string                         `yaml:"config_version"`
