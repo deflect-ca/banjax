@@ -99,12 +99,14 @@ func RunKafkaReader(
 	for {
 		config := configHolder.Get()
 
-		log.Print("Kafka: starting NewReader with config",
-			" MinBytes: ", config.KafkaMinBytes,
-			" MaxBytes: ", config.KafkaMaxBytes,
-			" MaxWaitMs: ", config.KafkaMaxWaitMs,
-			" Dialer TimeoutSeconds: ", config.KafkaDialerTimeoutSeconds,
-			" KeepAliveSeconds: ", config.KafkaDialerKeepAliveSeconds,
+		log.Printf(
+			"KAFKA: starting NewReader with config MinBytes: %d MaxBytes: %d MaxWaitMs: %d "+
+				"Dialer TimeoutSeconds: %d KeepAliveSeconds: %d",
+			config.KafkaMinBytes,
+			config.KafkaMaxBytes,
+			config.KafkaMaxWaitMs,
+			config.KafkaDialerTimeoutSeconds,
+			config.KafkaDialerKeepAliveSeconds,
 		)
 
 		r := kafka.NewReader(kafka.ReaderConfig{
