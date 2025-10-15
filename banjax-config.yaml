@@ -22,6 +22,11 @@ kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
+kafka_min_bytes: 1e6  # 1MB
+kafka_max_bytes: 1e7  # 10MB
+kafka_max_wait_ms: 500
+kafka_dialer_timeout_seconds: 20
+kafka_dialer_keep_alive_seconds: 120
 password_protected_paths:
   "localhost:8081":
     - wp-admin
