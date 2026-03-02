@@ -335,7 +335,7 @@ func sendBytesToMessageChan(bytes []byte) {
 	case messageChan <- bytes:
 		// log.Println("put message on channel")
 	default:
-		log.Println("KAFKA: did not put message on channel")
+		// log.Println("KAFKA: did not put message on channel")
 	}
 }
 
