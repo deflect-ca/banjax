@@ -121,6 +121,12 @@ func RunKafkaReader(
 		})
 		defer r.Close()
 
+		initialOffset := r.Offset()
+		log.Printf("KAFKA: reader initial offset is %d", initialOffset)
+		if initialOffset != kafka.LastOffset {
+			r.SetOffset(kafka.LastOffset)
+			log.Printf("KAFKA: reader set to last offset, now at %d", r.Offset())
+		}
 		log.Printf("KAFKA: NewReader started, log supressed unless debug or command.PrintLog = True")
 
 		for {
@@ -335,7 +341,7 @@ func sendBytesToMessageChan(bytes []byte) {
 	case messageChan <- bytes:
 		// log.Println("put message on channel")
 	default:
-		log.Println("KAFKA: did not put message on channel")
+		// log.Println("KAFKA: did not put message on channel")
 	}
 }
 

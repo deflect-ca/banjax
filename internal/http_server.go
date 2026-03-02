@@ -981,6 +981,8 @@ func decisionForNginx2(
 	// changing the decision.
 	// XXX i forget if that comment is stale^
 	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, dynamicDecisionLists)
+	// Check if domain disabled baskerville
+	_, disabled := config.SitesToDisableBaskerville[requestedHost]
 	if !ok {
 		// log.Println("no mention in expiring lists")
 	} else {
@@ -997,8 +999,6 @@ func decisionForNginx2(
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
 				return
 			}
-			// Check if expiringDecision.fromBaskerville, if true, check if domain disabled baskerville
-			_, disabled := config.SitesToDisableBaskerville[requestedHost]
 			if expiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
 			} else {
@@ -1017,10 +1017,14 @@ func decisionForNginx2(
 				return
 			}
 		case NginxBlock, IptablesBlock:
-			accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
-			// log.Println("access denied from expiring lists")
-			decisionForNginxResult.DecisionListResult = ExpiringBlock
-			return
+			if expiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)
+			} else {
+				accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+				// log.Println("access denied from expiring lists")
+				decisionForNginxResult.DecisionListResult = ExpiringBlock
+				return
+			}
 		}
 	}
 
