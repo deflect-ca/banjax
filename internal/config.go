@@ -80,6 +80,8 @@ type Config struct {
 	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
 	DNet                        string              `yaml:"dnet"`
 	DNetToPartition             map[string]int      `yaml:"dnet_to_partition"`
+	PerSiteUserAgentDecisionLists map[string]map[string][]string `yaml:"per_site_user_agent_decision_lists"`
+	GlobalUserAgentDecisionLists  map[string][]string            `yaml:"global_user_agent_decision_lists"`
 }
 
 type RegexWithRate struct {

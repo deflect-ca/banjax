@@ -761,6 +761,12 @@ const (
 	PerSiteShaInvPathException
 	SiteWideChallenge
 	SiteWideChallengeException
+	PerSiteUAAccessGranted
+	PerSiteUAChallenge
+	PerSiteUABlock
+	GlobalUAAccessGranted
+	GlobalUAChallenge
+	GlobalUABlock
 	NoMention
 	NotSet
 )
@@ -781,6 +787,12 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	PerSiteShaInvPathException:     "PerSiteShaInvPathException",
 	SiteWideChallenge:              "SiteWideChallenge",
 	SiteWideChallengeException:     "SiteWideChallengeException",
+	PerSiteUAAccessGranted:         "PerSiteUAAccessGranted",
+	PerSiteUAChallenge:             "PerSiteUAChallenge",
+	PerSiteUABlock:                 "PerSiteUABlock",
+	GlobalUAAccessGranted:          "GlobalUAAccessGranted",
+	GlobalUAChallenge:              "GlobalUAChallenge",
+	GlobalUABlock:                  "GlobalUABlock",
 	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
@@ -807,6 +819,7 @@ type DecisionForNginxResult struct {
 	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
 	ShaChallengeResult            *ShaChallengeResult
 	TooManyFailedChallengesResult *RateLimitResult
+	ClientUserAgent			      string
 }
 
 func decisionForNginx(
@@ -856,6 +869,7 @@ func decisionForNginx2(
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
+	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
 	requestedProtectedPath := CleanRequestedPath(requestedPath)
 
 	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
@@ -864,6 +878,7 @@ func decisionForNginx2(
 	decisionForNginxResult.RequestedHost = requestedHost
 	decisionForNginxResult.RequestedPath = requestedPath
 	decisionForNginxResult.DecisionListResult = NotSet
+	decisionForNginxResult.ClientUserAgent = clientUserAgent
 
 	// check if user has a valid password cookie, if so, allow them through
 	passwordCookie, passwordCookieErr := c.Cookie(PasswordCookieName)
@@ -946,6 +961,33 @@ func decisionForNginx2(
 		}
 	}
 
+	uaDecision, foundInPerSiteUA := staticDecisionLists.CheckPerSiteUserAgent(requestedHost, clientUserAgent)
+	if foundInPerSiteUA {
+		switch uaDecision {
+		case Allow:
+			accessGranted(c, config, DecisionListResultToString[PerSiteUAAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = PerSiteUAAccessGranted
+			return
+		case Challenge:
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+			decisionForNginxResult.DecisionListResult = PerSiteUAChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c, config, DecisionListResultToString[PerSiteUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = PerSiteUABlock
+			return
+		}
+	}
+
 	decision, foundInGlobalList := staticDecisionLists.CheckGlobal(config, clientIp)
 	if foundInGlobalList {
 		switch decision {
@@ -972,6 +1014,33 @@ func decisionForNginx2(
 			accessDenied(c, config, DecisionListResultToString[GlobalBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
+			return
+		}
+	}
+
+	uaDecisionGlobal, foundInGlobalUA := staticDecisionLists.CheckGlobalUserAgent(clientUserAgent)
+	if foundInGlobalUA {
+		switch uaDecisionGlobal {
+		case Allow:
+			accessGranted(c, config, DecisionListResultToString[GlobalUAAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = GlobalUAAccessGranted
+			return
+		case Challenge:
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+			decisionForNginxResult.DecisionListResult = GlobalUAChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			accessDenied(c, config, DecisionListResultToString[GlobalUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = GlobalUABlock
 			return
 		}
 	}

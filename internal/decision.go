@@ -161,6 +161,20 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	}
 }
 
+func (l *StaticDecisionLists) CheckPerSiteUserAgent(site string, userAgent string) (Decision, bool) {
+	c := l.content.Load()
+	rules, ok := c.perSiteUserAgentDecisionLists[site]
+	if !ok {
+		return 0, false
+	}
+	return checkUADecision(rules, userAgent)
+}
+
+func (l *StaticDecisionLists) CheckGlobalUserAgent(userAgent string) (Decision, bool) {
+	c := l.content.Load()
+	return checkUADecision(c.globalUserAgentDecisionLists, userAgent)
+}
+
 func (l *StaticDecisionLists) CheckSitewideShaInv(site string) (FailAction, bool) {
 	c := l.content.Load()
 
@@ -245,15 +259,19 @@ type staticDecisionLists struct {
 	sitewideShaInvList           siteToFailAction
 	globalDecisionListsIPFilter  decisionToIPFilter
 	perSiteDecisionListsIPFilter siteToDecisionToIPFilter
+	perSiteUserAgentDecisionLists perSiteUAPatternToDecision
+	globalUserAgentDecisionLists  globalUAPatternToDecision
 }
 
 func newStaticDecisionLists() staticDecisionLists {
 	return staticDecisionLists{
-		globalDecisionLists:          make(ipAddrToDecision),
-		perSiteDecisionLists:         make(siteToIPAddrToDecision),
-		sitewideShaInvList:           make(siteToFailAction),
-		globalDecisionListsIPFilter:  make(decisionToIPFilter),
-		perSiteDecisionListsIPFilter: make(siteToDecisionToIPFilter),
+		globalDecisionLists:           make(ipAddrToDecision),
+		perSiteDecisionLists:          make(siteToIPAddrToDecision),
+		sitewideShaInvList:            make(siteToFailAction),
+		globalDecisionListsIPFilter:   make(decisionToIPFilter),
+		perSiteDecisionListsIPFilter:  make(siteToDecisionToIPFilter),
+		perSiteUserAgentDecisionLists: make(perSiteUAPatternToDecision),
+		globalUserAgentDecisionLists:  make(globalUAPatternToDecision),
 	}
 }
 
@@ -331,6 +349,22 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 		}
 
 		out.sitewideShaInvList[site] = failAction
+	}
+
+	if len(config.GlobalUserAgentDecisionLists) > 0 {
+		globalUA, err := buildGlobalUAPatternToDecision(config.GlobalUserAgentDecisionLists)
+		if err != nil {
+			return staticDecisionLists{}, fmt.Errorf("failed to build global user agent decision lists: %w", err)
+		}
+		out.globalUserAgentDecisionLists = globalUA
+	}
+
+	if len(config.PerSiteUserAgentDecisionLists) > 0 {
+		perSiteUA, err := buildPerSiteUAPatternToDecision(config.PerSiteUserAgentDecisionLists)
+		if err != nil {
+			return staticDecisionLists{}, fmt.Errorf("failed to build per-site user agent decision lists: %w", err)
+		}
+		out.perSiteUserAgentDecisionLists = perSiteUA
 	}
 
 	log.Printf("global decisions: %v\n", out.globalDecisionLists)
