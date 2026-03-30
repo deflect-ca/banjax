@@ -24,6 +24,7 @@ const fixtureConfigTestShaInv = "./fixtures/banjax-config-test-sha-inv.yaml"
 const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner.yaml"
 const fixtureConfigTestReloadCIDR = "./fixtures/banjax-config-test-reload-cidr.yaml"
 const fixtureConfigTestPersiteFail = "./fixtures/banjax-config-test-persite-fail.yaml"
+const fixtureConfigTestUA = "./fixtures/banjax-config-test-ua.yaml"
 
 var tmpDir string
 var configFile string
@@ -192,6 +193,17 @@ func randomXClientIP() http.Header {
 
 func ClientIP(ip string) http.Header {
 	return http.Header{"X-Client-IP": {ip}}
+}
+
+func ClientUserAgent(ua string) http.Header {
+	return http.Header{"X-Client-User-Agent": {ua}}
+}
+
+func ClientIPAndUserAgent(ip string, ua string) http.Header {
+	return http.Header{
+		"X-Client-IP":         {ip},
+		"X-Client-User-Agent": {ua},
+	}
 }
 
 func randomIP() string {
