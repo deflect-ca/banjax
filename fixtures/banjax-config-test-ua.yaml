@@ -41,7 +41,7 @@ metrics_log_file: /var/log/banjax/metrics.log
 standalone_testing: true
 
 # UA blocking: AhrefsBot globally blocked, Firefox on Mac globally challenged
-# GPTBot is allowed on localhost (per-site override of the global IP block for 8.8.8.8)
+# GPTBot is allowed on localhost:8081 (per-site override of the global IP challenge for 8.8.8.8)
 global_user_agent_decision_lists:
   nginx_block:
     - "AhrefsBot"
@@ -50,6 +50,6 @@ global_user_agent_decision_lists:
     - "Macintosh.*Firefox/\\d+"
 
 per_site_user_agent_decision_lists:
-  "localhost":
+  "localhost:8081":
     allow:
       - "GPTBot"

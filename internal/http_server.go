@@ -338,7 +338,9 @@ func addOurXHeadersForTesting(c *gin.Context) {
 	}
 	c.Request.Header.Set("X-Requested-Host", c.Request.Host)
 	c.Request.Header.Set("X-Requested-Path", c.Query("path"))
-	c.Request.Header.Set("X-Client-User-Agent", "mozilla")
+	if c.Request.Header.Get("X-Client-User-Agent") == "" {
+		c.Request.Header.Set("X-Client-User-Agent", "mozilla")
+	}
 	c.Next()
 }
 
