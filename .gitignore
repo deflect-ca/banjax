@@ -15,3 +15,5 @@ logs
 
 keys
 .env
+
+CLAUDE.md
