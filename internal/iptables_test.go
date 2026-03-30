@@ -23,7 +23,7 @@ func TestIpAndTimestampToRuleSpec(t *testing.T) {
 func TestRuleToRuleSpec(t *testing.T) {
 	ruleSpec, err := ruleToRuleSpec(`-A INPUT -s 1.2.3.5/32 -m comment --comment "added:1599210074" -j DROP`)
 	if err != nil {
-		t.Errorf(err.Error())
+		t.Errorf("%s", err.Error())
 	}
 	expected := []string{"-s", "1.2.3.5/32", "-m", "comment", "--comment", "added:1599210074", "-j", "DROP"}
 	if !reflect.DeepEqual(ruleSpec, expected) {

@@ -1,8 +1,6 @@
 module github.com/deflect-ca/banjax
 
-go 1.23.0
-
-toolchain go1.23.1
+go 1.25.8
 
 require (
 	github.com/coreos/go-iptables v0.7.0
@@ -14,7 +12,7 @@ require (
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
-	github.com/segmentio/kafka-go v0.4.49
+	github.com/segmentio/kafka-go v0.4.50
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
