@@ -405,3 +405,59 @@ func TestRegexesWithRatesAllowList(t *testing.T) {
 		{"GET", prefix + "/blockme/", 200, ClientIP("20.20.20.20"), nil},
 	})
 }
+
+func TestGlobalUserAgentDecisionLists(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1, t)
+
+	reloadConfig(fixtureConfigTestUA, 1, t)
+
+	/*
+		global_user_agent_decision_lists:
+		  nginx_block:
+		    - "AhrefsBot"
+		    - "SemrushBot"
+		  challenge:
+		    - "Macintosh.*Firefox/\\d+"
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2025-01-01"}},
+		// AhrefsBot is globally nginx_blocked (403)
+		{"GET", prefix + "/ua_ahref", 403, ClientUserAgent("Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)"), nil},
+		// SemrushBot is globally nginx_blocked (403)
+		{"GET", prefix + "/ua_semrush", 403, ClientUserAgent("Mozilla/5.0 (compatible; SemrushBot/7.0; +http://www.semrush.com/bot.html)"), nil},
+		// Firefox on Mac is globally challenged (429)
+		{"GET", prefix + "/ua_firefox_mac", 429, ClientUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:149.0) Gecko/20100101 Firefox/149.0"), nil},
+		// Firefox on Windows does not match the Macintosh pattern — allowed (200)
+		{"GET", prefix + "/ua_firefox_win", 200, ClientUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0"), nil},
+		// Googlebot has no UA rule — allowed (200)
+		{"GET", prefix + "/ua_googlebot", 200, ClientUserAgent("Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"), nil},
+	})
+}
+
+func TestPerSiteUserAgentDecisionLists(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1, t)
+
+	reloadConfig(fixtureConfigTestUA, 1, t)
+
+	/*
+		per_site_user_agent_decision_lists:
+		  "localhost:8081":
+		    allow:
+		      - "GPTBot"
+
+		global_decision_lists:
+		  challenge:
+		    - 8.8.8.8
+	*/
+	prefix := "/auth_request?path="
+	httpTester(t, []TestResource{
+		{"GET", "/info", 200, nil, []string{"2025-01-01"}},
+		// 8.8.8.8 is in global challenge IP list — should be challenged without a UA override
+		{"GET", prefix + "/ua_ip_challenge", 429, ClientIP("8.8.8.8"), nil},
+		// GPTBot from 8.8.8.8: per-site UA allow overrides the global IP challenge
+		{"GET", prefix + "/ua_gptbot_override", 200, ClientIPAndUserAgent("8.8.8.8", "Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)"), nil},
+		// AhrefsBot from 8.8.8.8: global IP challenge fires before global UA block (per-site UA has no AhrefsBot rule)
+		{"GET", prefix + "/ua_ahref_challenged_ip", 429, ClientIPAndUserAgent("8.8.8.8", "Mozilla/5.0 (compatible; AhrefsBot/7.0)"), nil},
+	})
+}
