@@ -8,7 +8,7 @@ if has_valid_password_cookie():
     return access_granted()
 
 if password_protected_path[requested_host][requested_path]:
-    if password_protected_path_exceptions[requested_host]:
+    if password_protected_path_exceptions[requested_host][requested_path]:
         return access_granted()
     else:
         return send_or_validate_password_page()
@@ -28,25 +28,31 @@ decision = expiring_decision_lists[client_ip]
 if decision == Allow:
     return access_granted()
 if decision == Challenge:
-    if sites_to_disable_baskerville[requested_host] and decision.from_baskerville):
-        # skip challenge, go to sitewide_sha_inv_list check below
-    return send_or_validate_challenge()
-if decision in [NginxBlock, IptablesBlock]:
-    return access_denied()
-
-if sitewide_sha_inv_list[requested_host]:
-    # sharing exception path with password protected paths
-    if password_protected_path_exceptions[requested_host]:
+    if per_site_sha_inv_path_exceptions[requested_host][requested_path]:
         return access_granted()
+    if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
+        pass  # skip challenge, fall through to sitewide_sha_inv_list check below
     else:
         return send_or_validate_challenge()
+if decision in [NginxBlock, IptablesBlock]:
+    if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
+        pass  # skip block, fall through to sitewide_sha_inv_list check below
+    else:
+        return access_denied()
+
+if sitewide_sha_inv_list[requested_host]:
+    fail_action = sitewide_sha_inv_list[requested_host].fail_action  # Block or Allow
+    if password_protected_path_exceptions[requested_host][requested_path]:
+        return access_granted()
+    else:
+        return send_or_validate_challenge(fail_action)
 
 # if nothing matched above
 return access_granted()
 ```
 
 The decision lists are populated from:
-  * the config file, which is read at startup and on SIGHUP [XXX todo]. See `per_site_decision_lists`
+  * the config file, which is read at startup and reloaded on SIGHUP. See `per_site_decision_lists`
     and `global_decision_lists`. This is useful for allowlisting or blocklisting known good or bad IPs.
   * the regex-based rate-limiting rules explained in more detail below.
   * commands received over the Kafka connection. This is how Baskerville communicates with banjax.
@@ -106,9 +112,9 @@ else:
     return 401, challenge page + new cookie
 ```
 
-Note that this will currently serve an unlimited number of challenges to a bot that isn't solving them.
-banjax's predecessor would eventually block this kind of bot at the iptables level, but there are some
-intel-gathering benefits in not doing that. We will probably want to rate-limit this, though. [XXX todo]
+If a client fails too many challenges (exceeding `too_many_failed_challenges_threshold`), they are
+blocked at the iptables level (or nginx level if the IP is in a per-site allowlist). This rate-limiting
+applies to both SHA-inverse and password challenges.
 
 ### Regex-based rate-limits
 
@@ -149,7 +155,6 @@ for log_line in lines(log_file):
 The actual code has some extra stuff to deal with adding/removing iptables rules and clearing stale decisions
 from the Nginx cache.
 
-[XXX todo] banjax's predecessor never unblocked an IP after it triggered a rule (it would stay in effect
-until ATS restarted). We probably want to add an explicit time limit somewhere (per rule or global?). Also, note
-to self to be careful here: when I delete a regex-triggered Decision, it should probably restore any Decision
-that might have been loaded from the config file.
+Regex-triggered decisions are stored in the expiring decision list with a TTL controlled by
+`expiring_decision_ttl_seconds`. After the TTL expires, the decision is removed and any static
+decision from the config file takes effect again.
