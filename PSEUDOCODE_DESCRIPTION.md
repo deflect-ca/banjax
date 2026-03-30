@@ -1,7 +1,8 @@
 ### The `auth_request` endpoint that Nginx talks to
 
 Nginx `proxy_pass`es to banjax, which makes a decision (Allow, Challenge, NginxBlock, or IptablesBlock)
-based on the requested host and the client IP. In pseudocode, banjax's decision-making works like this:
+based on the requested host, the client IP, and the client User-Agent. In pseudocode, banjax's
+decision-making works like this:
 
 ```python
 if has_valid_password_cookie():
@@ -21,7 +22,18 @@ if decision == Challenge:
 if decision in [NginxBlock, IptablesBlock]:
     return access_denied()
 
+decision = per_site_user_agent_decision_lists[requested_host][client_user_agent]
+if decision == Allow:
+    return access_granted()
+if decision == Challenge:
+    return send_or_validate_challenge()
+if decision in [NginxBlock, IptablesBlock]:
+    return access_denied()
+
 decision = global_decision_lists[client_ip]
+# [...] same as above
+
+decision = global_user_agent_decision_lists[client_user_agent]
 # [...] same as above
 
 decision = expiring_decision_lists[client_ip]
@@ -51,11 +63,17 @@ if sitewide_sha_inv_list[requested_host]:
 return access_granted()
 ```
 
-The decision lists are populated from:
+The IP-based decision lists are populated from:
   * the config file, which is read at startup and reloaded on SIGHUP. See `per_site_decision_lists`
     and `global_decision_lists`. This is useful for allowlisting or blocklisting known good or bad IPs.
   * the regex-based rate-limiting rules explained in more detail below.
   * commands received over the Kafka connection. This is how Baskerville communicates with banjax.
+
+The User-Agent decision lists (`per_site_user_agent_decision_lists` and `global_user_agent_decision_lists`)
+are static, loaded from the config file only. Each entry is either a plain substring match or a regex
+pattern (detected automatically by the presence of regex metacharacters). Patterns are pre-compiled at
+config load time. Decision severity order is IptablesBlock → NginxBlock → Challenge → Allow; the first
+matching pattern wins.
 
 `access_granted()` returns a response with a header: `X-Accel-Redirect: @access_granted` which instructs
 Nginx to perform an internal redirect to the location block named `@access_granted`. That block should
