@@ -147,3 +147,20 @@ dnet: dnext1
 dnet_to_partition:
   dnext1: 0
   dnext2: 1
+
+per_site_user_agent_decision_lists:
+  "localhost":
+    nginx_block:
+      - "AhrefsBot"
+    challenge:
+      - "Macintosh.*Firefox/\\d+"
+    allow:
+      - "Googlebot"
+
+global_user_agent_decision_lists:
+  nginx_block:
+    - "SemrushBot"
+  challenge:
+    - ".*Firefox/\\d+"
+  allow:
+    - "Googlebot"
