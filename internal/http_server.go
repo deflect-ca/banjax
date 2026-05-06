@@ -51,7 +51,7 @@ func RunHttpServer(
 	}
 
 	if ginLogFileName != "" && ginLogFileName != "-" {
-		if ginLogFile, err := os.Create(ginLogFileName); err == nil {
+		if ginLogFile, err := os.OpenFile(ginLogFileName, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644); err == nil {
 			gin.DefaultWriter = ginLogFile
 		}
 	}
