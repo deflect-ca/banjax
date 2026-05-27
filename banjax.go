@@ -248,7 +248,7 @@ func reportMetrics(
 		return
 	}
 
-	logFile, err := os.Create(logFileName)
+	logFile, err := os.OpenFile(logFileName, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		log.Println("failed to create metrics log file:", err)
 		return
