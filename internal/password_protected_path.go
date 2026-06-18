@@ -59,14 +59,22 @@ func (p *PasswordProtectedPaths) GetExpandCookieDomain(site string) (bool, bool)
 }
 
 func (p *PasswordProtectedPaths) IsException(site string, path string) bool {
-	content := p.content.Load()
+	return p.content.Load().isException(site, path)
+}
 
-	exceptions, hasExceptions := content.siteToExceptionToBool[site]
-	if hasExceptions && exceptions[path] {
-		return true
-	} else {
+// isException reports whether path falls under any configured exception for the
+// site, matching by prefix (consistent with how protected paths are matched).
+func (c *content) isException(site string, path string) bool {
+	exceptions, hasExceptions := c.siteToExceptionToBool[site]
+	if !hasExceptions {
 		return false
 	}
+	for exception, boolFlag := range exceptions {
+		if boolFlag && strings.HasPrefix(path, exception) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *PasswordProtectedPaths) ClassifyPath(site string, path string) PathType {
@@ -74,15 +82,13 @@ func (p *PasswordProtectedPaths) ClassifyPath(site string, path string) PathType
 
 	pathToBools, ok := content.siteToPathToBool[site]
 	if ok {
-		exceptions, hasExceptions := content.siteToExceptionToBool[site]
-		if !hasExceptions || !exceptions[path] {
-			for protectedPath, boolFlag := range pathToBools {
-				if boolFlag && strings.HasPrefix(path, protectedPath) {
-					return PasswordProtected
-				}
-			}
-		} else {
+		if content.isException(site, path) {
 			return PasswordProtectedException
+		}
+		for protectedPath, boolFlag := range pathToBools {
+			if boolFlag && strings.HasPrefix(path, protectedPath) {
+				return PasswordProtected
+			}
 		}
 	}
 
