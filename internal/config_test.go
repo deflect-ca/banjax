@@ -25,6 +25,7 @@ password_protected_paths:
 password_protected_path_exceptions:
   "localhost:8081":
     - wp-admin/admin-ajax.php
+    - wp-json
   "localhost":
     - app/admin/no-ban.php
 password_hashes:
@@ -43,6 +44,12 @@ func TestPasswordProtectedPaths(t *testing.T) {
 	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost:8081", "/wp-admin/admin-ajax.php"))
 	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost", "/app/admin/no-ban.php"))
 	assert.Equal(t, NotPasswordProtected, ppp.ClassifyPath("localhost", "/foo"))
+
+	// exceptions match by prefix: /wp-json exempts /wp-json and any sub-path
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost:8081", "/wp-json"))
+	assert.Equal(t, PasswordProtectedException, ppp.ClassifyPath("localhost:8081", "/wp-json/some/path"))
+	assert.True(t, ppp.IsException("localhost:8081", "/wp-json/some/path"))
+	assert.False(t, ppp.IsException("localhost:8081", "/not-an-exception"))
 }
 
 const regexWithRateString = `

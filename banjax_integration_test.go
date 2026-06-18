@@ -134,6 +134,12 @@ func TestProtectedResources(t *testing.T) {
 		{"GET", prefix + "/wp-admin/admin-ajax.php?a=1&b=2", 200, randomXClientIP(), nil},
 		{"GET", prefix + "/wp-admin/admin-ajax.php#test", 200, randomXClientIP(), nil},
 		{"GET", prefix + "wp-admin/admin-ajax.php/", 200, randomXClientIP(), nil},
+		// prefix exception: wp-admin/json exempts the path itself and any sub-path
+		{"GET", prefix + "wp-admin/json", 200, randomXClientIP(), nil},
+		{"GET", prefix + "wp-admin/json/some/path", 200, randomXClientIP(), nil},
+		{"GET", prefix + "/wp-admin/json/some/path?a=1", 200, randomXClientIP(), nil},
+		// a sibling sub-path that is not under the exception prefix stays protected
+		{"GET", prefix + "wp-admin/other", 401, randomXClientIP(), nil},
 	})
 
 	/*
