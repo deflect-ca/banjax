@@ -157,5 +157,9 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
+	if config.DecisionLogThrottleEnabled && config.DecisionLogThrottleIntervalSeconds <= 0 {
+		config.DecisionLogThrottleIntervalSeconds = 60
+	}
+
 	return config, nil
 }

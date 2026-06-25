@@ -956,6 +956,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
+			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ip_list", decision)
 			accessDenied(c, config, DecisionListResultToString[PerSiteBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("block from per-site lists")
 			decisionForNginxResult.DecisionListResult = PerSiteBlock
@@ -984,6 +985,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
+			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ua_list", uaDecision)
 			accessDenied(c, config, DecisionListResultToString[PerSiteUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			decisionForNginxResult.DecisionListResult = PerSiteUABlock
 			return
@@ -1013,6 +1015,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
+			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ip_list", decision)
 			accessDenied(c, config, DecisionListResultToString[GlobalBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access denied from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalBlock
@@ -1041,6 +1044,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
+			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ua_list", uaDecisionGlobal)
 			accessDenied(c, config, DecisionListResultToString[GlobalUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 			decisionForNginxResult.DecisionListResult = GlobalUABlock
 			return
@@ -1091,6 +1095,11 @@ func decisionForNginx2(
 			if expiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)
 			} else {
+				// only log baskerville-origin blocks; regex-origin blocks were
+				// already logged by LogRegexBan when they were banned
+				if expiringDecision.fromBaskerville {
+					banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "baskerville", expiringDecision.Decision)
+				}
 				accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 				// log.Println("access denied from expiring lists")
 				decisionForNginxResult.DecisionListResult = ExpiringBlock

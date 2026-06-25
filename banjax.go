@@ -137,10 +137,14 @@ func main() {
 	defer banningLogFile.Close()
 	defer banningLogFileTemp.Close()
 
+	banningLogger := log.New(banningLogFile, "", 0)
+	banningLoggerTemp := log.New(banningLogFileTemp, "", 0)
 	banner := internal.Banner{
 		DecisionLists: dynamicDecisionLists,
-		Logger:        log.New(banningLogFile, "", 0),
-		LoggerTemp:    log.New(banningLogFileTemp, "", 0),
+		Logger:        banningLogger,
+		LoggerTemp:    banningLoggerTemp,
+		AsyncLogger:   internal.NewAsyncBanLogger(banningLogger, banningLoggerTemp, 4096),
+		LogThrottle:   internal.NewLogThrottleStates(configHolder),
 		IPSetInstance: init_ipset(config),
 	}
 

@@ -62,26 +62,30 @@ type Config struct {
 	HmacSecret                             string `yaml:"hmac_secret"`
 	// Path to the file to write gin (http server) log to. Use "-" to log to the stdout or empty
 	// string to disable logging.
-	GinLogFile                  string              `yaml:"gin_log_file"`
-	SitewideShaInvList          map[string]string   `yaml:"sitewide_sha_inv_list"`
-	MetricsLogFileName          string              `yaml:"metrics_log_file"`
-	ShaInvChallengeHTML         string              `yaml:"sha_inv_challenge_html"`
-	PasswordProtectedPathHTML   string              `yaml:"password_protected_path_html"`
-	Debug                       bool                `yaml:"debug"`
-	Profile                     bool                `yaml:"profile"`
-	DisableLogging              map[string]bool     `yaml:"disable_logging"`
-	BanningLogFileTemp          string              `yaml:"banning_log_file_temp"`
-	DisableKafka                bool                `yaml:"disable_kafka"`
-	DisableKafkaWriter          bool                `yaml:"disable_kafka_writer"`
-	SessionCookieHmacSecret     string              `yaml:"session_cookie_hmac_secret"`
-	SessionCookieTtlSeconds     int                 `yaml:"session_cookie_ttl_seconds"`
-	SessionCookieNotVerify      bool                `yaml:"session_cookie_not_verify"`
-	SitesToDisableBaskerville   map[string]bool     `yaml:"sites_to_disable_baskerville"`
-	SitesToShaInvPathExceptions map[string][]string `yaml:"sha_inv_path_exceptions"`
-	DNet                        string              `yaml:"dnet"`
-	DNetToPartition             map[string]int      `yaml:"dnet_to_partition"`
+	GinLogFile                    string                         `yaml:"gin_log_file"`
+	SitewideShaInvList            map[string]string              `yaml:"sitewide_sha_inv_list"`
+	MetricsLogFileName            string                         `yaml:"metrics_log_file"`
+	ShaInvChallengeHTML           string                         `yaml:"sha_inv_challenge_html"`
+	PasswordProtectedPathHTML     string                         `yaml:"password_protected_path_html"`
+	Debug                         bool                           `yaml:"debug"`
+	Profile                       bool                           `yaml:"profile"`
+	DisableLogging                map[string]bool                `yaml:"disable_logging"`
+	BanningLogFileTemp            string                         `yaml:"banning_log_file_temp"`
+	DisableKafka                  bool                           `yaml:"disable_kafka"`
+	DisableKafkaWriter            bool                           `yaml:"disable_kafka_writer"`
+	SessionCookieHmacSecret       string                         `yaml:"session_cookie_hmac_secret"`
+	SessionCookieTtlSeconds       int                            `yaml:"session_cookie_ttl_seconds"`
+	SessionCookieNotVerify        bool                           `yaml:"session_cookie_not_verify"`
+	SitesToDisableBaskerville     map[string]bool                `yaml:"sites_to_disable_baskerville"`
+	SitesToShaInvPathExceptions   map[string][]string            `yaml:"sha_inv_path_exceptions"`
+	DNet                          string                         `yaml:"dnet"`
+	DNetToPartition               map[string]int                 `yaml:"dnet_to_partition"`
 	PerSiteUserAgentDecisionLists map[string]map[string][]string `yaml:"per_site_user_agent_decision_lists"`
 	GlobalUserAgentDecisionLists  map[string][]string            `yaml:"global_user_agent_decision_lists"`
+	// When enabled, a given client (ip+host+trigger) is written to the banning log at
+	// most once per DecisionLogThrottleIntervalSeconds for static/expiring list block hits.
+	DecisionLogThrottleEnabled         bool `yaml:"decision_log_throttle_enabled"`
+	DecisionLogThrottleIntervalSeconds int  `yaml:"decision_log_throttle_interval_seconds"`
 }
 
 type RegexWithRate struct {
