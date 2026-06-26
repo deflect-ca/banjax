@@ -119,6 +119,8 @@ type BannerInterface interface {
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
+	LogListDecision(config *Config, ip string, userAgent string, host string, path string, method string,
+		trigger string, decision Decision)
 	IPSetAdd(config *Config, ip string) error
 	IPSetTest(config *Config, ip string) bool
 	IPSetList() (*ipset.Info, error)
@@ -129,6 +131,8 @@ type Banner struct {
 	DecisionLists *DynamicDecisionLists
 	Logger        *log.Logger
 	LoggerTemp    *log.Logger
+	AsyncLogger   *AsyncBanLogger
+	LogThrottle   *LogThrottleStates
 	IPSetInstance ipset.IPSet
 }
 
@@ -262,6 +266,79 @@ func (b Banner) LogFailedChallengeBan(
 	bytesJson, _ := json.Marshal(logObj)
 
 	if disableLogging == 1 {
+		// we still log it to file, but this will be treated differently
+		// in filebeat to different ES index, and later deleted
+		b.LoggerTemp.Println(string(bytesJson))
+	} else {
+		b.Logger.Println(string(bytesJson))
+	}
+}
+
+// LogListDecision logs a block decision coming from a static decision list
+// (per-site / global, IP or User-Agent) or from a Baskerville expiring-list hit.
+// Only NginxBlock / IptablesBlock decisions should be logged here; Allow and
+// Challenge are not banning events. Unlike LogRegexBan / LogFailedChallengeBan
+// (which fire once when a ban is created), this fires on every matching request.
+func (b Banner) LogListDecision(
+	config *Config,
+	ip string,
+	userAgent string,
+	host string,
+	path string,
+	method string,
+	trigger string, // e.g. "per_site_ip_list", "per_site_ua_list", "global_ip_list", "global_ua_list", "baskerville"
+	decision Decision,
+) {
+	// Optional throttle: log a given client (ip+host+trigger) at most once per interval.
+	// Because this fires on every blocked request, an unthrottled repeat offender would
+	// produce one line per request.
+	throttleKey := ""
+	if config.DecisionLogThrottleEnabled && b.LogThrottle != nil {
+		interval := time.Duration(config.DecisionLogThrottleIntervalSeconds) * time.Second
+		if interval <= 0 {
+			interval = time.Minute
+		}
+		throttleKey = ip + "|" + host + "|" + trigger
+		if !b.LogThrottle.ShouldLog(throttleKey, interval, time.Now()) {
+			return
+		}
+	}
+
+	timeString := time.Now().Format("2006-01-02T15:04:05")
+
+	disableLogging := 0
+	if val, ok := config.DisableLogging[host]; ok && val {
+		disableLogging = 1
+	}
+
+	logObj := LogJson{
+		path,
+		timeString,
+		trigger, // trigger
+		userAgent,
+		ip,
+		"decision_rendered", // rule_type
+		method,
+		"https", // XXX nginx did not tell in log (same as existing funcs)
+		host,
+		fmt.Sprintf("%s", decision),
+		0, // number_of_fails: not applicable for list hits
+		disableLogging,
+	}
+	bytesJson, _ := json.Marshal(logObj)
+
+	// Write asynchronously to keep the disk write off nginx's auth_request critical
+	// path. Falls back to a synchronous write when no async logger is configured
+	// (e.g. Banner constructed directly in tests).
+	if b.AsyncLogger != nil {
+		// If the async queue is full the line is dropped to protect the hot path. When
+		// that happens, release the throttle reservation taken above so a later request
+		// for this client can be logged instead of being suppressed for the whole
+		// interval over a line that never landed.
+		if !b.AsyncLogger.Enqueue(string(bytesJson), disableLogging == 1) && throttleKey != "" {
+			b.LogThrottle.Release(throttleKey)
+		}
+	} else if disableLogging == 1 {
 		// we still log it to file, but this will be treated differently
 		// in filebeat to different ES index, and later deleted
 		b.LoggerTemp.Println(string(bytesJson))

@@ -58,6 +58,18 @@ func (mb *MockBanner) LogRegexBan(
 	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
 }
 
+func (mb *MockBanner) LogListDecision(
+	config *Config,
+	ip string,
+	userAgent string,
+	host string,
+	path string,
+	method string,
+	trigger string,
+	decision Decision,
+) {
+}
+
 func (mb *MockBanner) IPSetAdd(config *Config, ip string) error {
 	return nil
 }
