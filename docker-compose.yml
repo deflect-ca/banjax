@@ -34,3 +34,17 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+
+  # Local-only test runner for POST/PUT/DELETE handling. The "tools" profile
+  # keeps it out of `docker compose up`; run it on demand with
+  #   docker compose run --rm local-tester
+  local-tester:
+    profiles:
+      - tools
+    image: local-tester
+    build:
+      context: ./supporting-containers/local-tester
+      dockerfile: Dockerfile
+    depends_on:
+      - nginx
+      - test-origin
