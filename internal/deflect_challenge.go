@@ -192,7 +192,7 @@ func (k *DeflectChallengeKeys) UpdateFromConfig(config *Config) error {
 		key, ok := known[domain]
 		if !ok {
 			var err error
-			key, err = k.loadOrGenerateKey(domain)
+			key, err = k.loadOrGenerateKey(domain, config.DeflectChallengeGenerateMissingKeys)
 			if err != nil {
 				log.Printf("DEFLECT-CHALLENGE: no key for %q: %v", domain, err)
 				continue
@@ -291,7 +291,10 @@ func (k *DeflectChallengeKeys) keyPath(domain string) string {
 // loadOrGenerateKey prefers whatever is already on disk. Generating a fresh key
 // for a domain that already has one would invalidate the public key that was
 // handed to clients out of band, so a readable existing file always wins.
-func (k *DeflectChallengeKeys) loadOrGenerateKey(domain string) (*DeflectChallengeKey, error) {
+//
+// generateMissing comes from deflect_challenge_generate_missing_keys and is off
+// in production, where a provisioning script writes the key files.
+func (k *DeflectChallengeKeys) loadOrGenerateKey(domain string, generateMissing bool) (*DeflectChallengeKey, error) {
 	key, err := k.loadKey(domain)
 	if err == nil {
 		log.Printf("DEFLECT-CHALLENGE: loaded ed25519 key for %v key_id=%v", domain, key.KeyID)
@@ -301,6 +304,16 @@ func (k *DeflectChallengeKeys) loadOrGenerateKey(domain string) (*DeflectChallen
 		// A corrupt or unreadable file is not a licence to overwrite it: that
 		// would destroy the only copy of a key clients may still be using.
 		return nil, fmt.Errorf("existing key file is unusable (not overwriting): %w", err)
+	}
+
+	if !generateMissing {
+		// Minting one here would produce a key whose public half nobody holds,
+		// so every client would fail to verify -- a symptom indistinguishable
+		// from the compromised edge this feature exists to detect. Better to
+		// serve nothing for this domain and say why.
+		return nil, fmt.Errorf(
+			"no key file at %v and deflect_challenge_generate_missing_keys is off; "+
+				"the provisioning script should have written one", k.keyPath(domain))
 	}
 
 	key, err = k.generateKey(domain)

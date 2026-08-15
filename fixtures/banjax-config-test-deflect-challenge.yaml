@@ -30,3 +30,5 @@ deflect_challenge_sites:
 # ./tmp is already gitignored.
 deflect_challenge_key_dir: ./tmp/deflect-challenge-test-keys
 deflect_challenge_max_length: 512
+# The test has no provisioning script, so let banjax mint the key itself.
+deflect_challenge_generate_missing_keys: true

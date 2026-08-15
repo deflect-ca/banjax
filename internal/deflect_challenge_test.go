@@ -27,6 +27,10 @@ func testDeflectChallengeConfig(t *testing.T, sites map[string]bool) *Config {
 		SitesToDeflectChallenge:   sites,
 		DeflectChallengeKeyDir:    t.TempDir(),
 		DeflectChallengeMaxLength: defaultDeflectChallengeMaxLength,
+		// Most tests have no provisioning script standing in, so they mint their
+		// own keys. TestDeflectChallengeGenerateMissingKeys covers the
+		// production setting, where this is off.
+		DeflectChallengeGenerateMissingKeys: true,
 	}
 }
 
@@ -199,6 +203,69 @@ func TestDeflectChallengeDomainsAreIndependent(t *testing.T) {
 	if ed25519.Verify(b.Public, DeflectChallengeMessage("b.example", "nonce"), signature) {
 		t.Error("a signature for one domain verified as another")
 	}
+}
+
+// TestDeflectChallengeGenerateMissingKeys covers the production setting, where
+// keys are written by a provisioning script and banjax must never invent one.
+func TestDeflectChallengeGenerateMissingKeys(t *testing.T) {
+	t.Run("off: a missing key is not generated", func(t *testing.T) {
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		config.DeflectChallengeGenerateMissingKeys = false
+
+		keys := newTestDeflectChallengeKeys(t, config)
+
+		if _, ok := keys.Get("example.com"); ok {
+			t.Error("a key was generated with generation disabled")
+		}
+		entries, err := os.ReadDir(config.DeflectChallengeKeyDir)
+		if err != nil {
+			t.Fatalf("ReadDir: %v", err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("generation disabled still wrote %d files", len(entries))
+		}
+	})
+
+	t.Run("off: a provisioned key is still loaded", func(t *testing.T) {
+		// The provisioning script's job, stood in for by generating once with
+		// the flag on and then reloading with it off.
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		provisioned := newTestDeflectChallengeKeys(t, config)
+		provisionedKey, ok := provisioned.Get("example.com")
+		if !ok {
+			t.Fatal("setup failed to write a key")
+		}
+
+		config.DeflectChallengeGenerateMissingKeys = false
+		keys := newTestDeflectChallengeKeys(t, config)
+
+		loaded, ok := keys.Get("example.com")
+		if !ok {
+			t.Fatal("a provisioned key was not loaded with generation disabled")
+		}
+		if loaded.KeyID != provisionedKey.KeyID {
+			t.Errorf("key id = %q, want the provisioned %q", loaded.KeyID, provisionedKey.KeyID)
+		}
+	})
+
+	t.Run("off: one missing key does not stop the others", func(t *testing.T) {
+		config := testDeflectChallengeConfig(t, map[string]bool{"provisioned.example": true})
+		newTestDeflectChallengeKeys(t, config)
+
+		config.SitesToDeflectChallenge = map[string]bool{
+			"provisioned.example": true,
+			"forgotten.example":   true,
+		}
+		config.DeflectChallengeGenerateMissingKeys = false
+		keys := newTestDeflectChallengeKeys(t, config)
+
+		if _, ok := keys.Get("provisioned.example"); !ok {
+			t.Error("a domain with a key stopped working because another lacked one")
+		}
+		if _, ok := keys.Get("forgotten.example"); ok {
+			t.Error("a domain with no key file should not answer")
+		}
+	})
 }
 
 func TestDeflectChallengeRefusesUnsafeDomains(t *testing.T) {
