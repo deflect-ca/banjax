@@ -13,7 +13,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -46,6 +48,10 @@ const (
 	deflectChallengeKeyFileVersion = 1
 	deflectChallengeKeyDirMode     = 0o700
 	deflectChallengeKeyFileMode    = 0o600
+
+	// Keys are JSON: banjax writes it, and a provisioning script can emit it
+	// with nothing but a CSPRNG and a JSON encoder.
+	deflectChallengeKeyExt = "json"
 )
 
 // DeflectChallengeMessage is the exact byte string signed by the edge and
@@ -95,16 +101,23 @@ type DeflectChallengePublicKey struct {
 	CreatedAt string `json:"created_at"`
 }
 
-// deflectChallengeKeyFile is the on-disk form. Only the 32-byte seed is stored;
-// the expanded private key is derived on load.
+// deflectChallengeKeyFile is banjax's on-disk key format. Only the 32-byte seed
+// is stored; the private key is expanded and the public key and key ID derived
+// from it on load.
+//
+// A provisioning script needs to supply only version, algorithm, domain and
+// seed. public_key, key_id and created_at are conveniences for whoever reads the
+// file: banjax verifies them if present and derives them if not, so a generator
+// with no Ed25519 implementation available can omit them.
 type deflectChallengeKeyFile struct {
 	Version   int    `json:"version"`
 	Algorithm string `json:"algorithm"`
 	Domain    string `json:"domain"`
-	KeyID     string `json:"key_id"`
-	PublicKey string `json:"public_key"` // base64 of the 32 raw bytes
-	Seed      string `json:"seed"`       // base64 of the 32 raw seed bytes
-	CreatedAt string `json:"created_at"`
+	Seed      string `json:"seed"` // base64 of the 32 raw seed bytes
+
+	KeyID     string `json:"key_id,omitempty"`
+	PublicKey string `json:"public_key,omitempty"` // base64 of the 32 raw bytes
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 // DeflectChallengeKeys holds one Ed25519 keypair per domain that has the feature
@@ -285,7 +298,7 @@ func validateDeflectChallengeDomain(domain string) error {
 // only substitution needed is the colon in a "host:port" domain, which is legal
 // on Linux but awkward everywhere else.
 func (k *DeflectChallengeKeys) keyPath(domain string) string {
-	return filepath.Join(k.dir, strings.ReplaceAll(domain, ":", "_")+".json")
+	return filepath.Join(k.dir, strings.ReplaceAll(domain, ":", "_")+"."+deflectChallengeKeyExt)
 }
 
 // loadOrGenerateKey prefers whatever is already on disk. Generating a fresh key
@@ -300,7 +313,7 @@ func (k *DeflectChallengeKeys) loadOrGenerateKey(domain string, generateMissing 
 		log.Printf("DEFLECT-CHALLENGE: loaded ed25519 key for %v key_id=%v", domain, key.KeyID)
 		return key, nil
 	}
-	if !os.IsNotExist(err) {
+	if !errors.Is(err, fs.ErrNotExist) {
 		// A corrupt or unreadable file is not a licence to overwrite it: that
 		// would destroy the only copy of a key clients may still be using.
 		return nil, fmt.Errorf("existing key file is unusable (not overwriting): %w", err)
@@ -325,12 +338,16 @@ func (k *DeflectChallengeKeys) loadOrGenerateKey(domain string, generateMissing 
 	return key, nil
 }
 
+// loadKey reads a domain's key file. The 32-byte seed in it is the source of
+// truth; everything else is either a cross-check or metadata.
 func (k *DeflectChallengeKeys) loadKey(domain string) (*DeflectChallengeKey, error) {
 	path := k.keyPath(domain)
 
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err // may be os.IsNotExist, which the caller checks for
+		// The caller distinguishes "nothing provisioned yet" from "provisioned
+		// but broken", so this must stay recognisable as a not-exist error.
+		return nil, err
 	}
 
 	var onDisk deflectChallengeKeyFile
@@ -339,11 +356,15 @@ func (k *DeflectChallengeKeys) loadKey(domain string) (*DeflectChallengeKey, err
 	}
 
 	if onDisk.Version != deflectChallengeKeyFileVersion {
-		return nil, fmt.Errorf("%v has unsupported version %d", path, onDisk.Version)
+		return nil, fmt.Errorf("%v has unsupported version %d, want %d",
+			path, onDisk.Version, deflectChallengeKeyFileVersion)
 	}
 	if onDisk.Algorithm != DeflectChallengeAlgorithm {
-		return nil, fmt.Errorf("%v has unsupported algorithm %q", path, onDisk.Algorithm)
+		return nil, fmt.Errorf("%v has unsupported algorithm %q, want %q",
+			path, onDisk.Algorithm, DeflectChallengeAlgorithm)
 	}
+	// This is what catches a key file copied or renamed onto another domain,
+	// which would otherwise silently give two domains one keypair.
 	if onDisk.Domain != domain {
 		return nil, fmt.Errorf("%v holds a key for %q, not %q", path, onDisk.Domain, domain)
 	}
@@ -359,34 +380,47 @@ func (k *DeflectChallengeKeys) loadKey(domain string) (*DeflectChallengeKey, err
 	private := ed25519.NewKeyFromSeed(seed)
 	public := private.Public().(ed25519.PublicKey)
 
-	// The stored public key and key ID are conveniences for anyone reading the
-	// file; the seed is the source of truth. Disagreement means the file was
-	// edited by hand, so refuse it rather than serve a key ID that does not
-	// match the signatures we would produce.
-	if base64.StdEncoding.EncodeToString(public) != onDisk.PublicKey {
+	// public_key and key_id are optional: both are derivable from the seed, so a
+	// generator with no Ed25519 implementation to hand can leave them out. When
+	// present they are verified, since disagreement means the file was edited by
+	// hand and whichever half is stale would mislead whoever reads it.
+	if onDisk.PublicKey != "" && onDisk.PublicKey != base64.StdEncoding.EncodeToString(public) {
 		return nil, fmt.Errorf("%v public_key does not match its seed", path)
 	}
-	if keyID := DeflectChallengeKeyID(public); keyID != onDisk.KeyID {
+	if onDisk.KeyID != "" && onDisk.KeyID != DeflectChallengeKeyID(public) {
 		return nil, fmt.Errorf("%v key_id does not match its public key", path)
 	}
 
-	createdAt, err := time.Parse(time.RFC3339, onDisk.CreatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("%v has an unparseable created_at: %w", path, err)
+	// Also optional: fall back to the file's own timestamp.
+	createdAt := time.Time{}
+	if onDisk.CreatedAt != "" {
+		createdAt, err = time.Parse(time.RFC3339, onDisk.CreatedAt)
+		if err != nil {
+			return nil, fmt.Errorf("%v has an unparseable created_at: %w", path, err)
+		}
+	} else if info, err := os.Stat(path); err == nil {
+		createdAt = info.ModTime().UTC().Truncate(time.Second)
 	}
 
-	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o077 != 0 {
-		log.Printf("DEFLECT-CHALLENGE: %v is group/world readable (mode %v); private key is exposed",
-			path, info.Mode().Perm())
-	}
+	warnIfKeyFileIsReadable(path)
 
 	return &DeflectChallengeKey{
-		Domain:    onDisk.Domain,
-		KeyID:     onDisk.KeyID,
+		Domain:    domain,
+		KeyID:     DeflectChallengeKeyID(public),
 		CreatedAt: createdAt,
 		Public:    public,
 		private:   private,
 	}, nil
+}
+
+// warnIfKeyFileIsReadable flags a key file a provisioning script left too open.
+// It is a warning, not a refusal: banjax's job is to serve traffic, and refusing
+// to load an otherwise valid key would take the domain down over a chmod.
+func warnIfKeyFileIsReadable(path string) {
+	if info, err := os.Stat(path); err == nil && info.Mode().Perm()&0o077 != 0 {
+		log.Printf("DEFLECT-CHALLENGE: %v is group/world readable (mode %v); private key is exposed",
+			path, info.Mode().Perm())
+	}
 }
 
 func (k *DeflectChallengeKeys) generateKey(domain string) (*DeflectChallengeKey, error) {
@@ -419,9 +453,9 @@ func (k *DeflectChallengeKeys) writeKey(key *DeflectChallengeKey) error {
 		Version:   deflectChallengeKeyFileVersion,
 		Algorithm: DeflectChallengeAlgorithm,
 		Domain:    key.Domain,
+		Seed:      base64.StdEncoding.EncodeToString(key.private.Seed()),
 		KeyID:     key.KeyID,
 		PublicKey: base64.StdEncoding.EncodeToString(key.Public),
-		Seed:      base64.StdEncoding.EncodeToString(key.private.Seed()),
 		CreatedAt: key.CreatedAt.Format(time.RFC3339),
 	}
 	contents, err := json.MarshalIndent(onDisk, "", "  ")

@@ -147,6 +147,70 @@ banjax inventing a key whose public half nobody holds: that key would fail every
 client's verification, which looks exactly like the compromised edge this feature
 is meant to detect.
 
+The key file is JSON, at `<deflect_challenge_key_dir>/<domain>.json`, mode 0600.
+For a domain like `localhost:8081` the colon becomes an underscore in the
+filename (`localhost_8081.json`).
+
+```json
+{
+  "version": 1,
+  "algorithm": "ed25519",
+  "domain": "example.com",
+  "seed": "<base64 of 32 random bytes>",
+  "key_id": "3f9a1c0b7e2d4a55",
+  "public_key": "<base64 of the 32 raw public bytes>",
+  "created_at": "2026-08-14T00:00:00Z"
+}
+```
+
+**Only `version`, `algorithm`, `domain` and `seed` are required.** The seed is
+the source of truth: the private key is expanded from it and the public key and
+key ID are derived, so `key_id`, `public_key` and `created_at` can be omitted. If
+present they are verified, since a stale copy would mislead whoever reads the
+file. That means a generator needs no Ed25519 implementation at all — 32 random
+bytes is a complete key:
+
+```python
+import base64, json, os, pathlib
+
+def provision(domain, key_dir="/etc/banjax/deflect_challenge_keys"):
+    path = pathlib.Path(key_dir) / (domain.replace(":", "_") + ".json")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # The seed is the whole key. banjax derives the rest on load.
+    key = {
+        "version": 1,
+        "algorithm": "ed25519",
+        "domain": domain,
+        "seed": base64.b64encode(os.urandom(32)).decode(),
+    }
+    # Write-then-chmod would leave the key briefly world readable.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(key, f, indent=2)
+```
+
+`O_EXCL` is deliberate: it refuses to clobber an existing key rather than
+silently invalidating a public key already handed out.
+
+To read the public half back out for a client, ask banjax (`/deflect_challenge/pubkey`
+above), or compute it from the seed with `cryptography`:
+
+```python
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
+
+seed = base64.b64decode(json.loads(path.read_text())["seed"])
+public = Ed25519PrivateKey.from_private_bytes(seed).public_key()
+print(base64.b64encode(public.public_bytes(
+    serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode())
+```
+
+A key file that is malformed, has the wrong `version` or `algorithm`, has a seed
+that is not 32 bytes, or **names a different domain than its filename** is
+refused and never overwritten. That last check is the one that catches a key file
+copied or renamed onto a second domain, which would otherwise silently give two
+domains one keypair.
+
 The private key stays out of `banjax-config.yaml` deliberately. The config holds
 a *path*, the way `kafka_ssl_key` already does, because the config is generated
 centrally, shipped to every edge, and dumped verbatim to the log when `debug` is

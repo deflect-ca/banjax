@@ -8,6 +8,7 @@ package internal
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -268,6 +269,168 @@ func TestDeflectChallengeGenerateMissingKeys(t *testing.T) {
 	})
 }
 
+// TestDeflectChallengeJSONKey covers the format banjax writes and a provisioning
+// script emits.
+func TestDeflectChallengeJSONKey(t *testing.T) {
+	// writeKeyJSON stands in for the provisioning script. The map form is
+	// deliberate: it can omit fields a Go struct would always render.
+	writeKeyJSON := func(t *testing.T, dir string, domain string, fields map[string]any) {
+		t.Helper()
+		contents, err := json.Marshal(fields)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		path := filepath.Join(dir, strings.ReplaceAll(domain, ":", "_")+".json")
+		if err := os.WriteFile(path, contents, deflectChallengeKeyFileMode); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+	}
+
+	t.Run("a seed alone is enough", func(t *testing.T) {
+		// The point of this case: a generator with no Ed25519 implementation can
+		// write 32 random bytes and stop. banjax derives the rest.
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		config.DeflectChallengeGenerateMissingKeys = false
+
+		seed := make([]byte, ed25519.SeedSize)
+		if _, err := rand.Read(seed); err != nil {
+			t.Fatalf("rand.Read: %v", err)
+		}
+		writeKeyJSON(t, config.DeflectChallengeKeyDir, "example.com", map[string]any{
+			"version":   1,
+			"algorithm": "ed25519",
+			"domain":    "example.com",
+			"seed":      base64.StdEncoding.EncodeToString(seed),
+		})
+
+		keys := newTestDeflectChallengeKeys(t, config)
+
+		key, ok := keys.Get("example.com")
+		if !ok {
+			t.Fatal("a seed-only key file was not loaded")
+		}
+		expected := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
+		if !key.Public.Equal(expected) {
+			t.Error("the derived public key is wrong")
+		}
+		if key.KeyID != DeflectChallengeKeyID(expected) {
+			t.Error("the derived key id is wrong")
+		}
+		// With no created_at in the file, the file's own mtime stands in.
+		if key.CreatedAt.IsZero() {
+			t.Error("created_at was not filled in from the file")
+		}
+
+		_, signature, err := keys.Sign("example.com", "a-nonce")
+		if err != nil {
+			t.Fatalf("Sign: %v", err)
+		}
+		if !ed25519.Verify(expected, DeflectChallengeMessage("example.com", "a-nonce"), signature) {
+			t.Error("a signature from a seed-only key does not verify")
+		}
+	})
+
+	t.Run("a key file for another domain is refused", func(t *testing.T) {
+		// This is the check the JSON format exists for: a file copied or renamed
+		// onto a second domain would otherwise give both domains one keypair.
+		config := testDeflectChallengeConfig(t, map[string]bool{"other.example": true})
+		config.DeflectChallengeGenerateMissingKeys = false
+
+		seed := make([]byte, ed25519.SeedSize)
+		if _, err := rand.Read(seed); err != nil {
+			t.Fatalf("rand.Read: %v", err)
+		}
+		writeKeyJSON(t, config.DeflectChallengeKeyDir, "other.example", map[string]any{
+			"version":   1,
+			"algorithm": "ed25519",
+			"domain":    "example.com", // the giveaway
+			"seed":      base64.StdEncoding.EncodeToString(seed),
+		})
+
+		keys := newTestDeflectChallengeKeys(t, config)
+		if _, ok := keys.Get("other.example"); ok {
+			t.Error("a key file naming a different domain was accepted")
+		}
+	})
+
+	t.Run("a mismatched public_key or key_id is refused", func(t *testing.T) {
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		config.DeflectChallengeGenerateMissingKeys = false
+
+		seed := make([]byte, ed25519.SeedSize)
+		if _, err := rand.Read(seed); err != nil {
+			t.Fatalf("rand.Read: %v", err)
+		}
+		base := map[string]any{
+			"version":   1,
+			"algorithm": "ed25519",
+			"domain":    "example.com",
+			"seed":      base64.StdEncoding.EncodeToString(seed),
+		}
+
+		for _, stale := range []string{"public_key", "key_id"} {
+			fields := map[string]any{}
+			for k, v := range base {
+				fields[k] = v
+			}
+			if stale == "public_key" {
+				fields["public_key"] = base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize))
+			} else {
+				fields["key_id"] = "0000000000000000"
+			}
+			writeKeyJSON(t, config.DeflectChallengeKeyDir, "example.com", fields)
+
+			keys := newTestDeflectChallengeKeys(t, config)
+			if _, ok := keys.Get("example.com"); ok {
+				t.Errorf("a stale %s was accepted", stale)
+			}
+		}
+	})
+
+	t.Run("bad version, algorithm and seed are refused", func(t *testing.T) {
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		config.DeflectChallengeGenerateMissingKeys = false
+
+		good := base64.StdEncoding.EncodeToString(make([]byte, ed25519.SeedSize))
+		for name, fields := range map[string]map[string]any{
+			"wrong version":   {"version": 2, "algorithm": "ed25519", "domain": "example.com", "seed": good},
+			"wrong algorithm": {"version": 1, "algorithm": "rsa", "domain": "example.com", "seed": good},
+			"short seed":      {"version": 1, "algorithm": "ed25519", "domain": "example.com", "seed": "AAAA"},
+			"undecodable seed": {"version": 1, "algorithm": "ed25519", "domain": "example.com",
+				"seed": "not base64!!"},
+		} {
+			writeKeyJSON(t, config.DeflectChallengeKeyDir, "example.com", fields)
+
+			keys := newTestDeflectChallengeKeys(t, config)
+			if _, ok := keys.Get("example.com"); ok {
+				t.Errorf("%s was accepted", name)
+			}
+		}
+	})
+
+	t.Run("a corrupt key file is refused and not overwritten", func(t *testing.T) {
+		config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+		path := filepath.Join(config.DeflectChallengeKeyDir, "example.com.json")
+		if err := os.WriteFile(path, []byte("{not json"), deflectChallengeKeyFileMode); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+
+		keys := newTestDeflectChallengeKeys(t, config)
+		if _, ok := keys.Get("example.com"); ok {
+			t.Error("a corrupt key file was accepted")
+		}
+
+		// Overwriting would destroy the only copy of a key clients may hold.
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("ReadFile: %v", err)
+		}
+		if string(contents) != "{not json" {
+			t.Error("a corrupt key file was overwritten")
+		}
+	})
+}
+
 func TestDeflectChallengeRefusesUnsafeDomains(t *testing.T) {
 	// A config typo must not be able to write outside the key directory.
 	unsafe := []string{"../escape", "a/b", "", "a..b", "domain with space"}
@@ -299,30 +462,6 @@ func (config *Config) deflectChallengeUpdate(t *testing.T) error {
 		enabled: map[string]*DeflectChallengeKey{},
 	})
 	return keys.UpdateFromConfig(config)
-}
-
-func TestDeflectChallengeCorruptKeyFileIsNotOverwritten(t *testing.T) {
-	config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
-	path := filepath.Join(config.DeflectChallengeKeyDir, "example.com.json")
-
-	if err := os.WriteFile(path, []byte("{not json"), deflectChallengeKeyFileMode); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	keys := newTestDeflectChallengeKeys(t, config)
-	if _, ok := keys.Get("example.com"); ok {
-		t.Error("a domain with a corrupt key file should not answer")
-	}
-
-	// Overwriting would destroy the only copy of a key clients may still hold,
-	// so a broken file has to be fixed by hand.
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if string(contents) != "{not json" {
-		t.Error("a corrupt key file was overwritten")
-	}
 }
 
 func TestValidateDeflectChallenge(t *testing.T) {
