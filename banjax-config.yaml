@@ -169,3 +169,19 @@ global_user_agent_decision_lists:
     - ".*Firefox/\\d+"
   allow:
     - "Googlebot"
+
+# Deflect Challenge. Domains listed here answer POST /_deflect/challenge with an
+# Ed25519 signature over the client's nonce, so a client holding the public key
+# can tell a real Deflect edge from a middlebox impersonating one. A keypair is
+# generated the first time a domain appears here (on start, or on SIGHUP).
+# Note sub.localhost is deliberately absent: challenge-client uses it to check
+# that a domain without the feature on gets a 404.
+deflect_challenge_sites:
+  "localhost": true
+  "www.localhost": true
+  "localhost:8081": true  # standalone-testing hits banjax directly, so $host has the port
+# docker-compose bind-mounts the repo at /opt/banjax and ./keys is already
+# gitignored, so keys survive an image rebuild and never get committed.
+# Production leaves this unset and gets /etc/banjax/deflect_challenge_keys.
+deflect_challenge_key_dir: /opt/banjax/keys/deflect-challenge
+deflect_challenge_max_length: 512

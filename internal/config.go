@@ -86,6 +86,13 @@ type Config struct {
 	// most once per DecisionLogThrottleIntervalSeconds for static/expiring list block hits.
 	DecisionLogThrottleEnabled         bool `yaml:"decision_log_throttle_enabled"`
 	DecisionLogThrottleIntervalSeconds int  `yaml:"decision_log_throttle_interval_seconds"`
+	// Deflect Challenge: domains that answer POST /_deflect/challenge with an
+	// Ed25519 signature over a client-chosen nonce, so a client can verify it is
+	// really connected to a Deflect edge. A keypair is generated the first time a
+	// domain appears here.
+	SitesToDeflectChallenge   map[string]bool `yaml:"deflect_challenge_sites"`
+	DeflectChallengeKeyDir    string          `yaml:"deflect_challenge_key_dir"`
+	DeflectChallengeMaxLength int             `yaml:"deflect_challenge_max_length"`
 }
 
 type RegexWithRate struct {
