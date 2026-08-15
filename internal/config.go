@@ -92,6 +92,13 @@ type Config struct {
 	// When a rule trips for such an ip, the ip gets a TooManyRequests (429, no challenge) on
 	// that site only, whatever the rule's own decision is.
 	SitesToRateLimitGlobalAllowlist map[string]bool `yaml:"sites_to_rate_limit_global_allowlist"`
+	// Deflect Challenge: domains that answer POST /_deflect/challenge with an
+	// Ed25519 signature over a client-chosen nonce, so a client can verify it is
+	// really connected to a Deflect edge. A keypair is generated the first time a
+	// domain appears here.
+	SitesToDeflectChallenge   map[string]bool `yaml:"deflect_challenge_sites"`
+	DeflectChallengeKeyDir    string          `yaml:"deflect_challenge_key_dir"`
+	DeflectChallengeMaxLength int             `yaml:"deflect_challenge_max_length"`
 }
 
 type RegexWithRate struct {

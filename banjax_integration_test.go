@@ -3,11 +3,18 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestMain(m *testing.M) {
@@ -465,5 +472,105 @@ func TestPerSiteUserAgentDecisionLists(t *testing.T) {
 		{"GET", prefix + "/ua_gptbot_override", 200, ClientIPAndUserAgent("8.8.8.8", "Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)"), nil},
 		// AhrefsBot from 8.8.8.8: global IP challenge fires before global UA block (per-site UA has no AhrefsBot rule)
 		{"GET", prefix + "/ua_ahref_challenged_ip", 429, ClientIPAndUserAgent("8.8.8.8", "Mozilla/5.0 (compatible; AhrefsBot/7.0)"), nil},
+	})
+}
+
+// TestDeflectChallenge exercises the proof-of-edge endpoint end to end: banjax
+// signs a client-chosen nonce, and the signature verifies under the public key
+// the admin endpoint hands out.
+//
+// In standalone-testing mode addOurXHeadersForTesting sets X-Requested-Host from
+// the request's Host, so the domain here is localhost:8081, which is what
+// fixtures/banjax-config-test-deflect-challenge.yaml enables.
+func TestDeflectChallenge(t *testing.T) {
+	defer reloadConfig(fixtureConfigTest, 1, t)
+
+	reloadConfig(fixtureConfigTestDeflectChallenge, 1, t)
+
+	client := &http.Client{}
+
+	// Fetch the public key the way an operator would hand it to a client.
+	resp := httpRequest(client, TestResource{"GET", "/deflect_challenge/pubkey?domain=localhost:8081", 200, nil, nil}, t)
+	if !assert.Equal(t, 200, resp.StatusCode, "could not fetch the public key") {
+		return
+	}
+	body, err := io.ReadAll(resp.Body)
+	assert.Nil(t, err)
+	resp.Body.Close()
+
+	var exported struct {
+		Domain    string `json:"domain"`
+		KeyID     string `json:"key_id"`
+		Algorithm string `json:"algorithm"`
+		PublicKey string `json:"public_key"`
+	}
+	assert.Nil(t, json.Unmarshal(body, &exported), "unparseable pubkey response: %s", body)
+	assert.Equal(t, "ed25519", exported.Algorithm)
+
+	publicKeyBytes, err := base64.StdEncoding.DecodeString(exported.PublicKey)
+	assert.Nil(t, err, "undecodable public key")
+	assert.Equal(t, ed25519.PublicKeySize, len(publicKeyBytes), "wrong public key size")
+	publicKey := ed25519.PublicKey(publicKeyBytes)
+
+	// The private key must never leave the edge.
+	assert.NotContains(t, strings.ToLower(string(body)), "seed")
+	assert.NotContains(t, strings.ToLower(string(body)), "private")
+
+	challenge := "integration-test-nonce-" + randomIP()
+
+	headers := randomXClientIP()
+	headers.Set("X-Deflect-Challenge", challenge)
+	resp = httpRequest(client, TestResource{"POST", "/deflect_challenge", 200, headers, nil}, t)
+	if !assert.Equal(t, 200, resp.StatusCode, "challenge was not signed") {
+		return
+	}
+	resp.Body.Close()
+
+	assert.Equal(t, exported.KeyID, resp.Header.Get("X-Deflect-Challenge-Key-ID"),
+		"the edge signed with a key other than the exported one")
+	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"),
+		"a signature must never be cached")
+
+	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Deflect-Challenge-Response"))
+	assert.Nil(t, err, "undecodable signature")
+
+	message := []byte("deflect-challenge-v1\nlocalhost:8081\n" + challenge)
+	assert.True(t, ed25519.Verify(publicKey, message, signature),
+		"the signature does not verify: this edge does not hold the domain's key")
+
+	// Negative cases. Without these, a verifier that always returned true would
+	// pass the assertion above.
+	assert.False(t, ed25519.Verify(publicKey, []byte("deflect-challenge-v1\nevil.example\n"+challenge), signature),
+		"a signature verified against the wrong domain")
+	assert.False(t, ed25519.Verify(publicKey, []byte("deflect-challenge-v1\nlocalhost:8081\nother-nonce"), signature),
+		"a signature verified against the wrong nonce")
+
+	tampered := make([]byte, len(signature))
+	copy(tampered, signature)
+	tampered[0] ^= 1
+	assert.False(t, ed25519.Verify(publicKey, message, tampered), "a tampered signature verified")
+
+	// A reload must not mint a new key: doing so would silently invalidate the
+	// public key already handed out to clients.
+	reloadConfig(fixtureConfigTestDeflectChallenge, 1, t)
+	resp = httpRequest(client, TestResource{"GET", "/deflect_challenge/pubkey?domain=localhost:8081", 200, nil, nil}, t)
+	body, err = io.ReadAll(resp.Body)
+	assert.Nil(t, err)
+	resp.Body.Close()
+	assert.Contains(t, string(body), exported.KeyID, "the key id changed across a config reload")
+
+	// Error paths, driven through the same table helper as the rest of the suite.
+	missingChallenge := randomXClientIP()
+	tooLong := randomXClientIP()
+	tooLong.Set("X-Deflect-Challenge", strings.Repeat("x", 513))
+	wrongMethod := randomXClientIP()
+	wrongMethod.Set("X-Deflect-Challenge", challenge)
+
+	httpTester(t, []TestResource{
+		{"POST", "/deflect_challenge", 400, missingChallenge, []string{"missing or empty"}},
+		{"POST", "/deflect_challenge", 400, tooLong, []string{"maximum"}},
+		{"GET", "/deflect_challenge", 405, wrongMethod, []string{"requires POST"}},
+		{"GET", "/deflect_challenge/pubkey?domain=not-enabled.example", 404, nil, []string{"not enabled"}},
+		{"GET", "/deflect_challenge/pubkey", 400, nil, []string{"domain query param is required"}},
 	})
 }
