@@ -1,0 +1,30 @@
+# GitLab CI translation of .github/workflows/test.yml
+# Runs on every push and merge request.
+
+default:
+  image: golang:1.25
+
+stages:
+  - test
+
+# Runs on both branch pushes and merge requests, matching GitHub's
+# `on: [push, pull_request]`.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+
+test:
+  stage: test
+  script:
+    - go test ./... -v
+
+integration-tests:
+  stage: test
+  script:
+    - go test -tags=integration
+
+performance-tests:
+  stage: test
+  script:
+    - go test -tags=performance -bench=.
