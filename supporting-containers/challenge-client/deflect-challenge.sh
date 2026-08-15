@@ -31,9 +31,23 @@ ADMIN_URL="${ADMIN_URL:-http://localhost}"
 ADMIN_HOST="${ADMIN_HOST:-banjax}"
 # Kept in sync with deflect_challenge_max_length in banjax-config.yaml.
 MAX_LENGTH="${MAX_LENGTH:-512}"
-FILTER="${1:-}"
+
+# The edge lowercases the host before signing, so the client has to match or the
+# reconstructed message will not be the one that was signed.
+EDGE_HOST=$(printf '%s' "$EDGE_HOST" | tr '[:upper:]' '[:lower:]')
 
 CONTEXT="deflect-challenge-v1"
+
+# TRANSCRIPT=0 drops the full exchange dump and prints only the result rows.
+TRANSCRIPT="${TRANSCRIPT:-1}"
+FILTER=""
+for arg in "$@"; do
+    case "$arg" in
+        -q|--quiet)   TRANSCRIPT=0 ;;
+        -v|--verbose) TRANSCRIPT=1 ;;
+        *)            FILTER="$arg" ;;
+    esac
+done
 
 if [ -t 1 ]; then
     BOLD=$(printf '\033[1m'); RED=$(printf '\033[31m')
@@ -93,17 +107,68 @@ challenge() {
     local args=(-sS -o "$WORK/body" -D "$WORK/headers" -w '%{http_code}'
                 -X POST --max-time 10 -H "Host: $host")
 
+    # Record what we send, so the transcript shows the real request rather than
+    # a hand-written approximation of it.
+    : > "$WORK/reqheaders"
+    printf 'POST %s/_deflect/challenge HTTP/1.1\n' "$EDGE_URL" >> "$WORK/reqheaders"
+    printf 'Host: %s\n' "$host" >> "$WORK/reqheaders"
+
     # An empty nonce means "send no challenge header at all", which is case 10.
     if [ -n "$nonce" ]; then
         args+=(-H "X-Deflect-Challenge: $nonce")
+        printf 'X-Deflect-Challenge: %s\n' "$nonce" >> "$WORK/reqheaders"
     fi
     if [ -n "$key_id" ]; then
         args+=(-H "X-Deflect-Challenge-Key-ID: $key_id")
+        printf 'X-Deflect-Challenge-Key-ID: %s\n' "$key_id" >> "$WORK/reqheaders"
     fi
 
     C_STATUS=$(curl "${args[@]}" "$EDGE_URL/_deflect/challenge" 2>/dev/null)
     C_SIG=$(header_value X-Deflect-Challenge-Response)
     C_KEY_ID=$(header_value X-Deflect-Challenge-Key-ID)
+}
+
+# transcript HOST NONCE - dump the exchange that just happened: what went out,
+# what came back, the body, and the exact bytes the signature covers.
+transcript() {
+    local host="$1" nonce="$2"
+    [ "$TRANSCRIPT" -eq 1 ] || return 0
+
+    printf '\n%s>> request%s %s(no body; the nonce rides in a header)%s\n' \
+        "$BOLD" "$RESET" "$DIM" "$RESET"
+    sed 's/^/  /' "$WORK/reqheaders"
+
+    printf '\n%s<< response head%s\n' "$BOLD" "$RESET"
+    # Strip the CRs curl leaves on, and drop the blank line that ends the block.
+    tr -d '\r' < "$WORK/headers" | sed '/^$/d' | sed 's/^/  /'
+
+    printf '\n%s<< response body%s\n' "$BOLD" "$RESET"
+    if jq . "$WORK/body" >/dev/null 2>&1; then
+        jq . "$WORK/body" | sed 's/^/  /'
+    else
+        sed 's/^/  /' "$WORK/body"; printf '\n'
+    fi
+
+    # The crux of the protocol: three fields joined by LF, no trailing newline.
+    printf 'deflect-challenge-v1\n%s\n%s' "$host" "$nonce" > "$WORK/shown.bin"
+
+    printf '\n%ssigned message%s %s(%s bytes, verbatim -- no trailing newline)%s\n' \
+        "$BOLD" "$RESET" "$DIM" "$(wc -c < "$WORK/shown.bin" | tr -d ' ')" "$RESET"
+    printf '  %s%s%s\n' "$YELLOW" "$CONTEXT" "$RESET"
+    printf '  %s\\n%s %s<- context label%s\n' "$DIM" "$RESET" "$DIM" "$RESET"
+    printf '  %s%s%s\n' "$GREEN" "$host" "$RESET"
+    printf '  %s\\n%s %s<- domain binding (lowercased)%s\n' "$DIM" "$RESET" "$DIM" "$RESET"
+    printf '  %s\n' "$nonce"
+    printf '  %s<- client nonce%s\n' "$DIM" "$RESET"
+
+    printf '\n%s  on the wire%s\n' "$DIM" "$RESET"
+    od -c "$WORK/shown.bin" | sed 's/^/  /'
+
+    printf '\n%ssignature%s %s(base64 of 64 raw bytes)%s\n' "$BOLD" "$RESET" "$DIM" "$RESET"
+    printf '  %s\n' "${C_SIG:-<none>}"
+    printf '\n%sverified with%s\n' "$BOLD" "$RESET"
+    printf '  %sopenssl pkeyutl -verify -pubin -inkey pub.der -keyform DER \\\n' "$DIM"
+    printf '                  -rawin -in msg.bin -sigfile sig.bin%s\n' "$RESET"
 }
 
 # header_value NAME - pull one header out of the last response, case
@@ -150,15 +215,28 @@ if [ ! -s "$WORK/pub.der" ]; then
     exit 2
 fi
 printf '  key_id %s, public key %s\n' "$EXPECT_KEY_ID" "$PUB_B64"
+if [ "$TRANSCRIPT" -eq 1 ]; then
+    printf '\n%s<< %s/deflect_challenge/pubkey?domain=%s%s\n' \
+        "$BOLD" "$ADMIN_URL" "$EDGE_HOST" "$RESET"
+    jq . "$WORK/pubkey.json" 2>/dev/null | sed 's/^/  /' || sed 's/^/  /' "$WORK/pubkey.json"
+fi
+
+# ---------------------------------------------------------------------------
+# One full exchange, shown end to end, then checked.
+# ---------------------------------------------------------------------------
+if [ "$TRANSCRIPT" -eq 1 ]; then
+    printf '\n%sthe exchange%s\n' "$BOLD" "$RESET"
+fi
+
+NONCE_A=$(nonce)
+challenge "$EDGE_HOST" "$NONCE_A"
+printf '%s' "$C_SIG" | base64 -d > "$WORK/sig_a.bin" 2>/dev/null
+transcript "$EDGE_HOST" "$NONCE_A"
 
 # ---------------------------------------------------------------------------
 # Positive cases.
 # ---------------------------------------------------------------------------
 printf '\n%sis this edge really Deflect?%s\n' "$BOLD" "$RESET"
-
-NONCE_A=$(nonce)
-challenge "$EDGE_HOST" "$NONCE_A"
-printf '%s' "$C_SIG" | base64 -d > "$WORK/sig_a.bin" 2>/dev/null
 
 if wanted "signature verifies"; then
     if [ "$C_STATUS" != "200" ]; then
