@@ -137,6 +137,21 @@ Key files land in `deflect_challenge_key_dir` at mode 0600. An existing file
 always wins over generating a new one, so a reload never invalidates a public key
 that has already been handed out.
 
+### Where keys come from in production
+
+banjax minting its own keys is a dev convenience, gated on
+`deflect_challenge_generate_missing_keys`, which is **off by default**. In
+production a provisioning script writes the key files and banjax only ever loads
+them. A domain enabled with no key file then logs an error and 404s, rather than
+banjax inventing a key whose public half nobody holds: that key would fail every
+client's verification, which looks exactly like the compromised edge this feature
+is meant to detect.
+
+The private key stays out of `banjax-config.yaml` deliberately. The config holds
+a *path*, the way `kafka_ssl_key` already does, because the config is generated
+centrally, shipped to every edge, and dumped verbatim to the log when `debug` is
+on.
+
 ## What this does and does not prove
 
 It proves **key possession**: something holding this domain's private key saw

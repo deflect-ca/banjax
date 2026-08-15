@@ -93,6 +93,11 @@ type Config struct {
 	SitesToDeflectChallenge   map[string]bool `yaml:"deflect_challenge_sites"`
 	DeflectChallengeKeyDir    string          `yaml:"deflect_challenge_key_dir"`
 	DeflectChallengeMaxLength int             `yaml:"deflect_challenge_max_length"`
+	// Whether banjax may mint a keypair for an enabled domain that has no key
+	// file yet. Off by default: in production the keys come from a provisioning
+	// script, and a self-generated key whose public half nobody holds would fail
+	// verification in a way indistinguishable from a compromised edge.
+	DeflectChallengeGenerateMissingKeys bool `yaml:"deflect_challenge_generate_missing_keys"`
 }
 
 type RegexWithRate struct {

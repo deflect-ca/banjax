@@ -185,3 +185,8 @@ deflect_challenge_sites:
 # Production leaves this unset and gets /etc/banjax/deflect_challenge_keys.
 deflect_challenge_key_dir: /opt/banjax/keys/deflect-challenge
 deflect_challenge_max_length: 512
+# POC/dev convenience: let banjax mint a keypair for a domain that has no key
+# file yet. Production leaves this off (the default) and has the provisioning
+# script write the key files, so a missing key is a loud provisioning error
+# rather than a silently generated key whose public half nobody holds.
+deflect_challenge_generate_missing_keys: true
