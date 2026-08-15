@@ -92,6 +92,13 @@ func main() {
 
 	dynamicDecisionLists := internal.NewDynamicDecisionLists()
 
+	// A key directory problem must not stop the edge serving traffic, so this is
+	// logged rather than fatal: the endpoint then 404s until it is fixed.
+	deflectChallengeKeys, err := internal.NewDeflectChallengeKeys(config)
+	if err != nil {
+		log.Println("INIT: deflect challenge keys unavailable:", err)
+	}
+
 	sighup_channel := make(chan os.Signal, 1)
 	signal.Notify(sighup_channel, syscall.SIGHUP)
 	// XXX i forgot i had this config reload functionality.
@@ -113,6 +120,11 @@ func main() {
 			staticDecisionLists.UpdateFromConfig(config)
 			dynamicDecisionLists.Clear()
 			passwordProtectedPaths.UpdateFromConfig(config)
+			// This is what mints a keypair for a domain that has just turned the
+			// deflect challenge on. Non-fatal for the same reason as above.
+			if err := deflectChallengeKeys.UpdateFromConfig(config); err != nil {
+				log.Println("HOT-RELOAD: deflect challenge key update failed:", err)
+			}
 		}
 	}()
 
@@ -160,6 +172,7 @@ func main() {
 		regexStates,
 		failedChallengeStates,
 		banner,
+		deflectChallengeKeys,
 	)
 
 	go internal.RunLogTailer(

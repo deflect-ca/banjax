@@ -86,6 +86,18 @@ type Config struct {
 	// most once per DecisionLogThrottleIntervalSeconds for static/expiring list block hits.
 	DecisionLogThrottleEnabled         bool `yaml:"decision_log_throttle_enabled"`
 	DecisionLogThrottleIntervalSeconds int  `yaml:"decision_log_throttle_interval_seconds"`
+	// Deflect Challenge: domains that answer POST /_deflect/challenge with an
+	// Ed25519 signature over a client-chosen nonce, so a client can verify it is
+	// really connected to a Deflect edge. A keypair is generated the first time a
+	// domain appears here.
+	SitesToDeflectChallenge   map[string]bool `yaml:"deflect_challenge_sites"`
+	DeflectChallengeKeyDir    string          `yaml:"deflect_challenge_key_dir"`
+	DeflectChallengeMaxLength int             `yaml:"deflect_challenge_max_length"`
+	// Whether banjax may mint a keypair for an enabled domain that has no key
+	// file yet. Off by default: in production the keys come from a provisioning
+	// script, and a self-generated key whose public half nobody holds would fail
+	// verification in a way indistinguishable from a compromised edge.
+	DeflectChallengeGenerateMissingKeys bool `yaml:"deflect_challenge_generate_missing_keys"`
 }
 
 type RegexWithRate struct {
