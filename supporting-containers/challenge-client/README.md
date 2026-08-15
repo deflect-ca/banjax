@@ -39,9 +39,17 @@ With the stack up:
 
 ```sh
 docker compose up --build -d
-docker compose run --rm challenge-client            # every case
+docker compose run --rm challenge-client            # every case, with the transcript
 docker compose run --rm challenge-client tamper     # only cases matching a substring
+docker compose run --rm challenge-client -q         # results only, no transcript
 ```
+
+By default it prints a full transcript of one exchange before running the cases:
+the request headers it sent, the response head, the JSON body, the exact bytes
+the signature covers (as an `od -c` dump, so the `\n` separators are visible),
+and the signature itself. That is the whole protocol in one screen. `-q` /
+`--quiet` (or `TRANSCRIPT=0`) drops it; `-v` / `--verbose` forces it back on. A
+flag and a filter can be combined: `challenge-client -q binding`.
 
 Or from the host against the published port:
 
@@ -57,7 +65,8 @@ for the domain).
 | Env | Default in the image | Meaning |
 |---|---|---|
 | `EDGE_URL` | `http://nginx` | Base URL of the edge under test |
-| `EDGE_HOST` | `localhost` | `Host` header, and the host inside the signed message |
+| `EDGE_HOST` | `localhost` | `Host` header, and the host inside the signed message (lowercased to match what the edge signs) |
+| `TRANSCRIPT` | `1` | `0` suppresses the exchange dump, same as `-q` |
 | `ADMIN_URL` | `http://nginx` | Where to fetch the public key |
 | `ADMIN_HOST` | `banjax` | `Host` for the admin vhost |
 | `MAX_LENGTH` | `512` | Must match `deflect_challenge_max_length` |
