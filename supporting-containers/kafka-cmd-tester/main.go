@@ -34,6 +34,7 @@ type commandMessage struct {
 	Source    string `json:"source,omitempty"`
 	PrintLog  bool   `json:"print_log"`
 	TTL       int    `json:"ttl,omitempty"`
+	UA        string `json:"ua,omitempty"`
 }
 
 // commandSpec describes what a command name needs and how it is validated,
@@ -42,6 +43,7 @@ type commandSpec struct {
 	requireValue     bool
 	requireSessionId bool
 	requireHost      bool
+	requireUA        bool
 }
 
 var commandSpecs = map[string]commandSpec{
@@ -50,7 +52,9 @@ var commandSpecs = map[string]commandSpec{
 	"block_session":     {requireValue: true, requireSessionId: true},
 	"challenge_session": {requireValue: true, requireSessionId: true},
 	"challenge_all":     {requireHost: true},
-	// clear_rules takes any combination of host/value/session-id (each one
+	"block_ua":          {requireUA: true},
+	"challenge_ua":      {requireUA: true},
+	// clear_rules takes any combination of host/value/session-id/ua (each one
 	// clears independently), so it can't be expressed with requireX above;
 	// see the at-least-one check below instead.
 	"clear_rules": {},
@@ -76,6 +80,7 @@ func main() {
 	host := flag.String("host", "", "host (site), required for challenge_all, optional for clear_rules")
 	value := flag.String("value", "", "IP address, required for *_ip and *_session commands, optional for clear_rules")
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
+	ua := flag.String("ua", "", "exact User-Agent string, required for block_ua/challenge_ua, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")
@@ -118,8 +123,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: -host is required for %s\n", *cmdName)
 		os.Exit(2)
 	}
-	if *cmdName == "clear_rules" && *host == "" && *value == "" && *sessionId == "" {
-		fmt.Fprintln(os.Stderr, "error: clear_rules requires at least one of -host, -value, or -session-id")
+	if spec.requireUA && *ua == "" {
+		fmt.Fprintf(os.Stderr, "error: -ua is required for %s\n", *cmdName)
+		os.Exit(2)
+	}
+	if *cmdName == "clear_rules" && *host == "" && *value == "" && *sessionId == "" && *ua == "" {
+		fmt.Fprintln(os.Stderr, "error: clear_rules requires at least one of -host, -value, -session-id, or -ua")
 		os.Exit(2)
 	}
 
@@ -131,6 +140,7 @@ func main() {
 		Source:    *source,
 		PrintLog:  *printLog,
 		TTL:       *ttl,
+		UA:        *ua,
 	}
 
 	messageBytes, err := json.Marshal(message)

@@ -3,7 +3,8 @@
 One-off tool for sending a single simulated banjax kafka command message,
 without needing baskerville running. Useful for exercising
 `internal/kafka.go`'s `handleCommand` by hand: `block_ip`, `challenge_ip`,
-`block_session`, `challenge_session`, `challenge_all`, `clear_rules`.
+`block_session`, `challenge_session`, `challenge_all`, `block_ua`,
+`challenge_ua`, `clear_rules`.
 
 The message JSON matches the `commandMessage` struct banjax's kafka reader
 unmarshals, so what you send here is exactly what banjax would receive from
@@ -20,11 +21,21 @@ docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -host
 docker compose run --rm kafka-cmd-tester -cmd block_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_ip -value 192.168.65.1 -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
+docker compose run --rm kafka-cmd-tester -cmd block_ua -ua 'curl/7.68.0'
+docker compose run --rm kafka-cmd-tester -cmd challenge_ua -ua 'curl/7.68.0'
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
+docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
 ```
 
-`clear_rules` takes any combination of `-host`, `-value`, and `-session-id`; each one present clears that entry independently from the expiring decision list (at least one is required).
+`block_ua`/`challenge_ua` match the client's User-Agent exactly (no
+substring or regex matching, unlike the static
+`per_site_user_agent_decision_lists`/`global_user_agent_decision_lists` in
+`banjax-config.yaml`).
+
+`clear_rules` takes any combination of `-host`, `-value`, `-session-id`, and
+`-ua`; each one present clears that entry independently from the expiring
+decision list (at least one is required).
 
 Preview the JSON without sending anything with `-dry-run`:
 
@@ -51,10 +62,11 @@ kafka.
 
 | Flag | Purpose |
 | --- | --- |
-| `-cmd` | required: `block_ip`, `challenge_ip`, `block_session`, `challenge_session`, `challenge_all`, or `clear_rules` |
+| `-cmd` | required: `block_ip`, `challenge_ip`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, or `clear_rules` |
 | `-host` | site; required for `challenge_all`, optional for `clear_rules` |
 | `-value` | IP address; required for `*_ip` and `*_session` commands, optional for `clear_rules` |
-| `-session-id` | required for `*_session` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id` is required) |
+| `-session-id` | required for `*_session` commands, optional for `clear_rules` |
+| `-ua` | exact User-Agent string; required for `block_ua`/`challenge_ua`, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
 | `-source` | tags the command's `source` field (default `kafka-cmd-tester`) |
 | `-print-log` | set `print_log` so banjax logs the command even outside debug mode (default `true`) |

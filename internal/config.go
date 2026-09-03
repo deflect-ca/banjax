@@ -157,6 +157,8 @@ type MetricsLogLine struct {
 	LenExpiringBlocks             int
 	LenExpiringSitewideChallenges int
 	LenExpiringSitewideBlocks     int
+	LenExpiringUAChallenges       int
+	LenExpiringUABlocks           int
 	LenIpToRegexStates            int
 	LenFailedChallengeStates      int
 }
@@ -167,7 +169,7 @@ func WriteMetricsToEncoder(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 ) {
-	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks := decisionLists.Metrics()
+	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks := decisionLists.Metrics()
 	lenRegexStates := regexStates.Len()
 	lenFailedChallengeStates := failedChallengeStates.Len()
 
@@ -177,6 +179,8 @@ func WriteMetricsToEncoder(
 		LenExpiringBlocks:             lenExpiringBlocks,
 		LenExpiringSitewideChallenges: lenExpiringSitewideChallenges,
 		LenExpiringSitewideBlocks:     lenExpiringSitewideBlocks,
+		LenExpiringUAChallenges:       lenExpiringUAChallenges,
+		LenExpiringUABlocks:           lenExpiringUABlocks,
 		LenIpToRegexStates:            lenRegexStates,
 		LenFailedChallengeStates:      lenFailedChallengeStates,
 	}

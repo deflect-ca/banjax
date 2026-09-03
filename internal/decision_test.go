@@ -114,7 +114,108 @@ func TestDynamicDecisionLists_Metrics_CountsHostEntries(t *testing.T) {
 	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true)
 	decisionLists.UpdateByHost(config, "blocked.com", time.Now().Add(time.Minute), NginxBlock, true)
 
-	_, _, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks := decisionLists.Metrics()
+	_, _, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, _, _ := decisionLists.Metrics()
 	assert.Equal(t, 1, lenExpiringSitewideChallenges)
 	assert.Equal(t, 1, lenExpiringSitewideBlocks)
+}
+
+func TestDynamicDecisionLists_UpdateByUA_UpgradeOnly(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, expiringDecision.Decision)
+
+	// a lower-severity decision should not downgrade the existing one
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Allow, true)
+	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, expiringDecision.Decision)
+
+	// a higher-severity decision should upgrade it
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, expiringDecision.Decision)
+}
+
+func TestDynamicDecisionLists_CheckByUA_NotFound(t *testing.T) {
+	decisionLists := NewDynamicDecisionLists()
+
+	_, ok := decisionLists.CheckByUA("unknown-agent")
+	assert.False(t, ok)
+}
+
+func TestDynamicDecisionLists_CheckByUA_LazyExpiry(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(-time.Second), Challenge, true)
+
+	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	assert.False(t, ok)
+}
+
+func TestDynamicDecisionLists_CheckByUA_ExactMatchOnly(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+
+	_, ok := decisionLists.CheckByUA("curl/7.68.0 extra")
+	assert.False(t, ok)
+}
+
+func TestDynamicDecisionLists_RemoveByUA(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.RemoveByUA("curl/7.68.0")
+
+	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	assert.False(t, ok)
+}
+
+func TestDynamicDecisionLists_Clear_WipesUAMap(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.Clear()
+
+	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	assert.False(t, ok)
+}
+
+func TestDynamicDecisionLists_RemoveExpired_SweepsUAMap(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "expired-agent", time.Now().Add(-time.Second), Challenge, true)
+	decisionLists.UpdateByUA(config, "live-agent", time.Now().Add(time.Minute), Challenge, true)
+
+	decisionLists.removeExpired()
+
+	decisionLists.mutex.Lock()
+	_, expiredStillThere := decisionLists.value.expiringDecisionListsUA["expired-agent"]
+	_, liveStillThere := decisionLists.value.expiringDecisionListsUA["live-agent"]
+	decisionLists.mutex.Unlock()
+
+	assert.False(t, expiredStillThere)
+	assert.True(t, liveStillThere)
+}
+
+func TestDynamicDecisionLists_Metrics_CountsUAEntries(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true)
+
+	_, _, _, _, lenExpiringUAChallenges, lenExpiringUABlocks := decisionLists.Metrics()
+	assert.Equal(t, 1, lenExpiringUAChallenges)
+	assert.Equal(t, 1, lenExpiringUABlocks)
 }

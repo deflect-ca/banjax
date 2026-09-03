@@ -259,7 +259,8 @@ func RunHttpServer(
 		})
 	})
 
-	// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host
+	// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
+	// or clear a block_ua/challenge_ua-triggered decision by exact UA string
 	r.POST("/unban", func(c *gin.Context) {
 		config := configHolder.Get()
 
@@ -279,12 +280,28 @@ func RunHttpServer(
 			return
 		}
 
+		// get ua from post data; when present, just clear the expiring ua decision for it
+		ua := strings.TrimSpace(c.PostForm("ua"))
+		if ua != "" {
+			uaDecision, uaOk := dynamicDecisionLists.CheckByUA(ua)
+			if uaOk {
+				dynamicDecisionLists.RemoveByUA(ua)
+			}
+			c.JSON(200, gin.H{
+				"ua":                     ua,
+				"found_in_decision_list": uaOk,
+				"decision":               uaDecision.Decision.String(),
+				"unban":                  uaOk,
+			})
+			return
+		}
+
 		// get ip from post data
 		ip := strings.TrimSpace(c.PostForm("ip"))
 		if ip == "" {
 			// return in json
 			c.JSON(400, gin.H{
-				"error": "ip or host in post form is required",
+				"error": "ip, host, or ua in post form is required",
 			})
 			return
 		}
@@ -786,6 +803,8 @@ const (
 	GlobalUAAccessGranted
 	GlobalUAChallenge
 	GlobalUABlock
+	ExpiringUAChallenge
+	ExpiringUABlock
 	NoMention
 	NotSet
 )
@@ -813,6 +832,8 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	GlobalUAAccessGranted:          "GlobalUAAccessGranted",
 	GlobalUAChallenge:              "GlobalUAChallenge",
 	GlobalUABlock:                  "GlobalUABlock",
+	ExpiringUAChallenge:            "ExpiringUAChallenge",
+	ExpiringUABlock:                "ExpiringUABlock",
 	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
@@ -1152,6 +1173,48 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
+		}
+	}
+
+	// kafka-triggered, exact-match version of the UA lists above: a block_ua/challenge_ua
+	// command enables this for a UA string until its TTL expires, without touching the
+	// static config lists.
+	uaExpiringDecision, uaOk := dynamicDecisionLists.CheckByUA(clientUserAgent)
+	if !uaOk {
+		// log.Println("no mention in expiring ua list")
+	} else {
+		switch uaExpiringDecision.Decision {
+		case Challenge:
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
+			if uaExpiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring ua challenge for %s", requestedHost, clientIp)
+			} else {
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
+				decisionForNginxResult.DecisionListResult = ExpiringUAChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
+		case NginxBlock, IptablesBlock:
+			if uaExpiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring ua block for %s", requestedHost, clientIp)
+			} else {
+				banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "expiring_ua_list", uaExpiringDecision.Decision)
+				accessDenied(c, config, DecisionListResultToString[ExpiringUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = ExpiringUABlock
+				return
+			}
 		}
 	}
 

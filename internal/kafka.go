@@ -43,6 +43,7 @@ type commandMessage struct {
 	Source    string `json:"source"`
 	PrintLog  bool   `json:"print_log"`
 	TTL       int	 `json:"ttl"`
+	UA        string `json:"ua"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -223,6 +224,12 @@ func handleCommand(
 	case "challenge_all":
 		handleHostCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
+	case "challenge_ua":
+		handleUACommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "block_ua":
+		handleUACommand(config, command, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
+		break
 	case "clear_rules":
 		handleClearRulesCommand(config, command, decisionLists)
 		break
@@ -325,6 +332,36 @@ func handleHostCommand(
 	)
 }
 
+func handleUACommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	if command.UA == "" {
+		log.Printf("KAFKA: command ua is empty, skip %s\n", command.Name)
+		return
+	}
+
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
+	if config.Debug {
+		log.Printf("KAFKA: handleUACommand %s %s %d\n", command.UA, decision, ttl)
+	}
+
+	decisionLists.UpdateByUA(
+		config,
+		command.UA,
+		time.Now().Add(time.Duration(ttl)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
+	)
+}
+
 func handleClearRulesCommand(
 	config *Config,
 	command commandMessage,
@@ -363,8 +400,16 @@ func handleClearRulesCommand(
 		}
 	}
 
+	if command.UA != "" {
+		if config.Debug {
+			log.Printf("KAFKA: clear_rules ua %s\n", command.UA)
+		}
+		decisionLists.RemoveByUA(command.UA)
+		cleared = true
+	}
+
 	if !cleared {
-		log.Printf("KAFKA: clear_rules command has no host, value (ip), or session_id, nothing to clear\n")
+		log.Printf("KAFKA: clear_rules command has no host, value (ip), session_id, or ua, nothing to clear\n")
 	}
 }
 
