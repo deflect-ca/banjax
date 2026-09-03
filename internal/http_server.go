@@ -259,16 +259,49 @@ func RunHttpServer(
 		})
 	})
 
-	// API to unban an IP
+	// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
+	// or clear a block_ua/challenge_ua-triggered decision by exact UA string
 	r.POST("/unban", func(c *gin.Context) {
 		config := configHolder.Get()
+
+		// get host from post data; when present, just clear the expiring sitewide challenge for it
+		host := strings.TrimSpace(c.PostForm("host"))
+		if host != "" {
+			hostDecision, hostOk := dynamicDecisionLists.CheckByHost(host)
+			if hostOk {
+				dynamicDecisionLists.RemoveByHost(host)
+			}
+			c.JSON(200, gin.H{
+				"host":                   host,
+				"found_in_decision_list": hostOk,
+				"decision":               hostDecision.Decision.String(),
+				"unban":                  hostOk,
+			})
+			return
+		}
+
+		// get ua from post data; when present, just clear the expiring ua decision for it
+		ua := strings.TrimSpace(c.PostForm("ua"))
+		if ua != "" {
+			uaDecision, uaOk := dynamicDecisionLists.CheckByUA(ua)
+			if uaOk {
+				dynamicDecisionLists.RemoveByUA(ua)
+			}
+			c.JSON(200, gin.H{
+				"ua":                     ua,
+				"found_in_decision_list": uaOk,
+				"decision":               uaDecision.Decision.String(),
+				"unban":                  uaOk,
+			})
+			return
+		}
 
 		// get ip from post data
 		ip := strings.TrimSpace(c.PostForm("ip"))
 		if ip == "" {
 			// return in json
 			c.JSON(400, gin.H{
-				"error": "ip in post form is required",
+				"error": "ip, host, or ua in post form is required",
 			})
 			return
 		}
@@ -763,12 +796,15 @@ const (
 	PerSiteShaInvPathException
 	SiteWideChallenge
 	SiteWideChallengeException
+	ExpiringSiteWideChallenge
 	PerSiteUAAccessGranted
 	PerSiteUAChallenge
 	PerSiteUABlock
 	GlobalUAAccessGranted
 	GlobalUAChallenge
 	GlobalUABlock
+	ExpiringUAChallenge
+	ExpiringUABlock
 	NoMention
 	NotSet
 )
@@ -789,12 +825,15 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	PerSiteShaInvPathException:     "PerSiteShaInvPathException",
 	SiteWideChallenge:              "SiteWideChallenge",
 	SiteWideChallengeException:     "SiteWideChallengeException",
+	ExpiringSiteWideChallenge:      "ExpiringSiteWideChallenge",
 	PerSiteUAAccessGranted:         "PerSiteUAAccessGranted",
 	PerSiteUAChallenge:             "PerSiteUAChallenge",
 	PerSiteUABlock:                 "PerSiteUABlock",
 	GlobalUAAccessGranted:          "GlobalUAAccessGranted",
 	GlobalUAChallenge:              "GlobalUAChallenge",
 	GlobalUABlock:                  "GlobalUABlock",
+	ExpiringUAChallenge:            "ExpiringUAChallenge",
+	ExpiringUABlock:                "ExpiringUABlock",
 	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
@@ -1051,17 +1090,146 @@ func decisionForNginx2(
 		}
 	}
 
+	// Check if domain disabled baskerville
+	_, disabled := config.SitesToDisableBaskerville[requestedHost]
+
+	// The expiring decision list is applied narrowest-scope first: session id, then user
+	// agent, then a challenge_all-triggered host-wide challenge, then ip.
+
+	// 1. session id
+	sessionId, _ := c.Cookie(SessionCookieName)
+	if sessionId != "" {
+		if sessionExpiringDecision, sessionOk := dynamicDecisionLists.Check(sessionId, ""); sessionOk {
+			switch sessionExpiringDecision.Decision {
+			case Allow:
+				accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
+				// log.Println("access granted from expiring lists")
+				decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
+				return
+			case Challenge:
+				// apply exception to both challenge from baskerville and regex banner
+				if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+					accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+					decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+					return
+				}
+				if sessionExpiringDecision.fromBaskerville && disabled {
+					log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
+				} else {
+					// log.Println("challenge from expiring lists")
+					sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+						config,
+						c,
+						banner,
+						failedChallengeStates,
+						Block, // FailAction
+						staticDecisionLists,
+					)
+					decisionForNginxResult.DecisionListResult = ExpiringChallenge
+					decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+					return
+				}
+			case NginxBlock, IptablesBlock:
+				if sessionExpiringDecision.fromBaskerville && disabled {
+					log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)
+				} else {
+					// only log baskerville-origin blocks; regex-origin blocks were
+					// already logged by LogRegexBan when they were banned
+					if sessionExpiringDecision.fromBaskerville {
+						banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "baskerville", sessionExpiringDecision.Decision)
+					}
+					accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+					// log.Println("access denied from expiring lists")
+					decisionForNginxResult.DecisionListResult = ExpiringBlock
+					return
+				}
+			}
+		}
+	}
+
+	// 2. user agent — kafka-triggered, exact-match version of the UA lists above: a
+	// block_ua/challenge_ua command enables this for a UA string until its TTL expires,
+	// without touching the static config lists.
+	uaExpiringDecision, uaOk := dynamicDecisionLists.CheckByUA(clientUserAgent)
+	if !uaOk {
+		// log.Println("no mention in expiring ua list")
+	} else {
+		switch uaExpiringDecision.Decision {
+		case Challenge:
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
+			if uaExpiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring ua challenge for %s", requestedHost, clientIp)
+			} else {
+				sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+					config,
+					c,
+					banner,
+					failedChallengeStates,
+					Block, // FailAction
+					staticDecisionLists,
+				)
+				decisionForNginxResult.DecisionListResult = ExpiringUAChallenge
+				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+				return
+			}
+		case NginxBlock, IptablesBlock:
+			if uaExpiringDecision.fromBaskerville && disabled {
+				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring ua block for %s", requestedHost, clientIp)
+			} else {
+				banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "expiring_ua_list", uaExpiringDecision.Decision)
+				accessDenied(c, config, DecisionListResultToString[ExpiringUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = ExpiringUABlock
+				return
+			}
+		}
+	}
+
+	// 3. challenge_all for a host — kafka-triggered, temporary version of the sitewide
+	// sha-inv list below: a challenge_all command enables this for a host until its TTL
+	// expires, without touching the static config list.
+	hostExpiringDecision, hostOk := dynamicDecisionLists.CheckByHost(requestedHost)
+	if !hostOk {
+		// log.Println("no mention in expiring sitewide list")
+	} else if hostExpiringDecision.Decision == Challenge {
+		if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+			accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+			return
+		}
+		if hostExpiringDecision.fromBaskerville && disabled {
+			log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring sitewide challenge for %s", requestedHost, clientIp)
+		} else {
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+			decisionForNginxResult.DecisionListResult = ExpiringSiteWideChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		}
+	}
+
+	// 4. ip
 	// i think this needs to point to a struct {decision: Decision, expires: Time}.
 	// when we insert something into the list, really we might just be extending the expiry time and/or
 	// changing the decision.
 	// XXX i forget if that comment is stale^
-	expiringDecision, ok := checkExpiringDecisionLists(c, clientIp, dynamicDecisionLists)
-	// Check if domain disabled baskerville
-	_, disabled := config.SitesToDisableBaskerville[requestedHost]
-	if !ok {
+	ipExpiringDecision, ipOk := dynamicDecisionLists.Check("", clientIp)
+	if !ipOk {
 		// log.Println("no mention in expiring lists")
 	} else {
-		switch expiringDecision.Decision {
+		switch ipExpiringDecision.Decision {
 		case Allow:
 			accessGranted(c, config, DecisionListResultToString[ExpiringAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from expiring lists")
@@ -1074,7 +1242,7 @@ func decisionForNginx2(
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
 				return
 			}
-			if expiringDecision.fromBaskerville && disabled {
+			if ipExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring challenge for %s", requestedHost, clientIp)
 			} else {
 				// log.Println("challenge from expiring lists")
@@ -1092,13 +1260,13 @@ func decisionForNginx2(
 				return
 			}
 		case NginxBlock, IptablesBlock:
-			if expiringDecision.fromBaskerville && disabled {
+			if ipExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)
 			} else {
 				// only log baskerville-origin blocks; regex-origin blocks were
 				// already logged by LogRegexBan when they were banned
-				if expiringDecision.fromBaskerville {
-					banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "baskerville", expiringDecision.Decision)
+				if ipExpiringDecision.fromBaskerville {
+					banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "baskerville", ipExpiringDecision.Decision)
 				}
 				accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
 				// log.Println("access denied from expiring lists")
