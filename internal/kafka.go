@@ -220,6 +220,9 @@ func handleCommand(
 		ttl := getBlockSessionTtl(config, command.Host)
 		handleSessionCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
+	case "challenge_all":
+		handleHostCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		break
 	default:
 		if config.Debug {
 			log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
@@ -286,6 +289,36 @@ func handleSessionCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+	)
+}
+
+func handleHostCommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	if command.Host == "" {
+		log.Printf("KAFKA: command host is empty, skip %s\n", command.Name)
+		return
+	}
+
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
+	if config.Debug {
+		log.Printf("KAFKA: handleHostCommand %s %s %d\n", command.Host, decision, ttl)
+	}
+
+	decisionLists.UpdateByHost(
+		config,
+		command.Host,
+		time.Now().Add(time.Duration(ttl)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
 	)
 }
 

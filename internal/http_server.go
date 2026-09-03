@@ -259,16 +259,32 @@ func RunHttpServer(
 		})
 	})
 
-	// API to unban an IP
+	// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host
 	r.POST("/unban", func(c *gin.Context) {
 		config := configHolder.Get()
+
+		// get host from post data; when present, just clear the expiring sitewide challenge for it
+		host := strings.TrimSpace(c.PostForm("host"))
+		if host != "" {
+			hostDecision, hostOk := dynamicDecisionLists.CheckByHost(host)
+			if hostOk {
+				dynamicDecisionLists.RemoveByHost(host)
+			}
+			c.JSON(200, gin.H{
+				"host":                   host,
+				"found_in_decision_list": hostOk,
+				"decision":               hostDecision.Decision.String(),
+				"unban":                  hostOk,
+			})
+			return
+		}
 
 		// get ip from post data
 		ip := strings.TrimSpace(c.PostForm("ip"))
 		if ip == "" {
 			// return in json
 			c.JSON(400, gin.H{
-				"error": "ip in post form is required",
+				"error": "ip or host in post form is required",
 			})
 			return
 		}
@@ -763,6 +779,7 @@ const (
 	PerSiteShaInvPathException
 	SiteWideChallenge
 	SiteWideChallengeException
+	ExpiringSiteWideChallenge
 	PerSiteUAAccessGranted
 	PerSiteUAChallenge
 	PerSiteUABlock
@@ -789,6 +806,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	PerSiteShaInvPathException:     "PerSiteShaInvPathException",
 	SiteWideChallenge:              "SiteWideChallenge",
 	SiteWideChallengeException:     "SiteWideChallengeException",
+	ExpiringSiteWideChallenge:      "ExpiringSiteWideChallenge",
 	PerSiteUAAccessGranted:         "PerSiteUAAccessGranted",
 	PerSiteUAChallenge:             "PerSiteUAChallenge",
 	PerSiteUABlock:                 "PerSiteUABlock",
@@ -1105,6 +1123,35 @@ func decisionForNginx2(
 				decisionForNginxResult.DecisionListResult = ExpiringBlock
 				return
 			}
+		}
+	}
+
+	// kafka-triggered, temporary version of the sitewide sha-inv list below: a challenge_all
+	// command enables this for a host until its TTL expires, without touching the static config list.
+	hostExpiringDecision, hostOk := dynamicDecisionLists.CheckByHost(requestedHost)
+	if !hostOk {
+		// log.Println("no mention in expiring sitewide list")
+	} else if hostExpiringDecision.Decision == Challenge {
+		if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+			accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+			return
+		}
+		if hostExpiringDecision.fromBaskerville && disabled {
+			log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring sitewide challenge for %s", requestedHost, clientIp)
+		} else {
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+			)
+			decisionForNginxResult.DecisionListResult = ExpiringSiteWideChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
 		}
 	}
 
