@@ -42,6 +42,7 @@ type commandMessage struct {
 	SessionId string `json:"session_id"`
 	Source    string `json:"source"`
 	PrintLog  bool   `json:"print_log"`
+	TTL       int	 `json:"ttl"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -151,8 +152,9 @@ func RunKafkaReader(
 			}
 
 			if config.Debug || command.PrintLog {
-				log.Printf("KAFKA: message %s (%d/%d) = N: %s, V: %s, S: %s: Src: %s\n",
-					string(m.Key), m.Offset, m.Partition, command.Name, command.Value, command.SessionId, command.Source)
+				log.Printf("KAFKA: message %s (%d/%d) = N: %s, V: %s, S: %s: Src: %s, TTL: %d\n",
+					string(m.Key), m.Offset, m.Partition, command.Name,
+					command.Value, command.SessionId, command.Source, command.TTL)
 			}
 
 			handleCommand(
@@ -237,15 +239,20 @@ func handleIPCommand(
 		return
 	}
 
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
 	if config.Debug {
 		log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
-			command.Host, command.Value, decision, expireDuration)
+			command.Host, command.Value, decision, ttl)
 	}
 
 	decisionLists.Update(
 		config,
 		command.Value,
-		time.Now().Add(time.Duration(expireDuration)*time.Second),
+		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
