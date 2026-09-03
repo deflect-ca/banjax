@@ -50,6 +50,10 @@ var commandSpecs = map[string]commandSpec{
 	"block_session":     {requireValue: true, requireSessionId: true},
 	"challenge_session": {requireValue: true, requireSessionId: true},
 	"challenge_all":     {requireHost: true},
+	// clear_rules takes any combination of host/value/session-id (each one
+	// clears independently), so it can't be expressed with requireX above;
+	// see the at-least-one check below instead.
+	"clear_rules": {},
 }
 
 func supportedCommandNames() []string {
@@ -69,9 +73,9 @@ func envOr(key, fallback string) string {
 
 func main() {
 	cmdName := flag.String("cmd", "", "command name, one of: "+strings.Join(supportedCommandNames(), ", "))
-	host := flag.String("host", "", "host (site), required for challenge_all")
-	value := flag.String("value", "", "IP address, required for *_ip and *_session commands")
-	sessionId := flag.String("session-id", "", "session id, required for *_session commands")
+	host := flag.String("host", "", "host (site), required for challenge_all, optional for clear_rules")
+	value := flag.String("value", "", "IP address, required for *_ip and *_session commands, optional for clear_rules")
+	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")
@@ -112,6 +116,10 @@ func main() {
 	}
 	if spec.requireHost && *host == "" {
 		fmt.Fprintf(os.Stderr, "error: -host is required for %s\n", *cmdName)
+		os.Exit(2)
+	}
+	if *cmdName == "clear_rules" && *host == "" && *value == "" && *sessionId == "" {
+		fmt.Fprintln(os.Stderr, "error: clear_rules requires at least one of -host, -value, or -session-id")
 		os.Exit(2)
 	}
 

@@ -63,6 +63,21 @@ func TestDynamicDecisionLists_RemoveByHost(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestDynamicDecisionLists_RemoveBySessionId(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-b", time.Now().Add(time.Minute), Challenge, true, "example.com")
+
+	decisionLists.RemoveBySessionId("session-a")
+
+	_, okA := decisionLists.Check("session-a", "")
+	_, okB := decisionLists.Check("session-b", "")
+	assert.False(t, okA)
+	assert.True(t, okB)
+}
+
 func TestDynamicDecisionLists_Clear_WipesHostMap(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()

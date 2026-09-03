@@ -223,6 +223,9 @@ func handleCommand(
 	case "challenge_all":
 		handleHostCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
+	case "clear_rules":
+		handleClearRulesCommand(config, command, decisionLists)
+		break
 	default:
 		if config.Debug {
 			log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
@@ -320,6 +323,49 @@ func handleHostCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 	)
+}
+
+func handleClearRulesCommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+) {
+	cleared := false
+
+	if command.Host != "" {
+		if config.Debug {
+			log.Printf("KAFKA: clear_rules host %s\n", command.Host)
+		}
+		decisionLists.RemoveByHost(command.Host)
+		cleared = true
+	}
+
+	if command.Value != "" {
+		if config.Debug {
+			log.Printf("KAFKA: clear_rules ip %s\n", command.Value)
+		}
+		decisionLists.RemoveByIp(command.Value)
+		cleared = true
+	}
+
+	if command.SessionId != "" {
+		// gin does urldecode on cookie, so we decode any possible urlencoded session id from kafka,
+		// matching how handleSessionCommand stores it
+		sessionIdDecoded, decodeErr := url.QueryUnescape(command.SessionId)
+		if decodeErr != nil {
+			log.Printf("KAFKA: fail to urldecode session_id %s, skip clearing session\n", command.SessionId)
+		} else {
+			if config.Debug {
+				log.Printf("KAFKA: clear_rules session_id %s\n", sessionIdDecoded)
+			}
+			decisionLists.RemoveBySessionId(sessionIdDecoded)
+			cleared = true
+		}
+	}
+
+	if !cleared {
+		log.Printf("KAFKA: clear_rules command has no host, value (ip), or session_id, nothing to clear\n")
+	}
 }
 
 type StatusMessage struct {

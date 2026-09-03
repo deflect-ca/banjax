@@ -591,6 +591,13 @@ func (h *DynamicDecisionLists) RemoveByHost(host string) {
 	delete(h.value.expiringDecisionListsHost, host)
 }
 
+func (h *DynamicDecisionLists) RemoveBySessionId(sessionId string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	delete(h.value.expiringDecisionListsSessionId, sessionId)
+}
+
 func (h *DynamicDecisionLists) Clear() {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
