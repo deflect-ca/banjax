@@ -164,11 +164,15 @@ func (bannedEntry BannedEntry) String() string {
 }
 
 type MetricsLogLine struct {
-	Time                     string
-	LenExpiringChallenges    int
-	LenExpiringBlocks        int
-	LenIpToRegexStates       int
-	LenFailedChallengeStates int
+	Time                          string
+	LenExpiringChallenges         int
+	LenExpiringBlocks             int
+	LenExpiringSitewideChallenges int
+	LenExpiringSitewideBlocks     int
+	LenExpiringUAChallenges       int
+	LenExpiringUABlocks           int
+	LenIpToRegexStates            int
+	LenFailedChallengeStates      int
 }
 
 func WriteMetricsToEncoder(
@@ -177,16 +181,20 @@ func WriteMetricsToEncoder(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 ) {
-	lenExpiringChallenges, lenExpiringBlocks := decisionLists.Metrics()
+	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks := decisionLists.Metrics()
 	lenRegexStates := regexStates.Len()
 	lenFailedChallengeStates := failedChallengeStates.Len()
 
 	metricsLogLine := MetricsLogLine{
-		Time:                     time.Now().Format(time.RFC1123),
-		LenExpiringChallenges:    lenExpiringChallenges,
-		LenExpiringBlocks:        lenExpiringBlocks,
-		LenIpToRegexStates:       lenRegexStates,
-		LenFailedChallengeStates: lenFailedChallengeStates,
+		Time:                          time.Now().Format(time.RFC1123),
+		LenExpiringChallenges:         lenExpiringChallenges,
+		LenExpiringBlocks:             lenExpiringBlocks,
+		LenExpiringSitewideChallenges: lenExpiringSitewideChallenges,
+		LenExpiringSitewideBlocks:     lenExpiringSitewideBlocks,
+		LenExpiringUAChallenges:       lenExpiringUAChallenges,
+		LenExpiringUABlocks:           lenExpiringUABlocks,
+		LenIpToRegexStates:            lenRegexStates,
+		LenFailedChallengeStates:      lenFailedChallengeStates,
 	}
 
 	err := metricsLogEncoder.Encode(metricsLogLine)

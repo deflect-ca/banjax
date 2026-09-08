@@ -61,3 +61,21 @@ services:
       dockerfile: Dockerfile
     depends_on:
       - nginx
+
+  # One-off tool for sending a simulated banjax kafka command message, to
+  # exercise block_ip/challenge_ip/block_session/challenge_session/challenge_all
+  # without needing baskerville. Run with, e.g.:
+  #   docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost
+  # Built from the repo root context so it can share the main go.mod/go.sum.
+  kafka-cmd-tester:
+    profiles:
+      - tools
+    image: kafka-cmd-tester
+    build:
+      context: ./
+      dockerfile: supporting-containers/kafka-cmd-tester/Dockerfile
+    volumes:
+      - ./keys:/etc/banjax:ro
+    env_file: ".env"
+    environment:
+      - KAFKA_TOPIC=banjax_command_topic_dev
