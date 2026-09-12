@@ -36,9 +36,9 @@ const (
 	// vice versa.
 	DeflectChallengeContext = "deflect-challenge-v1"
 
-	DeflectChallengeHeader         = "X-Deflect-Challenge"
-	DeflectChallengeResponseHeader = "X-Deflect-Challenge-Response"
-	DeflectChallengeKeyIDHeader    = "X-Deflect-Challenge-Key-ID"
+	DeflectChallengeHeader         = "X-RePress-Challenge"
+	DeflectChallengeResponseHeader = "X-RePress-Challenge-Response"
+	DeflectChallengeKeyIDHeader    = "X-RePress-Challenge-Key-ID"
 
 	DeflectChallengeAlgorithm = "ed25519"
 
