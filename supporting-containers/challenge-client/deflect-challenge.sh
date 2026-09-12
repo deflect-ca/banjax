@@ -3,8 +3,8 @@
 # Deflect Challenge client: proves cryptographically that the thing answering
 # for a domain is really a Deflect edge.
 #
-# The client sends a random nonce in X-Deflect-Challenge; the edge replies with
-# an Ed25519 signature in X-Deflect-Challenge-Response. If the signature
+# The client sends a random nonce in X-RePress-Challenge; the edge replies with
+# an Ed25519 signature in X-RePress-Challenge-Response. If the signature
 # verifies under the domain's public key, the responder holds that domain's
 # private key. If it does not, something in the middle is answering.
 #
@@ -115,17 +115,17 @@ challenge() {
 
     # An empty nonce means "send no challenge header at all", which is case 10.
     if [ -n "$nonce" ]; then
-        args+=(-H "X-Deflect-Challenge: $nonce")
-        printf 'X-Deflect-Challenge: %s\n' "$nonce" >> "$WORK/reqheaders"
+        args+=(-H "X-RePress-Challenge: $nonce")
+        printf 'X-RePress-Challenge: %s\n' "$nonce" >> "$WORK/reqheaders"
     fi
     if [ -n "$key_id" ]; then
-        args+=(-H "X-Deflect-Challenge-Key-ID: $key_id")
-        printf 'X-Deflect-Challenge-Key-ID: %s\n' "$key_id" >> "$WORK/reqheaders"
+        args+=(-H "X-RePress-Challenge-Key-ID: $key_id")
+        printf 'X-RePress-Challenge-Key-ID: %s\n' "$key_id" >> "$WORK/reqheaders"
     fi
 
     C_STATUS=$(curl "${args[@]}" "$EDGE_URL/_deflect/challenge" 2>/dev/null)
-    C_SIG=$(header_value X-Deflect-Challenge-Response)
-    C_KEY_ID=$(header_value X-Deflect-Challenge-Key-ID)
+    C_SIG=$(header_value X-RePress-Challenge-Response)
+    C_KEY_ID=$(header_value X-RePress-Challenge-Key-ID)
 }
 
 # transcript HOST NONCE - dump the exchange that just happened: what went out,
@@ -242,7 +242,7 @@ if wanted "signature verifies"; then
     if [ "$C_STATUS" != "200" ]; then
         bad "signature verifies" "expected HTTP 200, got ${C_STATUS:-no response}"
     elif [ ! -s "$WORK/sig_a.bin" ]; then
-        bad "signature verifies" "no X-Deflect-Challenge-Response header"
+        bad "signature verifies" "no X-RePress-Challenge-Response header"
     else
         verify "$WORK/pub.der" "$EDGE_HOST" "$NONCE_A" "$WORK/sig_a.bin"
         check "signature verifies" $? "the edge holds $EDGE_HOST's private key"
@@ -340,7 +340,7 @@ fi
 
 if wanted "GET is 405"; then
     status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
-        -H "Host: $EDGE_HOST" -H "X-Deflect-Challenge: $(nonce)" \
+        -H "Host: $EDGE_HOST" -H "X-RePress-Challenge: $(nonce)" \
         "$EDGE_URL/_deflect/challenge" 2>/dev/null)
     [ "$status" = "405" ]
     check "GET is 405" $? "got ${status:-no response}"

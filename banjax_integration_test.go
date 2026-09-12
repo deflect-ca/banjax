@@ -519,19 +519,19 @@ func TestDeflectChallenge(t *testing.T) {
 	challenge := "integration-test-nonce-" + randomIP()
 
 	headers := randomXClientIP()
-	headers.Set("X-Deflect-Challenge", challenge)
+	headers.Set("X-RePress-Challenge", challenge)
 	resp = httpRequest(client, TestResource{"POST", "/deflect_challenge", 200, headers, nil}, t)
 	if !assert.Equal(t, 200, resp.StatusCode, "challenge was not signed") {
 		return
 	}
 	resp.Body.Close()
 
-	assert.Equal(t, exported.KeyID, resp.Header.Get("X-Deflect-Challenge-Key-ID"),
+	assert.Equal(t, exported.KeyID, resp.Header.Get("X-RePress-Challenge-Key-ID"),
 		"the edge signed with a key other than the exported one")
 	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"),
 		"a signature must never be cached")
 
-	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-Deflect-Challenge-Response"))
+	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-RePress-Challenge-Response"))
 	assert.Nil(t, err, "undecodable signature")
 
 	message := []byte("deflect-challenge-v1\nlocalhost:8081\n" + challenge)
@@ -562,9 +562,9 @@ func TestDeflectChallenge(t *testing.T) {
 	// Error paths, driven through the same table helper as the rest of the suite.
 	missingChallenge := randomXClientIP()
 	tooLong := randomXClientIP()
-	tooLong.Set("X-Deflect-Challenge", strings.Repeat("x", 513))
+	tooLong.Set("X-RePress-Challenge", strings.Repeat("x", 513))
 	wrongMethod := randomXClientIP()
-	wrongMethod.Set("X-Deflect-Challenge", challenge)
+	wrongMethod.Set("X-RePress-Challenge", challenge)
 
 	httpTester(t, []TestResource{
 		{"POST", "/deflect_challenge", 400, missingChallenge, []string{"missing or empty"}},
