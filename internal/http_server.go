@@ -38,6 +38,7 @@ func RunHttpServer(
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	banner BannerInterface,
+	deflectChallengeKeys *DeflectChallengeKeys,
 ) {
 	addr := "127.0.0.1:8081" // XXX config
 
@@ -178,6 +179,38 @@ func RunHttpServer(
 			banner,
 		),
 	)
+
+	// Deflect Challenge. nginx maps `= /_deflect/challenge` here with a plain
+	// proxy_pass, so this handler's response goes straight back to the client:
+	// no X-Accel-Redirect, and the request never touches the decision path.
+	// r.Any, not r.POST, so a wrong method reaches the handler and gets an
+	// honest 405. gin only answers 405 when HandleMethodNotAllowed is set, and
+	// setting it would turn every existing 404 on the admin routes below into
+	// a 405 too.
+	r.Any("/deflect_challenge", deflectChallenge(configHolder, deflectChallengeKeys))
+
+	// Out-of-band public key export. Reachable through the `banjax` vhost only,
+	// since the main vhost funnels every other path into /auth_request.
+	r.GET("/deflect_challenge/pubkey", func(c *gin.Context) {
+		domain := strings.ToLower(strings.TrimSpace(c.Query("domain")))
+		if domain == "" {
+			c.JSON(400, gin.H{"error": "domain query param is required"})
+			return
+		}
+		publicKey, ok := deflectChallengeKeys.PublicKey(domain)
+		if !ok {
+			c.JSON(404, gin.H{
+				"error":  "deflect challenge is not enabled for this domain",
+				"domain": domain,
+			})
+			return
+		}
+		c.JSON(200, publicKey)
+	})
+
+	r.GET("/deflect_challenge/keys", func(c *gin.Context) {
+		c.JSON(200, gin.H{"keys": deflectChallengeKeys.PublicKeys()})
+	})
 
 	r.GET("/info", func(c *gin.Context) {
 		c.JSON(200, gin.H{

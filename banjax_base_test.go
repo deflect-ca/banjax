@@ -25,6 +25,7 @@ const fixtureConfigTestRegexBanner = "./fixtures/banjax-config-test-regex-banner
 const fixtureConfigTestReloadCIDR = "./fixtures/banjax-config-test-reload-cidr.yaml"
 const fixtureConfigTestPersiteFail = "./fixtures/banjax-config-test-persite-fail.yaml"
 const fixtureConfigTestUA = "./fixtures/banjax-config-test-ua.yaml"
+const fixtureConfigTestDeflectChallenge = "./fixtures/banjax-config-test-deflect-challenge.yaml"
 
 var tmpDir string
 var configFile string

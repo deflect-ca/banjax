@@ -48,3 +48,16 @@ services:
     depends_on:
       - nginx
       - test-origin
+
+  # Deflect Challenge verifier: proves cryptographically that the edge really is
+  # Deflect. Also in the "tools" profile; run it with
+  #   docker compose run --rm challenge-client
+  challenge-client:
+    profiles:
+      - tools
+    image: challenge-client
+    build:
+      context: ./supporting-containers/challenge-client
+      dockerfile: Dockerfile
+    depends_on:
+      - nginx

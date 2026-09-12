@@ -161,5 +161,13 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		config.DecisionLogThrottleIntervalSeconds = 60
 	}
 
+	// Not required: with no deflect_challenge_sites the feature is simply off.
+	if config.DeflectChallengeKeyDir == "" {
+		config.DeflectChallengeKeyDir = defaultDeflectChallengeKeyDir
+	}
+	if config.DeflectChallengeMaxLength <= 0 {
+		config.DeflectChallengeMaxLength = defaultDeflectChallengeMaxLength
+	}
+
 	return config, nil
 }
