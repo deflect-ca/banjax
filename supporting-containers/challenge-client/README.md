@@ -71,6 +71,59 @@ for the domain).
 | `ADMIN_HOST` | `banjax` | `Host` for the admin vhost |
 | `MAX_LENGTH` | `512` | Must match `deflect_challenge_max_length` |
 
+## Testing a remote edge
+
+`deflect-challenge.sh` is wired for the dev stack: it takes its settings from
+the environment and bootstraps the public key from the admin vhost next door.
+[deflect-challenge-remote.sh](deflect-challenge-remote.sh) runs the same checks
+against an edge you do not control the path to, taking a target and a **pinned**
+public key on the command line:
+
+```sh
+# The realistic case: a key handed to you out of band.
+./deflect-challenge-remote.sh -p 'zO0wBsIginO1s3w8vclXbrWFoIye205OMcQIH7IlQ7o=' example.com
+
+# Or the operator's key file. public_key if it has one, otherwise the public
+# half is derived locally from the seed.
+./deflect-challenge-remote.sh -f example.com.json example.com
+
+# One node out of the rotation, DNS bypassed, Host and SNI left alone.
+./deflect-challenge-remote.sh -f example.com.json -r 203.0.113.10 example.com
+
+# Staging, nonstandard port, self-signed certificate.
+./deflect-challenge-remote.sh -f staging.json -k https://staging.example.com:8443
+
+# No key in hand: bootstrap from an admin vhost reachable over an SSH tunnel.
+./deflect-challenge-remote.sh --admin-url http://127.0.0.1:8081 example.com
+
+# The dev stack, for comparison with the sibling script.
+./deflect-challenge-remote.sh --admin-url http://localhost --admin-host banjax \
+    --disabled-host sub.localhost http://localhost
+```
+
+`--help` lists every option. What differs from the sibling script:
+
+- The expected key ID is **derived from the pinned key** (the first 8 bytes of
+  its SHA-256, same as `DeflectChallengeKeyID`), so "returned key id matches" is
+  a real check even when nothing was fetched from the edge.
+- It checks the transport too: which IP answered, whether the certificate
+  verified, and whether the response carries `Cache-Control: no-store`, since on
+  a real path there is usually something in the middle that would love to cache
+  a single-use signature.
+- It checks that the `domain` the edge says it signed for is the host being
+  verified, which catches a vhost in the path rewriting `Host`.
+- Cases that need something the remote edge cannot be assumed to have are
+  skipped rather than failed, and say what to pass to enable them
+  (`--disabled-host`, `--admin-url`).
+
+Three hosts that are the same thing locally come apart remotely, so they are
+separate flags: the URL says where to **connect** (with `-r/--resolve` pinning
+one node), `-H/--host` is the **Host header**, and `-s/--signed-host` is the host
+expected **inside the signed message**. The last defaults to the Host header,
+which is right behind nginx, since it signs `$host` and `$host` has no port.
+Hitting banjax directly signs `Host` verbatim, port included: that is the case
+that needs `-s`, e.g. `-s localhost:8081`.
+
 ## What it checks
 
 Positive: the signature verifies, the returned key ID is the expected one, the
