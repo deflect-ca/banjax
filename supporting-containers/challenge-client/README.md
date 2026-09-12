@@ -6,11 +6,11 @@ to a middlebox impersonating it.
 
 ## The protocol
 
-1. The client `POST`s to `/_deflect/challenge`, setting `X-Deflect-Challenge` to a
-   random string, and optionally `X-Deflect-Challenge-Key-ID` to the ID of the
+1. The client `POST`s to `/_deflect/challenge`, setting `X-RePress-Challenge` to a
+   random string, and optionally `X-RePress-Challenge-Key-ID` to the ID of the
    keypair it expects.
-2. The edge responds `200 OK` with `X-Deflect-Challenge-Response` set to an
-   Ed25519 signature, and `X-Deflect-Challenge-Key-ID` set to the ID of the key it
+2. The edge responds `200 OK` with `X-RePress-Challenge-Response` set to an
+   Ed25519 signature, and `X-RePress-Challenge-Key-ID` set to the ID of the key it
    actually signed with.
 3. The client verifies the signature with the domain's public key. If it
    verifies, the responder holds that domain's private key. If it does not, the
@@ -28,7 +28,7 @@ re-presented as proof of another by an edge holding both keys. This must match
 `DeflectChallengeMessage` in [internal/deflect_challenge.go](../../internal/deflect_challenge.go)
 byte for byte.
 
-The request's `X-Deflect-Challenge-Key-ID` is advisory. The edge always signs
+The request's `X-RePress-Challenge-Key-ID` is advisory. The edge always signs
 with its current key and returns that key's real ID; deciding whether the
 returned ID is trusted is the client's job. That is what will make key rotation
 possible without a protocol change.
