@@ -177,7 +177,7 @@ func RunKafkaReader(
 }
 
 func getBlockIpTtl(config *Config, host string) (blockIpTtl int) {
-	blockIpTtl = config.BlockSessionTtlSeconds
+	blockIpTtl = config.BlockIPTtlSeconds
 	if ttl, ok := config.SitesToBlockIPTtlSeconds[host]; ok {
 		log.Printf("KAFKA: found site-specific block_ip ttl %s %d\n", host, ttl)
 		blockIpTtl = ttl
@@ -186,7 +186,7 @@ func getBlockIpTtl(config *Config, host string) (blockIpTtl int) {
 }
 
 func getBlockSessionTtl(config *Config, host string) (blockSessionTtl int) {
-	blockSessionTtl = config.BlockIPTtlSeconds
+	blockSessionTtl = config.BlockSessionTtlSeconds
 	if ttl, ok := config.SitesToBlockSessionTtlSeconds[host]; ok {
 		log.Printf("KAFKA: found site-specific block_session ttl %s %d\n", host, ttl)
 		blockSessionTtl = ttl

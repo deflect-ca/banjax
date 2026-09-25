@@ -16,6 +16,7 @@ import (
 const kafkaTestConfString = `
 expiring_decision_ttl_seconds: 300
 block_ip_ttl_seconds: 600
+block_session_ttl_seconds: 900
 `
 
 func TestHandleCommand_ChallengeIP_DefaultTtl(t *testing.T) {
@@ -40,6 +41,70 @@ func TestHandleCommand_ChallengeIP_TTLOverride(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_BlockIP_DefaultTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
+
+	expiringDecision, ok := decisionLists.Check("", "1.2.3.4")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, expiringDecision.Decision)
+	assert.WithinDuration(t, time.Now().Add(600*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_BlockIP_SiteTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString + `
+sites_to_block_ip_ttl_seconds:
+  example.com: 1200
+`)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_ip", Value: "5.6.7.8", Host: "other.com"}, decisionLists)
+
+	siteDecision, ok := decisionLists.Check("", "1.2.3.4")
+	assert.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(1200*time.Second), siteDecision.Expires, 5*time.Second)
+
+	// a host without a site-specific ttl falls back to block_ip_ttl_seconds
+	otherDecision, ok := decisionLists.Check("", "5.6.7.8")
+	assert.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(600*time.Second), otherDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_BlockSession_DefaultTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
+
+	expiringDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, expiringDecision.Decision)
+	assert.WithinDuration(t, time.Now().Add(900*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_BlockSession_SiteTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString + `
+sites_to_block_session_ttl_seconds:
+  example.com: 1200
+`)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_session", SessionId: "session-b", Value: "1.2.3.4", Host: "other.com"}, decisionLists)
+
+	siteDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(1200*time.Second), siteDecision.Expires, 5*time.Second)
+
+	// a host without a site-specific ttl falls back to block_session_ttl_seconds
+	otherDecision, ok := decisionLists.Check("session-b", "")
+	assert.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(900*time.Second), otherDecision.Expires, 5*time.Second)
 }
 
 func TestHandleCommand_BlockIP_TTLOverrideBeatsSiteTtl(t *testing.T) {
