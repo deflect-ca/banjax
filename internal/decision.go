@@ -385,6 +385,8 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 	value := dynamicDecisionLists{
 		expiringDecisionLists:          make(ipAddrToExpiringDecision),
 		expiringDecisionListsSessionId: make(sessionIdToExpiringDecision),
+		expiringDecisionListsHost:      make(hostToExpiringDecision),
+		expiringDecisionListsUA:        make(uaToExpiringDecision),
 	}
 
 	lists := &DynamicDecisionLists{
@@ -499,6 +501,98 @@ func (h *DynamicDecisionLists) Check(sessionId string, clientIp string) (Expirin
 	return expiringDecision, ok
 }
 
+func (h *DynamicDecisionLists) UpdateByHost(
+	config *Config,
+	host string,
+	expires time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	existingExpiringDecision, ok := h.value.expiringDecisionListsHost[host]
+	if ok {
+		if newDecision <= existingExpiringDecision.Decision {
+			if config.Debug {
+				log.Println("updateExpiringDecisionListsHost: not with less serious", existingExpiringDecision.Decision, newDecision, host)
+			}
+			return
+		}
+	}
+	if config.Debug {
+		log.Println("updateExpiringDecisionListsHost: update with existing and new: ", existingExpiringDecision.Decision, newDecision, host)
+	}
+
+	h.value.expiringDecisionListsHost[host] = ExpiringDecision{
+		newDecision,
+		expires,
+		"",
+		fromBaskerville,
+		host,
+	}
+}
+
+func (h *DynamicDecisionLists) CheckByHost(host string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	expiringDecision, ok := h.value.expiringDecisionListsHost[host]
+	if ok {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsHost, host)
+			ok = false
+		}
+	}
+	return expiringDecision, ok
+}
+
+func (h *DynamicDecisionLists) UpdateByUA(
+	config *Config,
+	ua string,
+	expires time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	existingExpiringDecision, ok := h.value.expiringDecisionListsUA[ua]
+	if ok {
+		if newDecision <= existingExpiringDecision.Decision {
+			if config.Debug {
+				log.Println("updateExpiringDecisionListsUA: not with less serious", existingExpiringDecision.Decision, newDecision, ua)
+			}
+			return
+		}
+	}
+	if config.Debug {
+		log.Println("updateExpiringDecisionListsUA: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ua)
+	}
+
+	h.value.expiringDecisionListsUA[ua] = ExpiringDecision{
+		newDecision,
+		expires,
+		"",
+		fromBaskerville,
+		ua,
+	}
+}
+
+func (h *DynamicDecisionLists) CheckByUA(ua string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	expiringDecision, ok := h.value.expiringDecisionListsUA[ua]
+	if ok {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsUA, ua)
+			ok = false
+		}
+	}
+	return expiringDecision, ok
+}
+
 func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -537,26 +631,69 @@ func (h *DynamicDecisionLists) RemoveByIp(ip string) {
 	// log.Printf("deleted IP %v from expiring lists", ip)
 }
 
+func (h *DynamicDecisionLists) RemoveByHost(host string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	delete(h.value.expiringDecisionListsHost, host)
+}
+
+func (h *DynamicDecisionLists) RemoveByUA(ua string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	delete(h.value.expiringDecisionListsUA, ua)
+}
+
+func (h *DynamicDecisionLists) RemoveBySessionId(sessionId string) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	delete(h.value.expiringDecisionListsSessionId, sessionId)
+}
+
 func (h *DynamicDecisionLists) Clear() {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	clear(h.value.expiringDecisionLists)
 	clear(h.value.expiringDecisionListsSessionId)
+	clear(h.value.expiringDecisionListsHost)
+	clear(h.value.expiringDecisionListsUA)
 }
 
-func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int) {
+func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	lenExpiringChallenges = 0
 	lenExpiringBlocks = 0
+	lenExpiringSitewideChallenges = 0
+	lenExpiringSitewideBlocks = 0
+	lenExpiringUAChallenges = 0
+	lenExpiringUABlocks = 0
 
 	for _, expiringDecision := range h.value.expiringDecisionLists {
 		if expiringDecision.Decision == Challenge {
 			lenExpiringChallenges += 1
 		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
 			lenExpiringBlocks += 1
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsHost {
+		if expiringDecision.Decision == Challenge {
+			lenExpiringSitewideChallenges += 1
+		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
+			lenExpiringSitewideBlocks += 1
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsUA {
+		if expiringDecision.Decision == Challenge {
+			lenExpiringUAChallenges += 1
+		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
+			lenExpiringUABlocks += 1
 		}
 	}
 
@@ -571,6 +708,18 @@ func (h *DynamicDecisionLists) removeExpired() {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete(h.value.expiringDecisionLists, ip)
 			// log.Println("deleted expired decision from expiring lists")
+		}
+	}
+
+	for host, expiringDecision := range h.value.expiringDecisionListsHost {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsHost, host)
+		}
+	}
+
+	for ua, expiringDecision := range h.value.expiringDecisionListsUA {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsUA, ua)
 		}
 	}
 }
@@ -596,11 +745,49 @@ func (m ipAddrToExpiringDecision) String() string {
 
 type sessionIdToExpiringDecision map[string]ExpiringDecision
 
+type hostToExpiringDecision map[string]ExpiringDecision
+
+func (m hostToExpiringDecision) String() string {
+	b := strings.Builder{}
+	for host, expiringDecision := range m {
+		b.WriteString(fmt.Sprintf("%v", host))
+		b.WriteString(":\n")
+		b.WriteString("\t")
+		b.WriteString(fmt.Sprintf("%v until %v (baskerville: %v)",
+			expiringDecision.Decision.String(),
+			expiringDecision.Expires.Format("15:04:05"),
+			expiringDecision.fromBaskerville,
+		))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+type uaToExpiringDecision map[string]ExpiringDecision
+
+func (m uaToExpiringDecision) String() string {
+	b := strings.Builder{}
+	for ua, expiringDecision := range m {
+		b.WriteString(fmt.Sprintf("%v", ua))
+		b.WriteString(":\n")
+		b.WriteString("\t")
+		b.WriteString(fmt.Sprintf("%v until %v (baskerville: %v)",
+			expiringDecision.Decision.String(),
+			expiringDecision.Expires.Format("15:04:05"),
+			expiringDecision.fromBaskerville,
+		))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // Decision lists that can update frequently during the runtime of the program. Updated from kafka
 // or the log tailer.
 type dynamicDecisionLists struct {
 	expiringDecisionLists          ipAddrToExpiringDecision
 	expiringDecisionListsSessionId sessionIdToExpiringDecision
+	expiringDecisionListsHost      hostToExpiringDecision
+	expiringDecisionListsUA        uaToExpiringDecision
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
@@ -609,9 +796,11 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v",
+	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v",
 		sc.perSiteDecisionLists,
 		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
+		d.value.expiringDecisionListsHost,
+		d.value.expiringDecisionListsUA,
 	)
 }
