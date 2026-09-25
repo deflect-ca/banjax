@@ -200,8 +200,10 @@ func handleCommand(
 	decisionLists *DynamicDecisionLists,
 ) {
 	// exempt a site from baskerville according to config
-	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled && config.Debug {
-		log.Printf("KAFKA: %s disabled baskerville, skipping %s\n", command.Host, command.Name)
+	if _, disabled := config.SitesToDisableBaskerville[command.Host]; disabled {
+		if config.Debug {
+			log.Printf("KAFKA: %s disabled baskerville, skipping %s\n", command.Host, command.Name)
+		}
 		return
 	}
 
@@ -286,16 +288,21 @@ func handleSessionCommand(
 		return
 	}
 
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
 	if config.Debug {
 		log.Printf("KAFKA: handleSessionCommand %s %s %s %s %d\n",
-			command.Host, command.Value, sessionIdDecoded, decision, expireDuration)
+			command.Host, command.Value, sessionIdDecoded, decision, ttl)
 	}
 
 	decisionLists.UpdateBySessionId(
 		config,
 		command.Value,
 		sessionIdDecoded,
-		time.Now().Add(time.Duration(expireDuration)*time.Second),
+		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,

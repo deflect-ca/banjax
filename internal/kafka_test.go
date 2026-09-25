@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -107,6 +108,45 @@ sites_to_block_session_ttl_seconds:
 	assert.WithinDuration(t, time.Now().Add(900*time.Second), otherDecision.Expires, 5*time.Second)
 }
 
+func TestHandleCommand_BlockSession_TTLOverrideBeatsSiteTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString + `
+sites_to_block_session_ttl_seconds:
+  example.com: 1200
+`)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com", TTL: 15}, decisionLists)
+
+	expiringDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, expiringDecision.Decision)
+	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_ChallengeSession_DefaultTtl(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "challenge_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
+
+	expiringDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, expiringDecision.Decision)
+	assert.WithinDuration(t, time.Now().Add(300*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
+func TestHandleCommand_ChallengeSession_TTLOverride(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "challenge_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com", TTL: 15}, decisionLists)
+
+	expiringDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, expiringDecision.Decision)
+	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
+}
+
 func TestHandleCommand_BlockIP_TTLOverrideBeatsSiteTtl(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString + `
 sites_to_block_ip_ttl_seconds:
@@ -129,6 +169,11 @@ func TestHandleCommand_NonPositiveTTLUsesDefault(t *testing.T) {
 	handleCommand(config, commandMessage{Name: "challenge_all", Host: "example.com", TTL: -1}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_ua", UA: "curl/7.68.0", TTL: 0}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", TTL: -1}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_session", SessionId: "session-a", TTL: -1}, decisionLists)
+
+	sessionDecision, ok := decisionLists.Check("session-a", "")
+	assert.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(300*time.Second), sessionDecision.Expires, 5*time.Second)
 
 	hostDecision, ok := decisionLists.CheckByHost("example.com")
 	assert.True(t, ok)
@@ -378,6 +423,100 @@ func TestHandleCommand_ClearRules_InvalidSessionIdStillClearsOthers(t *testing.T
 	_, sessionOk := decisionLists.Check("%zz", "")
 	assert.False(t, hostOk)
 	assert.True(t, sessionOk)
+}
+
+const kafkaDisabledBaskervilleConfString = kafkaTestConfString + `
+sites_to_disable_baskerville:
+  disabled.com: true
+`
+
+// assertDecisionListsEmpty checks that nothing was written to any of the expiring decision lists.
+func assertDecisionListsEmpty(t *testing.T, decisionLists *DynamicDecisionLists) {
+	t.Helper()
+
+	decisionLists.mutex.Lock()
+	defer decisionLists.mutex.Unlock()
+
+	assert.Empty(t, decisionLists.value.expiringDecisionLists)
+	assert.Empty(t, decisionLists.value.expiringDecisionListsSessionId)
+	assert.Empty(t, decisionLists.value.expiringDecisionListsHost)
+	assert.Empty(t, decisionLists.value.expiringDecisionListsUA)
+}
+
+func TestHandleCommand_DisabledBaskerville_DropsCommands(t *testing.T) {
+	commands := []commandMessage{
+		{Name: "challenge_ip", Value: "1.2.3.4", Host: "disabled.com"},
+		{Name: "block_ip", Value: "1.2.3.4", Host: "disabled.com"},
+		{Name: "challenge_session", Value: "1.2.3.4", SessionId: "session-a", Host: "disabled.com"},
+		{Name: "block_session", Value: "1.2.3.4", SessionId: "session-a", Host: "disabled.com"},
+		{Name: "challenge_all", Host: "disabled.com"},
+		{Name: "challenge_ua", UA: "curl/7.68.0", Host: "disabled.com"},
+		{Name: "block_ua", UA: "curl/7.68.0", Host: "disabled.com"},
+	}
+
+	// the drop must not depend on debug mode
+	for _, debug := range []bool{false, true} {
+		for _, command := range commands {
+			t.Run(fmt.Sprintf("%s/debug=%v", command.Name, debug), func(t *testing.T) {
+				config := loadConfigString(kafkaDisabledBaskervilleConfString)
+				config.Debug = debug
+				decisionLists := NewDynamicDecisionLists()
+
+				handleCommand(config, command, decisionLists)
+
+				assertDecisionListsEmpty(t, decisionLists)
+			})
+		}
+	}
+}
+
+func TestHandleCommand_DisabledBaskerville_OtherHostsUnaffected(t *testing.T) {
+	config := loadConfigString(kafkaDisabledBaskervilleConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "enabled.com"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_all", Host: "enabled.com"}, decisionLists)
+	// ua commands usually carry no host, so they are not affected by the per-site disable list
+	handleCommand(config, commandMessage{Name: "block_ua", UA: "curl/7.68.0"}, decisionLists)
+
+	_, ipOk := decisionLists.Check("", "1.2.3.4")
+	_, hostOk := decisionLists.CheckByHost("enabled.com")
+	_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+	assert.True(t, ipOk)
+	assert.True(t, hostOk)
+	assert.True(t, uaOk)
+}
+
+func TestHandleCommand_DisabledBaskerville_DropsClearRules(t *testing.T) {
+	for _, debug := range []bool{false, true} {
+		t.Run(fmt.Sprintf("debug=%v", debug), func(t *testing.T) {
+			config := loadConfigString(kafkaDisabledBaskervilleConfString)
+			config.Debug = debug
+			decisionLists := NewDynamicDecisionLists()
+			decisionLists.UpdateByHost(config, "disabled.com", time.Now().Add(time.Minute), Challenge, true)
+			decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
+			decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
+			decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+
+			// the whole command is dropped, including the fields that are not per-site
+			handleCommand(config, commandMessage{
+				Name:      "clear_rules",
+				Host:      "disabled.com",
+				Value:     "1.2.3.4",
+				SessionId: "session-a",
+				UA:        "curl/7.68.0",
+			}, decisionLists)
+
+			_, hostOk := decisionLists.CheckByHost("disabled.com")
+			_, ipOk := decisionLists.Check("", "1.2.3.4")
+			_, sessionOk := decisionLists.Check("session-a", "")
+			_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+			assert.True(t, hostOk)
+			assert.True(t, ipOk)
+			assert.True(t, sessionOk)
+			assert.True(t, uaOk)
+		})
+	}
 }
 
 func TestHandleCommand_ClearRules_NoFieldsIsNoop(t *testing.T) {

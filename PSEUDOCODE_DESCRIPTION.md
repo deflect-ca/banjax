@@ -185,6 +185,8 @@ over the config default.
 
 Commands for a host listed in `sites_to_disable_baskerville` are dropped on arrival, and any
 Baskerville-origin decision already in an expiring list is skipped at decision time for such a host.
+This includes `clear_rules`: one whose `host` is such a site is dropped as a whole, including its
+`value` / `ua` / `session_id` fields.
 
 The lengths of the expiring lists are reported in the metrics log as `LenExpiringChallenges` /
 `LenExpiringBlocks` (IP and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
