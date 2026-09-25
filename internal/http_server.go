@@ -259,9 +259,36 @@ func RunHttpServer(
 		})
 	})
 
-	// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
-	// or clear a block_ua/challenge_ua-triggered decision by exact UA string
-	r.POST("/unban", func(c *gin.Context) {
+	r.POST("/unban", unbanHandler(configHolder, dynamicDecisionLists, banner))
+
+	if config.Profile {
+		pprof.Register(r)
+		runtime.SetMutexProfileFraction(1)
+	}
+
+	server := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+	defer server.Close()
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("http server failed: %v\n", err)
+		}
+	}()
+
+	<-ctx.Done()
+}
+
+// API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
+// or clear a block_ua/challenge_ua-triggered decision by exact UA string
+func unbanHandler(
+	configHolder *ConfigHolder,
+	dynamicDecisionLists *DynamicDecisionLists,
+	banner BannerInterface,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
 		config := configHolder.Get()
 
 		// get host from post data; when present, just clear the expiring sitewide challenge for it
@@ -342,26 +369,7 @@ func RunHttpServer(
 			"decision":               decision.Decision.String(),
 			"unban":                  true,
 		})
-	})
-
-	if config.Profile {
-		pprof.Register(r)
-		runtime.SetMutexProfileFraction(1)
 	}
-
-	server := &http.Server{
-		Addr:    addr,
-		Handler: r,
-	}
-	defer server.Close()
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Printf("http server failed: %v\n", err)
-		}
-	}()
-
-	<-ctx.Done()
 }
 
 // this adds the headers that Nginx usually would in production

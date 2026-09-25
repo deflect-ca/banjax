@@ -219,3 +219,67 @@ func TestDynamicDecisionLists_Metrics_CountsUAEntries(t *testing.T) {
 	assert.Equal(t, 1, lenExpiringUAChallenges)
 	assert.Equal(t, 1, lenExpiringUABlocks)
 }
+
+func TestDynamicDecisionLists_Metrics_IptablesBlockAndAllow(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByHost(config, "iptables.com", time.Now().Add(time.Minute), IptablesBlock, true)
+	decisionLists.UpdateByHost(config, "allowed.com", time.Now().Add(time.Minute), Allow, true)
+	decisionLists.UpdateByUA(config, "iptables-agent", time.Now().Add(time.Minute), IptablesBlock, true)
+	decisionLists.UpdateByUA(config, "allowed-agent", time.Now().Add(time.Minute), Allow, true)
+
+	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks := decisionLists.Metrics()
+
+	// ip entries are only counted in the ip metrics
+	assert.Equal(t, 1, lenExpiringChallenges)
+	assert.Equal(t, 0, lenExpiringBlocks)
+
+	// iptables_block counts as a block, allow counts as neither
+	assert.Equal(t, 0, lenExpiringSitewideChallenges)
+	assert.Equal(t, 1, lenExpiringSitewideBlocks)
+	assert.Equal(t, 0, lenExpiringUAChallenges)
+	assert.Equal(t, 1, lenExpiringUABlocks)
+}
+
+func TestDynamicDecisionLists_HostUAAndIpMapsAreIndependent(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	// the same key in one map must not leak into the others
+	decisionLists.UpdateByHost(config, "shared-key", time.Now().Add(time.Minute), Challenge, true)
+
+	_, uaOk := decisionLists.CheckByUA("shared-key")
+	_, ipOk := decisionLists.Check("", "shared-key")
+	assert.False(t, uaOk)
+	assert.False(t, ipOk)
+
+	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true)
+
+	// removing from the ua map leaves the host map alone, and vice versa
+	decisionLists.RemoveByUA("shared-key")
+	_, hostOk := decisionLists.CheckByHost("shared-key")
+	assert.True(t, hostOk)
+
+	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.RemoveByHost("shared-key")
+	_, uaOk = decisionLists.CheckByUA("shared-key")
+	assert.True(t, uaOk)
+}
+
+func TestFormatDecisionLists_IncludesSitewideAndUA(t *testing.T) {
+	config := &Config{}
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	decisionLists := NewDynamicDecisionLists()
+
+	expires := time.Now().Add(time.Hour)
+	decisionLists.UpdateByHost(config, "example.com", expires, Challenge, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", expires, NginxBlock, false)
+
+	out := FormatDecisionLists(staticDecisionLists, decisionLists)
+
+	assert.Contains(t, out, "expiring_sitewide:\nexample.com:\n\tChallenge until "+expires.Format("15:04:05")+" (baskerville: true)\n")
+	assert.Contains(t, out, "expiring_ua:\ncurl/7.68.0:\n\tNginxBlock until "+expires.Format("15:04:05")+" (baskerville: false)\n")
+}
