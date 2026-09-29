@@ -7,6 +7,8 @@
 package internal
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -76,6 +78,32 @@ func TestRegexWithRate(t *testing.T) {
 	assert.Equal(t, "All sites/methods: 800 req/30 sec", r.Rule)
 	assert.Equal(t, 1, len(r.HostsToSkip))
 	assert.Equal(t, true, r.HostsToSkip["localhost"])
+}
+
+func TestWriteMetricsToEncoder_IncludesSitewideAndUACounts(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.Update(config, "5.6.7.8", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByHost(config, "other-challenged.com", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true)
+
+	var buf bytes.Buffer
+	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates())
+
+	var metricsLogLine MetricsLogLine
+	err := json.Unmarshal(buf.Bytes(), &metricsLogLine)
+	assert.Nil(t, err)
+
+	assert.Equal(t, 1, metricsLogLine.LenExpiringChallenges)
+	assert.Equal(t, 1, metricsLogLine.LenExpiringBlocks)
+	assert.Equal(t, 2, metricsLogLine.LenExpiringSitewideChallenges)
+	assert.Equal(t, 0, metricsLogLine.LenExpiringSitewideBlocks)
+	assert.Equal(t, 1, metricsLogLine.LenExpiringUAChallenges)
+	assert.Equal(t, 2, metricsLogLine.LenExpiringUABlocks)
 }
 
 func loadConfigString(configStr string) *Config {
