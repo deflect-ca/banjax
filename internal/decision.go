@@ -646,7 +646,7 @@ func (h *DynamicDecisionLists) CheckByUA(ua string) (ExpiringDecision, bool) {
 
 // expiring ip decisions apply to every site, so refuse subnets so broad that a malformed
 // command (e.g. 0.0.0.0/0) would block a large part of the internet everywhere
-const minSubnetPrefixBits = 8
+const minSubnetPrefixBits = 16
 
 // ParseSubnet parses an IPv4 subnet in CIDR notation, as sent by block_subnet/challenge_subnet,
 // normalized to its network address so that 1.2.3.4/24 and 1.2.3.0/24 are the same entry.

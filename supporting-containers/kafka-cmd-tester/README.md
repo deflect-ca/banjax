@@ -35,7 +35,7 @@ docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.0/24
 TTL config), but `-value` is an IPv4 subnet in CIDR notation and the decision
 covers every IP in it. Banjax normalizes it to the network address
 (`192.168.65.7/24` becomes `192.168.65.0/24`) and ignores IPv6 subnets and
-anything broader than `/8`. A `clear_rules` `-value` containing a `/` clears
+anything broader than `/16`. A `clear_rules` `-value` containing a `/` clears
 that subnet entry instead of a single IP.
 
 `block_ua`/`challenge_ua` match the client's User-Agent exactly (no

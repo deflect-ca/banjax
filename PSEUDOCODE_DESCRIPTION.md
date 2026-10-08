@@ -178,7 +178,7 @@ two block decisions (an Allow there is ignored).
 
 `block_subnet` / `challenge_subnet` cover every IP in a subnet with one command, e.g. a botnet
 rotating through a `/24` to evade per-IP blocks. The value is normalized to its network address
-(`202.46.62.7/24` is stored as `202.46.62.0/24`); IPv6 subnets and anything broader than `/8` are
+(`202.46.62.7/24` is stored as `202.46.62.0/24`); IPv6 subnets and anything broader than `/16` are
 rejected. The subnet list is checked in the same step as the IP list and acts as if the command had
 been sent for every IP in the subnet: when both an IP entry and one or more covering subnet entries
 exist, the most severe decision wins. Subnet matches are reported as `ExpiringSubnetChallenge` /

@@ -289,9 +289,9 @@ func TestParseSubnet(t *testing.T) {
 	valid := map[string]string{
 		"202.46.62.0/24":  "202.46.62.0/24",
 		"202.46.62.77/24": "202.46.62.0/24", // normalized to the network address
-		" 10.0.0.0/8 ":    "10.0.0.0/8",
+		" 10.1.0.0/16 ":   "10.1.0.0/16",
 		"1.2.3.4/32":      "1.2.3.4/32",
-		"172.16.255.1/12": "172.16.0.0/12",
+		"172.16.255.1/17": "172.16.128.0/17",
 	}
 	for input, expected := range valid {
 		subnet, err := ParseSubnet(input)
@@ -308,7 +308,8 @@ func TestParseSubnet(t *testing.T) {
 		"2001:db8::/32",      // ipv6
 		"::ffff:1.2.3.0/120", // ipv4-mapped ipv6
 		"0.0.0.0/0",          // too broad
-		"10.0.0.0/7",         // too broad
+		"10.0.0.0/8",         // too broad
+		"10.0.0.0/15",        // too broad
 	}
 	for _, input := range invalid {
 		_, err := ParseSubnet(input)
