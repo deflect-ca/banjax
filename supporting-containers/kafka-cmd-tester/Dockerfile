@@ -7,7 +7,7 @@
 # One-off tool for sending a simulated banjax kafka command message. Built
 # from the repo root so it shares the main module's go.mod/go.sum instead of
 # duplicating the kafka-go dependency.
-FROM golang:1.25.8-bookworm AS build
+FROM golang:1.25.14-bookworm AS build
 
 WORKDIR /opt/banjax
 COPY go.mod go.sum ./
