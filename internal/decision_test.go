@@ -442,3 +442,170 @@ func TestDynamicDecisionLists_Subnet_MetricsBannedAndFormat(t *testing.T) {
 	_, ok := decisionLists.CheckBySubnet("10.3.1.1")
 	assert.False(t, ok)
 }
+
+const staticCIDRConfString = `
+global_decision_lists:
+  allow:
+    - 20.20.20.20
+    - 10.10.0.0/16
+  challenge:
+    - 8.8.8.8
+    - 192.0.2.77/24
+    - 2001:db8::/32
+  nginx_block:
+    - 70.80.90.100/32
+    - not-an-ip
+    - 172.16.0.0/40
+  iptables_block:
+    - 30.40.50.0/24
+    - 30.40.50.60
+per_site_decision_lists:
+  example.com:
+    allow:
+      - 5.5.5.0/24
+    challenge:
+      - 6.6.6.6
+      - 6.6.0.0/16
+    nginx_block:
+      - 7.7.7.0/24
+      - 2001:db8:1::1
+  empty.com:
+    allow: []
+`
+
+func TestStaticDecisionLists_CheckGlobal_CIDR(t *testing.T) {
+	config := loadConfigString(staticCIDRConfString)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	cases := map[string]Decision{
+		"20.20.20.20":       Allow,     // exact
+		"10.10.0.1":         Allow,     // cidr
+		"10.10.255.255":     Allow,     // cidr upper bound
+		"::ffff:10.10.3.4":  Allow,     // ipv4-mapped ipv6 matches the ipv4 cidr
+		"8.8.8.8":           Challenge, // exact
+		"192.0.2.1":         Challenge, // non-canonical cidr 192.0.2.77/24 covers the whole /24
+		"192.0.2.255":       Challenge,
+		"2001:db8:ffff::1":  Challenge,  // ipv6 cidr
+		"2001:0db8:0000::0": Challenge,  // non-canonical ipv6 spelling
+		"70.80.90.100":      NginxBlock, // /32 behaves like a plain ip
+		"30.40.50.1":        IptablesBlock,
+		"30.40.50.60":       IptablesBlock,
+	}
+	for ip, expected := range cases {
+		decision, ok := staticDecisionLists.CheckGlobal(config, ip)
+		assert.True(t, ok, ip)
+		assert.Equal(t, expected, decision, ip)
+	}
+
+	for _, ip := range []string{"10.11.0.1", "192.0.3.1", "2001:db9::1", "70.80.90.101", "172.16.0.1", "", "garbage"} {
+		_, ok := staticDecisionLists.CheckGlobal(config, ip)
+		assert.False(t, ok, ip)
+	}
+}
+
+func TestStaticDecisionLists_CheckGlobal_AllowWinsOverlap(t *testing.T) {
+	config := loadConfigString(`
+global_decision_lists:
+  allow:
+    - 9.9.9.9
+  nginx_block:
+    - 9.9.9.0/24
+`)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	decision, ok := staticDecisionLists.CheckGlobal(config, "9.9.9.9")
+	assert.True(t, ok)
+	assert.Equal(t, Allow, decision)
+
+	decision, ok = staticDecisionLists.CheckGlobal(config, "9.9.9.8")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, decision)
+}
+
+func TestStaticDecisionLists_CheckPerSite_CIDR(t *testing.T) {
+	config := loadConfigString(staticCIDRConfString)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	cases := map[string]Decision{
+		"5.5.5.5":         Allow,
+		"6.6.6.6":         Challenge,
+		"6.6.1.1":         Challenge,
+		"7.7.7.200":       NginxBlock,
+		"::ffff:7.7.7.1":  NginxBlock,
+		"2001:db8:1:0::1": NginxBlock, // plain ipv6 written differently still matches
+	}
+	for ip, expected := range cases {
+		decision, ok := staticDecisionLists.CheckPerSite(config, "example.com", ip)
+		assert.True(t, ok, ip)
+		assert.Equal(t, expected, decision, ip)
+	}
+
+	for _, ip := range []string{"5.5.6.5", "8.8.8.8", "20.20.20.20", "garbage"} {
+		_, ok := staticDecisionLists.CheckPerSite(config, "example.com", ip)
+		assert.False(t, ok, ip)
+	}
+
+	// per-site entries don't leak to other sites
+	_, ok := staticDecisionLists.CheckPerSite(config, "other.com", "5.5.5.5")
+	assert.False(t, ok)
+	_, ok = staticDecisionLists.CheckPerSite(config, "empty.com", "5.5.5.5")
+	assert.False(t, ok)
+}
+
+func TestStaticDecisionLists_CheckIsAllowed_CIDR(t *testing.T) {
+	config := loadConfigString(staticCIDRConfString)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	assert.True(t, staticDecisionLists.CheckIsAllowed("example.com", "5.5.5.9"))   // per-site cidr
+	assert.True(t, staticDecisionLists.CheckIsAllowed("example.com", "10.10.1.1")) // global cidr
+	assert.True(t, staticDecisionLists.CheckIsAllowed("other.com", "10.10.1.1"))
+	assert.True(t, staticDecisionLists.CheckIsAllowed("other.com", "20.20.20.20"))
+	assert.False(t, staticDecisionLists.CheckIsAllowed("other.com", "5.5.5.9"))
+	assert.False(t, staticDecisionLists.CheckIsAllowed("example.com", "6.6.6.6")) // challenge, not allow
+	assert.False(t, staticDecisionLists.CheckIsAllowed("example.com", "garbage"))
+}
+
+func TestIPMatcher(t *testing.T) {
+	m := newIPMatcher([]string{
+		"1.1.1.1",
+		"10.0.0.0/8",
+		"192.0.2.77/24",      // non-canonical, covers the whole /24
+		"70.80.90.100/32",    // single ip
+		"::ffff:5.5.5.5",     // ipv4-mapped plain ip matches its ipv4 form
+		"::ffff:6.6.6.6/128", // so does an ipv4-mapped single ip cidr
+		"::ffff:7.7.7.0/120", // and an ipv4-mapped subnet its ipv4 form (ipfilter matched nothing here)
+		"2001:db8::/32",
+		"fe80::1",
+		"garbage",
+		"1.2.3.0/40",
+		"",
+	})
+
+	for _, ip := range []string{
+		"1.1.1.1", "::ffff:1.1.1.1",
+		"10.255.255.255", "10.0.0.0",
+		"192.0.2.0", "192.0.2.255",
+		"70.80.90.100",
+		"5.5.5.5", "6.6.6.6",
+		"::ffff:7.7.7.9", "7.7.7.9",
+		"2001:db8:abcd::1",
+		"fe80::1", "FE80:0:0::1",
+	} {
+		assert.True(t, m.Contains(ip), ip)
+	}
+
+	for _, ip := range []string{
+		"1.1.1.2", "11.0.0.1", "192.0.3.0", "70.80.90.101", "7.7.8.9",
+		"2001:db9::1", "garbage", "", "1.2.3.4",
+	} {
+		assert.False(t, m.Contains(ip), ip)
+	}
+
+	var nilMatcher *ipMatcher
+	assert.False(t, nilMatcher.Contains("1.1.1.1"))
+	assert.False(t, newIPMatcher(nil).Contains("1.1.1.1"))
+}

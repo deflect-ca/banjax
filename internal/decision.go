@@ -14,8 +14,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/jeremy5189/ipfilter-no-iploc/v2"
 )
 
 type Decision int
@@ -118,21 +116,19 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	decision, ok := c.perSiteDecisionLists[site][clientIp]
 
-	// found as plain IP form, no need to check IPFilter
+	// found as plain IP form, no need to check the ipMatcher
 	if ok {
 		return decision, true
 	}
 
-	// PerSiteDecisionListsIPFilter has different struct as PerSiteDecisionLists
+	// perSiteDecisionListsIPMatcher has different struct as perSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
 	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-		if instanceIPFilter, ok := c.perSiteDecisionListsIPFilter[site][iterateDecision]; ok && instanceIPFilter != nil {
-			if instanceIPFilter.Allowed(string(clientIp)) {
-				if config.Debug {
-					log.Printf("matched in per-site ipfilter %s %v %s", site, iterateDecision, clientIp)
-				}
-				return iterateDecision, true
+		if c.perSiteDecisionListsIPMatcher[site][iterateDecision].Contains(clientIp) {
+			if config.Debug {
+				log.Printf("matched in per-site ipMatcher %s %v %s", site, iterateDecision, clientIp)
 			}
+			return iterateDecision, true
 		}
 	}
 
@@ -148,11 +144,9 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 		return decision, true
 	} else {
 		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
-			// check if Ipfilter ref associated to this iterateDecision exists
-			filter, ok := c.globalDecisionListsIPFilter[iterateDecision]
-			if ok && filter.Allowed(clientIp) {
+			if c.globalDecisionListsIPMatcher[iterateDecision].Contains(clientIp) {
 				if config.Debug {
-					log.Printf("matched in ipfilter %v %s", iterateDecision, clientIp)
+					log.Printf("matched in ipMatcher %v %s", iterateDecision, clientIp)
 				}
 				return iterateDecision, true
 			}
@@ -193,9 +187,8 @@ func (l *StaticDecisionLists) CheckIsAllowed(site string, clientIp string) bool 
 		return true
 	}
 
-	filter, ok := c.perSiteDecisionListsIPFilter[site][Allow]
-	if ok && filter.Allowed(clientIp) {
-		// log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipfilter %s %s", urlString, ipString)
+	if c.perSiteDecisionListsIPMatcher[site][Allow].Contains(clientIp) {
+		// log.Printf("checkIpInPerSiteDecisionList: matched in per-site ipMatcher %s %s", urlString, ipString)
 		return true
 	}
 
@@ -207,9 +200,8 @@ func (l *StaticDecisionLists) CheckIsAllowed(site string, clientIp string) bool 
 	}
 
 	// not found with direct match, try to match if contain within CIDR subnet
-	filter, ok = c.globalDecisionListsIPFilter[Allow]
-	if ok && filter.Allowed(clientIp) {
-		// log.Printf("checkIpInGlobalDecisionList: matched in ipfilter %s", ipString)
+	if c.globalDecisionListsIPMatcher[Allow].Contains(clientIp) {
+		// log.Printf("checkIpInGlobalDecisionList: matched in ipMatcher %s", ipString)
 		return true
 	}
 
@@ -250,16 +242,79 @@ func (m siteToIPAddrToDecision) String() string {
 }
 
 type siteToFailAction map[string]FailAction
-type decisionToIPFilter map[Decision]*ipfilter.IPFilter
-type siteToDecisionToIPFilter map[string]map[Decision]*ipfilter.IPFilter
+type decisionToIPMatcher map[Decision]*ipMatcher
+type siteToDecisionToIPMatcher map[string]map[Decision]*ipMatcher
+
+// ipMatcher matches an ip against a decision list's entries, which can be plain ips or subnets in
+// CIDR notation (IPv4 or IPv6). Like the rest of staticDecisionLists it is never modified after
+// it is built, so it needs no locking.
+type ipMatcher struct {
+	addrs   map[netip.Addr]struct{}
+	subnets []netip.Prefix
+}
+
+// newIPMatcher builds an ipMatcher, skipping (and logging) entries that are neither an ip nor a
+// subnet.
+func newIPMatcher(entries []string) *ipMatcher {
+	m := &ipMatcher{addrs: make(map[netip.Addr]struct{})}
+	for _, entry := range entries {
+		if strings.Contains(entry, "/") {
+			subnet, err := netip.ParsePrefix(entry)
+			if err != nil {
+				log.Printf("decision lists: ignoring invalid CIDR %q: %v\n", entry, err)
+				continue
+			}
+			// Contains compares unmapped ips, so do the same to an IPv4-mapped IPv6 subnet,
+			// e.g. ::ffff:1.2.3.0/120 becomes 1.2.3.0/24
+			if subnet.Addr().Is4In6() && subnet.Bits() >= 96 {
+				subnet = netip.PrefixFrom(subnet.Addr().Unmap(), subnet.Bits()-96)
+			}
+			if subnet.IsSingleIP() {
+				m.addrs[subnet.Addr()] = struct{}{}
+			} else {
+				m.subnets = append(m.subnets, subnet.Masked())
+			}
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			log.Printf("decision lists: ignoring invalid ip %q: %v\n", entry, err)
+			continue
+		}
+		m.addrs[addr.Unmap()] = struct{}{}
+	}
+	return m
+}
+
+// Contains reports whether ip is one of the matcher's ips or inside one of its subnets. IPv4-mapped
+// IPv6 addresses match their IPv4 form. A nil matcher contains nothing.
+func (m *ipMatcher) Contains(ip string) bool {
+	if m == nil {
+		return false
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if _, ok := m.addrs[addr]; ok {
+		return true
+	}
+	for _, subnet := range m.subnets {
+		if subnet.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
 
 // Decision lists that don't change unless the program is restarted or the config is hot-reloaded.
 type staticDecisionLists struct {
 	globalDecisionLists          ipAddrToDecision
 	perSiteDecisionLists         siteToIPAddrToDecision
 	sitewideShaInvList           siteToFailAction
-	globalDecisionListsIPFilter  decisionToIPFilter
-	perSiteDecisionListsIPFilter siteToDecisionToIPFilter
+	globalDecisionListsIPMatcher  decisionToIPMatcher
+	perSiteDecisionListsIPMatcher siteToDecisionToIPMatcher
 	perSiteUserAgentDecisionLists perSiteUAPatternToDecision
 	globalUserAgentDecisionLists  globalUAPatternToDecision
 }
@@ -269,8 +324,8 @@ func newStaticDecisionLists() staticDecisionLists {
 		globalDecisionLists:           make(ipAddrToDecision),
 		perSiteDecisionLists:          make(siteToIPAddrToDecision),
 		sitewideShaInvList:            make(siteToFailAction),
-		globalDecisionListsIPFilter:   make(decisionToIPFilter),
-		perSiteDecisionListsIPFilter:  make(siteToDecisionToIPFilter),
+		globalDecisionListsIPMatcher:  make(decisionToIPMatcher),
+		perSiteDecisionListsIPMatcher: make(siteToDecisionToIPMatcher),
 		perSiteUserAgentDecisionLists: make(perSiteUAPatternToDecision),
 		globalUserAgentDecisionLists:  make(globalUAPatternToDecision),
 	}
@@ -293,15 +348,12 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 				}
 			} else {
 				if config.Debug {
-					log.Printf("global decision: %s, CIDR: %s, put in IPFilter\n", decisionString, ip)
+					log.Printf("global decision: %s, CIDR: %s, put in ipMatcher\n", decisionString, ip)
 				}
 			}
 		}
 
-		out.globalDecisionListsIPFilter[decision] = ipfilter.New(ipfilter.Options{
-			AllowedIPs:     ips,
-			BlockByDefault: true,
-		})
+		out.globalDecisionListsIPMatcher[decision] = newIPMatcher(ips)
 	}
 
 	for site, decisionToIps := range config.PerSiteDecisionLists {
@@ -315,7 +367,7 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 				_, ok := out.perSiteDecisionLists[site]
 				if !ok {
 					out.perSiteDecisionLists[site] = make(ipAddrToDecision)
-					out.perSiteDecisionListsIPFilter[site] = make(decisionToIPFilter)
+					out.perSiteDecisionListsIPMatcher[site] = make(decisionToIPMatcher)
 				}
 				if !strings.Contains(ip, "/") {
 					out.perSiteDecisionLists[site][ip] = decision
@@ -324,17 +376,14 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 					}
 				} else {
 					if config.Debug {
-						log.Printf("per-site decision: %s, CIDR: %s, put in IPFilter\n", decisionString, ip)
+						log.Printf("per-site decision: %s, CIDR: %s, put in ipMatcher\n", decisionString, ip)
 					}
 				}
 			}
 			if len(ips) > 0 {
-				// only init ipfilter if there is IP
+				// only init ipMatcher if there is IP
 				// or there might be panic: assignment to entry in nil map
-				out.perSiteDecisionListsIPFilter[site][decision] = ipfilter.New(ipfilter.Options{
-					AllowedIPs:     ips,
-					BlockByDefault: true,
-				})
+				out.perSiteDecisionListsIPMatcher[site][decision] = newIPMatcher(ips)
 			}
 		}
 	}
