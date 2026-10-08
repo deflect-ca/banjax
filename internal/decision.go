@@ -9,6 +9,7 @@ package internal
 import (
 	"fmt"
 	"log"
+	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -387,6 +388,7 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 		expiringDecisionListsSessionId: make(sessionIdToExpiringDecision),
 		expiringDecisionListsHost:      make(hostToExpiringDecision),
 		expiringDecisionListsUA:        make(uaToExpiringDecision),
+		expiringDecisionListsSubnet:    make(subnetToExpiringDecision),
 	}
 
 	lists := &DynamicDecisionLists{
@@ -593,6 +595,111 @@ func (h *DynamicDecisionLists) CheckByUA(ua string) (ExpiringDecision, bool) {
 	return expiringDecision, ok
 }
 
+// expiring ip decisions apply to every site, so refuse subnets so broad that a malformed
+// command (e.g. 0.0.0.0/0) would block a large part of the internet everywhere
+const minSubnetPrefixBits = 8
+
+// ParseSubnet parses an IPv4 subnet in CIDR notation, as sent by block_subnet/challenge_subnet,
+// normalized to its network address so that 1.2.3.4/24 and 1.2.3.0/24 are the same entry.
+func ParseSubnet(s string) (netip.Prefix, error) {
+	subnet, err := netip.ParsePrefix(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if !subnet.Addr().Is4() {
+		return netip.Prefix{}, fmt.Errorf("not an IPv4 subnet: %s", s)
+	}
+	if subnet.Bits() < minSubnetPrefixBits {
+		return netip.Prefix{}, fmt.Errorf("subnet %s is broader than /%d", s, minSubnetPrefixBits)
+	}
+	return subnet.Masked(), nil
+}
+
+func (h *DynamicDecisionLists) UpdateBySubnet(
+	config *Config,
+	subnet netip.Prefix,
+	expires time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+	domain string,
+) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	existingExpiringDecision, ok := h.value.expiringDecisionListsSubnet[subnet]
+	if ok {
+		if newDecision <= existingExpiringDecision.Decision {
+			if config.Debug {
+				log.Println("updateExpiringDecisionListsSubnet: not with less serious", existingExpiringDecision.Decision, newDecision, subnet, domain)
+			}
+			return
+		}
+	}
+	if config.Debug {
+		log.Println("updateExpiringDecisionListsSubnet: update with existing and new: ", existingExpiringDecision.Decision, newDecision, subnet, domain)
+	}
+
+	h.value.expiringDecisionListsSubnet[subnet] = ExpiringDecision{
+		newDecision,
+		expires,
+		subnet.String(),
+		fromBaskerville,
+		domain,
+	}
+}
+
+// CheckBySubnet returns the most serious unexpired subnet decision covering clientIp.
+func (h *DynamicDecisionLists) CheckBySubnet(clientIp string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	if len(h.value.expiringDecisionListsSubnet) == 0 {
+		return ExpiringDecision{}, false
+	}
+
+	addr, err := netip.ParseAddr(clientIp)
+	if err != nil {
+		return ExpiringDecision{}, false
+	}
+	addr = addr.Unmap()
+	if !addr.Is4() {
+		return ExpiringDecision{}, false
+	}
+
+	// keys are normalized network addresses, so look up each prefix length that could hold one
+	var found ExpiringDecision
+	foundOk := false
+	for bits := addr.BitLen(); bits >= minSubnetPrefixBits; bits-- {
+		subnet, _ := addr.Prefix(bits)
+		expiringDecision, ok := h.value.expiringDecisionListsSubnet[subnet]
+		if !ok {
+			continue
+		}
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsSubnet, subnet)
+			continue
+		}
+		if !foundOk || expiringDecision.Decision > found.Decision {
+			found = expiringDecision
+			foundOk = true
+		}
+	}
+	return found, foundOk
+}
+
+// RemoveBySubnet removes the exact subnet entry, returning it if it was present and unexpired.
+func (h *DynamicDecisionLists) RemoveBySubnet(subnet netip.Prefix) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	expiringDecision, ok := h.value.expiringDecisionListsSubnet[subnet]
+	delete(h.value.expiringDecisionListsSubnet, subnet)
+	if ok && time.Now().Sub(expiringDecision.Expires) > 0 {
+		ok = false
+	}
+	return expiringDecision, ok
+}
+
 func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -615,6 +722,17 @@ func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 				IpOrSessionId:   string(sessionId),
 				domain:          expiringDecision.domain,
 				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
+				Expires:         expiringDecision.Expires,
+				FromBaskerville: expiringDecision.fromBaskerville,
+			})
+		}
+	}
+	for subnet, expiringDecision := range h.value.expiringDecisionListsSubnet {
+		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
+			bannedEntries = append(bannedEntries, BannedEntry{
+				IpOrSessionId:   subnet.String(),
+				domain:          expiringDecision.domain,
+				Decision:        expiringDecision.Decision.String(),
 				Expires:         expiringDecision.Expires,
 				FromBaskerville: expiringDecision.fromBaskerville,
 			})
@@ -660,9 +778,10 @@ func (h *DynamicDecisionLists) Clear() {
 	clear(h.value.expiringDecisionListsSessionId)
 	clear(h.value.expiringDecisionListsHost)
 	clear(h.value.expiringDecisionListsUA)
+	clear(h.value.expiringDecisionListsSubnet)
 }
 
-func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int) {
+func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int, lenExpiringSubnetChallenges int, lenExpiringSubnetBlocks int) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -672,6 +791,8 @@ func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiring
 	lenExpiringSitewideBlocks = 0
 	lenExpiringUAChallenges = 0
 	lenExpiringUABlocks = 0
+	lenExpiringSubnetChallenges = 0
+	lenExpiringSubnetBlocks = 0
 
 	for _, expiringDecision := range h.value.expiringDecisionLists {
 		if expiringDecision.Decision == Challenge {
@@ -694,6 +815,14 @@ func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiring
 			lenExpiringUAChallenges += 1
 		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
 			lenExpiringUABlocks += 1
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsSubnet {
+		if expiringDecision.Decision == Challenge {
+			lenExpiringSubnetChallenges += 1
+		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
+			lenExpiringSubnetBlocks += 1
 		}
 	}
 
@@ -720,6 +849,12 @@ func (h *DynamicDecisionLists) removeExpired() {
 	for ua, expiringDecision := range h.value.expiringDecisionListsUA {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete(h.value.expiringDecisionListsUA, ua)
+		}
+	}
+
+	for subnet, expiringDecision := range h.value.expiringDecisionListsSubnet {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsSubnet, subnet)
 		}
 	}
 }
@@ -781,6 +916,25 @@ func (m uaToExpiringDecision) String() string {
 	return b.String()
 }
 
+type subnetToExpiringDecision map[netip.Prefix]ExpiringDecision
+
+func (m subnetToExpiringDecision) String() string {
+	b := strings.Builder{}
+	for subnet, expiringDecision := range m {
+		b.WriteString(fmt.Sprintf("%v", subnet))
+		b.WriteString(":\n")
+		b.WriteString("\t")
+		b.WriteString(fmt.Sprintf("%v %v until %v (baskerville: %v)",
+			expiringDecision.domain,
+			expiringDecision.Decision.String(),
+			expiringDecision.Expires.Format("15:04:05"),
+			expiringDecision.fromBaskerville,
+		))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // Decision lists that can update frequently during the runtime of the program. Updated from kafka
 // or the log tailer.
 type dynamicDecisionLists struct {
@@ -788,6 +942,7 @@ type dynamicDecisionLists struct {
 	expiringDecisionListsSessionId sessionIdToExpiringDecision
 	expiringDecisionListsHost      hostToExpiringDecision
 	expiringDecisionListsUA        uaToExpiringDecision
+	expiringDecisionListsSubnet    subnetToExpiringDecision
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
@@ -796,11 +951,12 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v",
+	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v",
 		sc.perSiteDecisionLists,
 		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
 		d.value.expiringDecisionListsHost,
 		d.value.expiringDecisionListsUA,
+		d.value.expiringDecisionListsSubnet,
 	)
 }

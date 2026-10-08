@@ -367,3 +367,105 @@ per_site_decision_lists:
 
 	assert.Equal(t, PerSiteAccessGranted, result.DecisionListResult)
 }
+
+func TestDecisionForNginx2_ExpiringSubnetDecision(t *testing.T) {
+	config := loadConfigString(`
+sites_to_disable_baskerville:
+  disabled.com: true
+`)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+	failedChallengeStates := NewFailedChallengeRateLimitStates()
+
+	const host = "my.wiki"
+	const userAgent = "some-ua"
+	subnet, err := ParseSubnet("202.46.62.0/24")
+	assert.Nil(t, err)
+
+	t.Run("block_subnet blocks every ip in the subnet", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host)
+
+		for _, clientIp := range []string{"202.46.62.1", "202.46.62.254"} {
+			banner := &listDecisionRecordingBanner{}
+			c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "")
+			result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, banner)
+
+			assert.Equal(t, ExpiringSubnetBlock, result.DecisionListResult, clientIp)
+			assert.Equal(t, 403, c.Writer.Status())
+			assert.Equal(t, "ExpiringSubnetBlock", c.Writer.Header().Get("X-Banjax-Decision"))
+			assert.Equal(t, []string{"baskerville"}, banner.triggers)
+		}
+	})
+
+	t.Run("ip outside the subnet is unaffected", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.63.1", host, "/", userAgent, "")
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, NoMention, result.DecisionListResult)
+	})
+
+	t.Run("challenge_subnet challenges", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, ExpiringSubnetChallenge, result.DecisionListResult)
+	})
+
+	t.Run("more serious subnet decision wins over the ip's own", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), Challenge, false, host)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, ExpiringSubnetBlock, result.DecisionListResult)
+	})
+
+	t.Run("ip's own decision wins when at least as serious", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), NginxBlock, true, host)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, ExpiringBlock, result.DecisionListResult)
+	})
+
+	t.Run("site with baskerville disabled skips the subnet decision", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.62.7", "disabled.com", "/", userAgent, "")
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, NoMention, result.DecisionListResult)
+	})
+
+	t.Run("static allow list wins over the subnet decision", func(t *testing.T) {
+		allowConfig := loadConfigString(`
+global_decision_lists:
+  allow:
+    - 202.46.62.7
+`)
+		allowStaticDecisionLists, err := NewStaticDecisionLists(allowConfig)
+		assert.Nil(t, err)
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateBySubnet(allowConfig, subnet, time.Now().Add(time.Minute), NginxBlock, true, host)
+
+		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
+		result := decisionForNginx2(c, allowConfig, allowStaticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, &MockBanner{})
+
+		assert.Equal(t, GlobalAccessGranted, result.DecisionListResult)
+	})
+}
