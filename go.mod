@@ -1,6 +1,6 @@
 module github.com/deflect-ca/banjax
 
-go 1.25.14
+go 1.26.8
 
 require (
 	github.com/coreos/go-iptables v0.7.0
