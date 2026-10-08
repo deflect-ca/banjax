@@ -49,6 +49,8 @@ type commandSpec struct {
 var commandSpecs = map[string]commandSpec{
 	"block_ip":          {requireValue: true},
 	"challenge_ip":      {requireValue: true},
+	"block_subnet":      {requireValue: true},
+	"challenge_subnet":  {requireValue: true},
 	"block_session":     {requireValue: true, requireSessionId: true},
 	"challenge_session": {requireValue: true, requireSessionId: true},
 	"challenge_all":     {requireHost: true},
@@ -78,7 +80,7 @@ func envOr(key, fallback string) string {
 func main() {
 	cmdName := flag.String("cmd", "", "command name, one of: "+strings.Join(supportedCommandNames(), ", "))
 	host := flag.String("host", "", "host (site), required for challenge_all, optional for clear_rules")
-	value := flag.String("value", "", "IP address, required for *_ip and *_session commands, optional for clear_rules")
+	value := flag.String("value", "", "IP address (IPv4 CIDR for *_subnet), required for *_ip, *_subnet and *_session commands, optional for clear_rules")
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
 	ua := flag.String("ua", "", "exact User-Agent string, required for block_ua/challenge_ua, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")

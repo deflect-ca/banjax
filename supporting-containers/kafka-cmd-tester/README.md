@@ -3,8 +3,8 @@
 One-off tool for sending a single simulated banjax kafka command message,
 without needing baskerville running. Useful for exercising
 `internal/kafka.go`'s `handleCommand` by hand: `block_ip`, `challenge_ip`,
-`block_session`, `challenge_session`, `challenge_all`, `block_ua`,
-`challenge_ua`, `clear_rules`.
+`block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`,
+`challenge_all`, `block_ua`, `challenge_ua`, `clear_rules`.
 
 The message JSON matches the `commandMessage` struct banjax's kafka reader
 unmarshals, so what you send here is exactly what banjax would receive from
@@ -20,13 +20,23 @@ docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost
 docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -host localhost -ttl 3600
 docker compose run --rm kafka-cmd-tester -cmd block_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_ip -value 192.168.65.1 -host localhost
+docker compose run --rm kafka-cmd-tester -cmd block_subnet -value 192.168.65.0/24 -host localhost -ttl 1800
+docker compose run --rm kafka-cmd-tester -cmd challenge_subnet -value 192.168.65.0/24 -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd block_ua -ua 'curl/7.68.0'
 docker compose run --rm kafka-cmd-tester -cmd challenge_ua -ua 'curl/7.68.0'
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
+docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.0/24
 ```
+
+`block_subnet`/`challenge_subnet` work like `block_ip`/`challenge_ip` (same
+TTL config), but `-value` is an IPv4 subnet in CIDR notation and the decision
+covers every IP in it. Banjax normalizes it to the network address
+(`192.168.65.7/24` becomes `192.168.65.0/24`) and ignores IPv6 subnets and
+anything broader than `/16`. A `clear_rules` `-value` containing a `/` clears
+that subnet entry instead of a single IP.
 
 `block_ua`/`challenge_ua` match the client's User-Agent exactly (no
 substring or regex matching, unlike the static
@@ -62,9 +72,9 @@ kafka.
 
 | Flag | Purpose |
 | --- | --- |
-| `-cmd` | required: `block_ip`, `challenge_ip`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, or `clear_rules` |
+| `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, or `clear_rules` |
 | `-host` | site; required for `challenge_all`, optional for `clear_rules` |
-| `-value` | IP address; required for `*_ip` and `*_session` commands, optional for `clear_rules` |
+| `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands, optional for `clear_rules` |
 | `-session-id` | required for `*_session` commands, optional for `clear_rules` |
 | `-ua` | exact User-Agent string; required for `block_ua`/`challenge_ua`, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
