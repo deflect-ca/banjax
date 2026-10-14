@@ -116,6 +116,7 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 
 type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision, domain string)
+	TooManyRequestsIpOnHost(config *Config, ip string, host string)
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
 		userAgent string, decision Decision, method string)
@@ -368,6 +369,15 @@ func (b Banner) BanOrChallengeIp(
 	if decision == IptablesBlock {
 		banIp(config, ip, b)
 	}
+}
+
+// TooManyRequestsIpOnHost rate limits an ip on one host only. It never touches iptables,
+// since an iptables ban would cut the ip off from every site on this edge.
+func (b Banner) TooManyRequestsIpOnHost(config *Config, ip string, host string) {
+	log.Println("TooManyRequestsIpOnHost", ip, host)
+
+	expires := time.Now().Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
+	b.DecisionLists.UpdateByIpHost(config, ip, host, expires, TooManyRequests)
 }
 
 func (b Banner) IPSetAdd(config *Config, ip string) error {

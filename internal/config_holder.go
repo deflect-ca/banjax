@@ -23,6 +23,9 @@ var shaInvChallengeEmbed []byte
 //go:embed password-protected-path.html
 var passProtPathEmbed []byte
 
+//go:embed too-many-requests.html
+var tooManyRequestsEmbed []byte
+
 // Thread-safe holder for config which supports hot-reloading.
 type ConfigHolder struct {
 	config atomic.Pointer[Config]
@@ -119,6 +122,18 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	} else {
 		log.Printf("INIT: Reading Password protected path HTML from embed")
 		config.PasswordPageBytes = passProtPathEmbed
+	}
+
+	if config.TooManyRequestsHTML != "" {
+		log.Printf("INIT: Reading too many requests HTML from %s", config.TooManyRequestsHTML)
+		tooManyRequestsPageBytes, err := os.ReadFile(config.TooManyRequestsHTML)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't read too-many-requests.html: %w", err)
+		}
+		config.TooManyRequestsPageBytes = tooManyRequestsPageBytes
+	} else {
+		log.Printf("INIT: Reading too many requests HTML from embed")
+		config.TooManyRequestsPageBytes = tooManyRequestsEmbed
 	}
 
 	for site := range config.PerSiteRegexWithRates {

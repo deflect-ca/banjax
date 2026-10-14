@@ -67,7 +67,7 @@ func checkUADecision(rules globalUAPatternToDecision, userAgent string) (Decisio
 func buildGlobalUAPatternToDecision(raw map[string][]string) (globalUAPatternToDecision, error) {
 	out := make(globalUAPatternToDecision)
 	for decisionString, patterns := range raw {
-		decision, err := ParseDecision(decisionString)
+		decision, err := ParseStaticListDecision(decisionString)
 		if err != nil {
 			return nil, fmt.Errorf("user_agent_decision_lists: %w", err)
 		}

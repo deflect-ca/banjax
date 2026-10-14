@@ -78,10 +78,11 @@ func RunLogTailer(
 }
 
 type ConsumeLineResult struct {
-	Error       bool
-	OldLine     bool
-	Exempted    bool
-	RuleResults []RuleResult
+	Error                       bool
+	OldLine                     bool
+	Exempted                    bool
+	GlobalAllowlistRateLimiting bool
+	RuleResults                 []RuleResult
 }
 
 type RuleResult struct {
@@ -166,9 +167,23 @@ func consumeLine(
 		return
 	}
 
-	if decisionLists.CheckIsAllowed(urlString, ipString) {
+	if decisionLists.CheckIsPerSiteAllowed(urlString, ipString) {
 		consumeLineResult.Exempted = true
 		return
+	}
+
+	// globally allowlisted ips (verified bots) are exempt, unless the site opted in to
+	// rate limiting them
+	globalAllowlisted := decisionLists.CheckIsGlobalAllowed(ipString)
+	if globalAllowlisted {
+		if config.Debug {
+			log.Printf("consumeLine: ip %s is globally allowlisted", ipString)
+		}
+		if !config.SitesToRateLimitGlobalAllowlist[urlString] {
+			consumeLineResult.Exempted = true
+			return
+		}
+		consumeLineResult.GlobalAllowlistRateLimiting = true
 	}
 
 	// Apply per site regex first
@@ -184,6 +199,7 @@ func consumeLine(
 				ipString,
 				urlString,
 				false,
+				globalAllowlisted,
 			)
 
 			if result.RegexMatch {
@@ -203,6 +219,7 @@ func consumeLine(
 			ipString,
 			urlString,
 			true,
+			globalAllowlisted,
 		)
 
 		if result.RegexMatch {
@@ -223,6 +240,7 @@ func applyRegexToLog(
 	ipString string,
 	urlString string,
 	globalRegex bool,
+	globalAllowlisted bool,
 ) (result RuleResult) {
 	// log apply regex_with_rate.Rule
 	if config.Debug {
@@ -247,13 +265,26 @@ func applyRegexToLog(
 	}
 	result.SkipHost = false
 
-	seenIp, rateLimitResult := rateLimitStates.Apply(ipString, regexWithRate, timestamp)
+	// verified bots share their ips across every site, so count their hits per site
+	stateKey := ipString
+	if globalAllowlisted {
+		stateKey = ipString + "|" + urlString
+	}
+
+	seenIp, rateLimitResult := rateLimitStates.Apply(stateKey, regexWithRate, timestamp)
 	result.SeenIp = seenIp
 	result.RateLimitResult = rateLimitResult
 
 	if result.RateLimitResult.Exceeded {
 		// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
-		banner.BanOrChallengeIp(config, ipString, regexWithRate.Decision, urlString)
+		decision := regexWithRate.Decision
+		if globalAllowlisted && decision != Allow {
+			// rate limit, but never challenge or block, a globally allowlisted ip
+			decision = TooManyRequests
+			banner.TooManyRequestsIpOnHost(config, ipString, urlString)
+		} else {
+			banner.BanOrChallengeIp(config, ipString, decision, urlString)
+		}
 		// log.Println(line.Text)
 		banner.LogRegexBan(
 			config,
@@ -261,7 +292,7 @@ func applyRegexToLog(
 			ipString,
 			regexWithRate.Rule,
 			timeIpRest[2],
-			regexWithRate.Decision,
+			decision,
 		)
 	}
 

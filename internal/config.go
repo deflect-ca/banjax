@@ -40,6 +40,7 @@ type Config struct {
 	StandaloneTesting                      bool                           `yaml:"standalone_testing"`
 	ChallengerBytes                        []byte
 	PasswordPageBytes                      []byte
+	TooManyRequestsPageBytes               []byte
 	SitesToPasswordHashes                  map[string]string   `yaml:"password_hashes"`
 	SitesToProtectedPaths                  map[string][]string `yaml:"password_protected_paths"`
 	SitesToProtectedPathExceptions         map[string][]string `yaml:"password_protected_path_exceptions"`
@@ -67,6 +68,7 @@ type Config struct {
 	MetricsLogFileName            string                         `yaml:"metrics_log_file"`
 	ShaInvChallengeHTML           string                         `yaml:"sha_inv_challenge_html"`
 	PasswordProtectedPathHTML     string                         `yaml:"password_protected_path_html"`
+	TooManyRequestsHTML           string                         `yaml:"too_many_requests_html"`
 	Debug                         bool                           `yaml:"debug"`
 	Profile                       bool                           `yaml:"profile"`
 	DisableLogging                map[string]bool                `yaml:"disable_logging"`
@@ -86,6 +88,10 @@ type Config struct {
 	// most once per DecisionLogThrottleIntervalSeconds for static/expiring list block hits.
 	DecisionLogThrottleEnabled         bool `yaml:"decision_log_throttle_enabled"`
 	DecisionLogThrottleIntervalSeconds int  `yaml:"decision_log_throttle_interval_seconds"`
+	// Sites on which ips in the global allow list are still subject to the regex rate limits.
+	// When a rule trips for such an ip, the ip gets a TooManyRequests (429, no challenge) on
+	// that site only, whatever the rule's own decision is.
+	SitesToRateLimitGlobalAllowlist map[string]bool `yaml:"sites_to_rate_limit_global_allowlist"`
 }
 
 type RegexWithRate struct {
@@ -161,6 +167,7 @@ type MetricsLogLine struct {
 	LenExpiringUABlocks           int
 	LenExpiringSubnetChallenges   int
 	LenExpiringSubnetBlocks       int
+	LenExpiringTooManyRequests    int
 	LenIpToRegexStates            int
 	LenFailedChallengeStates      int
 }
@@ -172,6 +179,7 @@ func WriteMetricsToEncoder(
 	failedChallengeStates *FailedChallengeRateLimitStates,
 ) {
 	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks, lenExpiringSubnetChallenges, lenExpiringSubnetBlocks := decisionLists.Metrics()
+	lenExpiringTooManyRequests := decisionLists.MetricsTooManyRequests()
 	lenRegexStates := regexStates.Len()
 	lenFailedChallengeStates := failedChallengeStates.Len()
 
@@ -185,6 +193,7 @@ func WriteMetricsToEncoder(
 		LenExpiringUABlocks:           lenExpiringUABlocks,
 		LenExpiringSubnetChallenges:   lenExpiringSubnetChallenges,
 		LenExpiringSubnetBlocks:       lenExpiringSubnetBlocks,
+		LenExpiringTooManyRequests:    lenExpiringTooManyRequests,
 		LenIpToRegexStates:            lenRegexStates,
 		LenFailedChallengeStates:      lenFailedChallengeStates,
 	}

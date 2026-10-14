@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -356,6 +357,10 @@ func unbanHandler(
 		}
 		// query decision list, check ban type
 		decision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
+		if !ok {
+			// a globally allowlisted ip is only ever rate limited per host
+			decision, ok = dynamicDecisionLists.CheckAnyByIpHost(ip)
+		}
 		if !ok || decision.Decision == IptablesBlock {
 			// not found in expiring list, but maybe still banned at ipset level
 			if !banner.IPSetTest(config, ip) {
@@ -381,7 +386,7 @@ func unbanHandler(
 				return
 			}
 		}
-		// if found, remove from expiring list, whether its nginx or iptables ban
+		// if found, remove from expiring lists (ip and ip+host), whether its nginx or iptables ban
 		if ok {
 			dynamicDecisionLists.RemoveByIp(ip)
 		}
@@ -446,6 +451,34 @@ func accessDenied(
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	sessionCookieEndPoint(c, config)
 	c.String(403, "access denied\n")
+}
+
+// tooManyRequests answers with a plain 429 page. Unlike a challenge it carries no JS to solve,
+// so it is suitable for rate limiting verified bots. expires is when the decision ends.
+func tooManyRequests(
+	c *gin.Context,
+	config *Config,
+	decisionListResultString string,
+	expires time.Time) {
+	c.Header("X-Banjax-Decision", decisionListResultString)
+	c.Header("Cache-Control", "no-cache,no-store")
+	if retryAfterSeconds := retryAfterSeconds(expires); retryAfterSeconds > 0 {
+		c.Header("Retry-After", fmt.Sprintf("%d", retryAfterSeconds))
+	}
+	sessionCookieEndPoint(c, config)
+	c.Data(429, "text/html", applyArgsToTooManyRequestsPage(config, c.Request.Header.Get("X-Requested-Host")))
+	c.Abort()
+}
+
+// The 429 page carries no JavaScript, so the host is filled in here rather than in the browser.
+func applyArgsToTooManyRequestsPage(config *Config, host string) []byte {
+	return bytes.ReplaceAll(config.TooManyRequestsPageBytes, []byte("{{host}}"), []byte(html.EscapeString(host)))
+}
+
+// Seconds until the decision expires, rounded up, for the Retry-After header. The decision's
+// expiry is set from expiring_decision_ttl_seconds when the regex rule trips.
+func retryAfterSeconds(expires time.Time) int {
+	return int((time.Until(expires) + time.Second - 1) / time.Second)
 }
 
 func challenge(
@@ -837,6 +870,8 @@ const (
 	ExpiringUABlock
 	ExpiringSubnetChallenge
 	ExpiringSubnetBlock
+	GlobalAllowlistTooManyRequests
+	ExpiringTooManyRequests
 	NoMention
 	NotSet
 )
@@ -868,7 +903,9 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	ExpiringUABlock:                "ExpiringUABlock",
 	ExpiringSubnetChallenge:        "ExpiringSubnetChallenge",
 	ExpiringSubnetBlock:            "ExpiringSubnetBlock",
-	NoMention:                     "NoMention",
+	GlobalAllowlistTooManyRequests: "GlobalAllowlistTooManyRequests",
+	ExpiringTooManyRequests:        "ExpiringTooManyRequests",
+	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
 
@@ -1069,6 +1106,15 @@ func decisionForNginx2(
 	if foundInGlobalList {
 		switch decision {
 		case Allow:
+			// a site may opt in to rate limiting globally allowlisted ips (verified bots)
+			if config.SitesToRateLimitGlobalAllowlist[requestedHost] {
+				ipHostDecision, ipHostOk := dynamicDecisionLists.CheckByIpHost(clientIp, requestedHost)
+				if ipHostOk && ipHostDecision.Decision == TooManyRequests {
+					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], ipHostDecision.Expires)
+					decisionForNginxResult.DecisionListResult = GlobalAllowlistTooManyRequests
+					return
+				}
+			}
 			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
@@ -1301,6 +1347,10 @@ func decisionForNginx2(
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[ExpiringTooManyRequests], ipExpiringDecision.Expires)
+			decisionForNginxResult.DecisionListResult = ExpiringTooManyRequests
+			return
 		case NginxBlock, IptablesBlock:
 			if ipExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)

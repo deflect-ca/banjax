@@ -25,13 +25,23 @@ import (
 )
 
 type MockBanner struct {
-	bannedIp string
+	bannedIp            string
+	bannedDecision      Decision
+	tooManyRequestsIp   string
+	tooManyRequestsHost string
+	regexBanDecision    Decision
 }
 
 // XXX confused why this (with a pointer receiver) and the one in iptables.go
 // (value receiver) both satisfy the Banner interface...
 func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decision, domain string) {
 	mb.bannedIp = ip
+	mb.bannedDecision = decision
+}
+
+func (mb *MockBanner) TooManyRequestsIpOnHost(config *Config, ip string, host string) {
+	mb.tooManyRequestsIp = ip
+	mb.tooManyRequestsHost = host
 }
 
 func (mb *MockBanner) LogFailedChallengeBan(
@@ -56,6 +66,7 @@ func (mb *MockBanner) LogRegexBan(
 	decision Decision,
 ) {
 	// log.Printf("LogRegexBan: %s %s %s\n", ip, ruleName, logLine)
+	mb.regexBanDecision = decision
 }
 
 func (mb *MockBanner) LogListDecision(
@@ -306,6 +317,154 @@ regexes_with_rates:
 	if ok {
 		t.Fatalf("should not have found a state since we skip this host")
 	}
+}
+
+func TestConsumeLineGlobalAllowlistExemption(t *testing.T) {
+	configString := `
+global_decision_lists:
+  allow:
+    - 20.20.20.20
+    - 30.30.30.0/24
+per_site_decision_lists:
+  opted.com:
+    allow:
+      - 40.40.40.40
+regexes_with_rates:
+  - decision: challenge
+    rule: 'global challenge'
+    regex: 'GET .* GET /challengeme.*'
+    interval: 60
+    hits_per_interval: 1
+  - decision: nginx_block
+    rule: 'global skip'
+    regex: 'GET .* GET /skipme.*'
+    interval: 60
+    hits_per_interval: 0
+    hosts_to_skip:
+      opted.com: true
+per_site_regexes_with_rates:
+  opted.com:
+    - decision: too_many_requests
+      rule: 'per-site limit'
+      regex: 'GET .* GET /persite.*'
+      interval: 10
+      hits_per_interval: 3
+  not-opted.com:
+    - decision: too_many_requests
+      rule: 'per-site limit'
+      regex: 'GET .* GET /persite.*'
+      interval: 10
+      hits_per_interval: 3
+sites_to_rate_limit_global_allowlist:
+  opted.com: true
+  not-opted.com: false
+`
+
+	config := Config{}
+	err := yaml.Unmarshal([]byte(configString), &config)
+	assert.Nil(t, err)
+	decisionLists, err := NewStaticDecisionLists(&config)
+	assert.Nil(t, err)
+
+	t.Run("per-site rule rate limits an allowlisted ip on an opted in site", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		for i := 0; i < 3; i++ {
+			result := consumeLine(logLine("20.20.20.20", "opted.com", "/persite"), rateLimitStates, &mockBanner, &config, decisionLists)
+			assert.False(t, result.Exempted)
+			assert.True(t, result.GlobalAllowlistRateLimiting)
+			assert.False(t, result.RuleResults[0].RateLimitResult.Exceeded)
+		}
+		assert.Equal(t, "", mockBanner.tooManyRequestsIp)
+
+		result := consumeLine(logLine("20.20.20.20", "opted.com", "/persite"), rateLimitStates, &mockBanner, &config, decisionLists)
+		assert.Equal(t, "per-site limit", result.RuleResults[0].RuleName)
+		assert.True(t, result.RuleResults[0].RateLimitResult.Exceeded)
+		assert.Equal(t, "20.20.20.20", mockBanner.tooManyRequestsIp)
+		assert.Equal(t, "opted.com", mockBanner.tooManyRequestsHost)
+		assert.Equal(t, TooManyRequests, mockBanner.regexBanDecision)
+		assert.Equal(t, "", mockBanner.bannedIp)
+
+		// hits are counted under ip+host, not the bare ip
+		_, ok := rateLimitStates.Get("20.20.20.20|opted.com")
+		assert.True(t, ok)
+		_, ok = rateLimitStates.Get("20.20.20.20")
+		assert.False(t, ok)
+	})
+
+	t.Run("global challenge rule gives an allowlisted CIDR ip a 429 instead", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		consumeLine(logLine("30.30.30.30", "opted.com", "/challengeme"), rateLimitStates, &mockBanner, &config, decisionLists)
+		result := consumeLine(logLine("30.30.30.30", "opted.com", "/challengeme"), rateLimitStates, &mockBanner, &config, decisionLists)
+
+		assert.True(t, result.GlobalAllowlistRateLimiting)
+		assert.True(t, result.RuleResults[0].RateLimitResult.Exceeded)
+		assert.Equal(t, "30.30.30.30", mockBanner.tooManyRequestsIp)
+		assert.Equal(t, TooManyRequests, mockBanner.regexBanDecision)
+		assert.Equal(t, "", mockBanner.bannedIp)
+	})
+
+	t.Run("site set to false keeps allowlisted ips exempt", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		for i := 0; i < 5; i++ {
+			result := consumeLine(logLine("20.20.20.20", "not-opted.com", "/persite"), rateLimitStates, &mockBanner, &config, decisionLists)
+			assert.True(t, result.Exempted)
+			assert.False(t, result.GlobalAllowlistRateLimiting)
+			assert.Empty(t, result.RuleResults)
+		}
+		assert.Equal(t, "", mockBanner.tooManyRequestsIp)
+		assert.Equal(t, "", mockBanner.bannedIp)
+		_, ok := rateLimitStates.Get("20.20.20.20|not-opted.com")
+		assert.False(t, ok)
+		_, ok = rateLimitStates.Get("20.20.20.20")
+		assert.False(t, ok)
+	})
+
+	t.Run("per-site allowlisted ip stays exempt on an opted in site", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		for i := 0; i < 5; i++ {
+			result := consumeLine(logLine("40.40.40.40", "opted.com", "/persite"), rateLimitStates, &mockBanner, &config, decisionLists)
+			assert.True(t, result.Exempted)
+		}
+		assert.Equal(t, "", mockBanner.tooManyRequestsIp)
+		_, ok := rateLimitStates.Get("40.40.40.40|opted.com")
+		assert.False(t, ok)
+	})
+
+	t.Run("hosts_to_skip still applies to allowlisted ips", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		result := consumeLine(logLine("20.20.20.20", "opted.com", "/skipme"), rateLimitStates, &mockBanner, &config, decisionLists)
+		assert.True(t, result.GlobalAllowlistRateLimiting)
+		assert.True(t, result.RuleResults[0].SkipHost)
+		assert.Equal(t, "", mockBanner.tooManyRequestsIp)
+		_, ok := rateLimitStates.Get("20.20.20.20|opted.com")
+		assert.False(t, ok)
+	})
+
+	t.Run("non-allowlisted ip gets the rule decision keyed on the bare ip", func(t *testing.T) {
+		rateLimitStates := NewRegexRateLimitStates()
+		mockBanner := MockBanner{}
+
+		for i := 0; i < 4; i++ {
+			consumeLine(logLine("7.7.7.7", "opted.com", "/persite"), rateLimitStates, &mockBanner, &config, decisionLists)
+		}
+		assert.Equal(t, "7.7.7.7", mockBanner.bannedIp)
+		assert.Equal(t, TooManyRequests, mockBanner.bannedDecision)
+		assert.Equal(t, "", mockBanner.tooManyRequestsIp)
+		_, ok := rateLimitStates.Get("7.7.7.7")
+		assert.True(t, ok)
+		_, ok = rateLimitStates.Get("7.7.7.7|opted.com")
+		assert.False(t, ok)
+	})
 }
 
 func TestPerSiteRegexStress(t *testing.T) {

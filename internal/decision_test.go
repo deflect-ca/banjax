@@ -561,13 +561,17 @@ func TestStaticDecisionLists_CheckIsAllowed_CIDR(t *testing.T) {
 	staticDecisionLists, err := NewStaticDecisionLists(config)
 	assert.Nil(t, err)
 
-	assert.True(t, staticDecisionLists.CheckIsAllowed("example.com", "5.5.5.9"))   // per-site cidr
-	assert.True(t, staticDecisionLists.CheckIsAllowed("example.com", "10.10.1.1")) // global cidr
-	assert.True(t, staticDecisionLists.CheckIsAllowed("other.com", "10.10.1.1"))
-	assert.True(t, staticDecisionLists.CheckIsAllowed("other.com", "20.20.20.20"))
-	assert.False(t, staticDecisionLists.CheckIsAllowed("other.com", "5.5.5.9"))
-	assert.False(t, staticDecisionLists.CheckIsAllowed("example.com", "6.6.6.6")) // challenge, not allow
-	assert.False(t, staticDecisionLists.CheckIsAllowed("example.com", "garbage"))
+	assert.True(t, staticDecisionLists.CheckIsPerSiteAllowed("example.com", "5.5.5.9")) // per-site cidr
+	assert.False(t, staticDecisionLists.CheckIsPerSiteAllowed("other.com", "5.5.5.9"))
+	assert.False(t, staticDecisionLists.CheckIsPerSiteAllowed("example.com", "10.10.1.1")) // global only
+	assert.False(t, staticDecisionLists.CheckIsPerSiteAllowed("example.com", "6.6.6.6"))   // challenge, not allow
+	assert.False(t, staticDecisionLists.CheckIsPerSiteAllowed("example.com", "garbage"))
+
+	assert.True(t, staticDecisionLists.CheckIsGlobalAllowed("10.10.1.1")) // global cidr
+	assert.True(t, staticDecisionLists.CheckIsGlobalAllowed("20.20.20.20"))
+	assert.False(t, staticDecisionLists.CheckIsGlobalAllowed("5.5.5.9")) // per-site only
+	assert.False(t, staticDecisionLists.CheckIsGlobalAllowed("6.6.6.6"))
+	assert.False(t, staticDecisionLists.CheckIsGlobalAllowed("garbage"))
 }
 
 func TestIPMatcher(t *testing.T) {
