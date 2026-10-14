@@ -44,6 +44,19 @@ func ParseDecision(s string) (Decision, error) {
 	}
 }
 
+// ParseStaticListDecision parses a decision from a static (config file) decision list.
+// TooManyRequests is only produced by the regex rate limits, so the static lists reject it.
+func ParseStaticListDecision(s string) (Decision, error) {
+	decision, err := ParseDecision(s)
+	if err != nil {
+		return 0, err
+	}
+	if decision == TooManyRequests {
+		return 0, fmt.Errorf("decision %v is only valid in regex rules, not in static decision lists", s)
+	}
+	return decision, nil
+}
+
 func (d Decision) String() string {
 	switch d {
 	case Allow:
@@ -128,7 +141,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	// perSiteDecisionListsIPMatcher has different struct as perSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, TooManyRequests, NginxBlock, IptablesBlock} {
+	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
 		if c.perSiteDecisionListsIPMatcher[site][iterateDecision].Contains(clientIp) {
 			if config.Debug {
 				log.Printf("matched in per-site ipMatcher %s %v %s", site, iterateDecision, clientIp)
@@ -148,7 +161,7 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	if ok {
 		return decision, true
 	} else {
-		for _, iterateDecision := range []Decision{Allow, Challenge, TooManyRequests, NginxBlock, IptablesBlock} {
+		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
 			if c.globalDecisionListsIPMatcher[iterateDecision].Contains(clientIp) {
 				if config.Debug {
 					log.Printf("matched in ipMatcher %v %s", iterateDecision, clientIp)
@@ -347,7 +360,7 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 	out := newStaticDecisionLists()
 
 	for decisionString, ips := range config.GlobalDecisionLists {
-		decision, err := ParseDecision(decisionString)
+		decision, err := ParseStaticListDecision(decisionString)
 		if err != nil {
 			return staticDecisionLists{}, fmt.Errorf("failed to create static decision lists from config: %w", err)
 		}
@@ -370,7 +383,7 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 
 	for site, decisionToIps := range config.PerSiteDecisionLists {
 		for decisionString, ips := range decisionToIps {
-			decision, err := ParseDecision(decisionString)
+			decision, err := ParseStaticListDecision(decisionString)
 			if err != nil {
 				return staticDecisionLists{}, fmt.Errorf("failed to create static decision lists from config: %w", err)
 			}

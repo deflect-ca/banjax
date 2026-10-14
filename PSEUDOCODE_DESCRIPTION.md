@@ -19,8 +19,6 @@ if decision == Allow:
     return access_granted()
 if decision == Challenge:
     return send_or_validate_challenge()
-if decision == TooManyRequests:
-    return too_many_requests()
 if decision in [NginxBlock, IptablesBlock]:
     return access_denied()
 
@@ -128,8 +126,9 @@ Nginx to perform an internal redirect to the location block named `@access_grant
 response.
 
 `too_many_requests()` is answered by banjax itself, like a challenge page: a 429 with a plain HTML page
-(no JavaScript to solve, `too_many_requests_html` to override it) and a `Retry-After` header when the
-decision has an expiry.
+(no JavaScript to solve, `too_many_requests_html` to override it) and a `Retry-After` header set to the
+time left on the decision. TooManyRequests only comes from the regex rate limits; the static decision
+lists reject it.
 
 The relevant Nginx config might look similar to:
 

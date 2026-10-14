@@ -132,6 +132,14 @@ session_cookie_hmac_secret: some_secret
 session_cookie_ttl_seconds: 3600
 sites_to_disable_baskerville:
   sub.localhost: false
+# Sites on which ips in global_decision_lists.allow (e.g. verified bots) are still subject to
+# regexes_with_rates and per_site_regexes_with_rates. Hits are counted per ip+site, and when a
+# rule trips the ip gets a plain 429 page (no JS challenge) on that site only, for
+# expiring_decision_ttl_seconds, whatever the rule's own decision is. Sites not listed here
+# keep exempting allowlisted ips. Per-site allow lists always stay exempt.
+#sites_to_rate_limit_global_allowlist:
+#  localhost: true
+# too_many_requests_html: /etc/banjax/too-many-requests.html
 use_user_agent_in_cookie:
   localhost: true
 # difficulty of sha-inv page, setting above 10 might cause solving to fail

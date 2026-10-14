@@ -254,32 +254,21 @@ func TestApplyArgsToTooManyRequestsPage(t *testing.T) {
 }
 
 func TestRetryAfterSeconds(t *testing.T) {
-	config := &Config{ExpiringDecisionTtlSeconds: 300}
-
-	// an expiring decision reports the time it has left, rounded up
-	assert.Equal(t, 120, retryAfterSeconds(config, time.Now().Add(119500*time.Millisecond)))
-
-	// a static list decision never expires, so fall back to the configured ban time
-	assert.Equal(t, 300, retryAfterSeconds(config, time.Time{}))
+	// the time the decision has left, rounded up
+	assert.Equal(t, 120, retryAfterSeconds(time.Now().Add(119500*time.Millisecond)))
 }
 
-func TestDecisionForNginx2_StaticTooManyRequestsRetryAfter(t *testing.T) {
-	config := &Config{ExpiringDecisionTtlSeconds: 300}
-	err := yaml.Unmarshal([]byte(`
-global_decision_lists:
-  too_many_requests:
-    - 8.8.4.4
-`), config)
-	assert.Nil(t, err)
-	staticDecisionLists, err := NewStaticDecisionLists(config)
-	assert.Nil(t, err)
-	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
-	assert.Nil(t, err)
-
-	c := buildDecisionForNginxTestContext("8.8.4.4", "example.com", "/", "some-ua", "")
-	result := decisionForNginx2(c, config, staticDecisionLists, NewDynamicDecisionLists(), passwordProtectedPaths, NewFailedChallengeRateLimitStates(), &MockBanner{})
-
-	assert.Equal(t, GlobalTooManyRequests, result.DecisionListResult)
-	assert.Equal(t, 429, c.Writer.Status())
-	assert.Equal(t, "300", c.Writer.Header().Get("Retry-After"))
+func TestStaticDecisionLists_RejectTooManyRequests(t *testing.T) {
+	for _, configString := range []string{
+		"global_decision_lists:\n  too_many_requests:\n    - 8.8.4.4\n",
+		"per_site_decision_lists:\n  example.com:\n    too_many_requests:\n      - 8.8.4.4\n",
+		"global_user_agent_decision_lists:\n  too_many_requests:\n    - Googlebot\n",
+		"per_site_user_agent_decision_lists:\n  example.com:\n    too_many_requests:\n      - Googlebot\n",
+	} {
+		config := &Config{}
+		err := yaml.Unmarshal([]byte(configString), config)
+		assert.Nil(t, err)
+		_, err = NewStaticDecisionLists(config)
+		assert.NotNil(t, err, configString)
+	}
 }
