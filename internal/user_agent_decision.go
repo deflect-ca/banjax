@@ -53,7 +53,7 @@ type perSiteUAPatternToDecision map[string]globalUAPatternToDecision
 
 // checkUADecision iterates decisions in severity order and returns the first match.
 func checkUADecision(rules globalUAPatternToDecision, userAgent string) (Decision, bool) {
-	for _, d := range []Decision{IptablesBlock, NginxBlock, Challenge, Allow} {
+	for _, d := range []Decision{IptablesBlock, NginxBlock, TooManyRequests, Challenge, Allow} {
 		for _, p := range rules[d] {
 			if matchUserAgent(p, userAgent) {
 				return d, true

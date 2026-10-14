@@ -22,6 +22,7 @@ const (
 	_ Decision = iota
 	Allow
 	Challenge
+	TooManyRequests
 	NginxBlock
 	IptablesBlock
 )
@@ -32,6 +33,8 @@ func ParseDecision(s string) (Decision, error) {
 		return Allow, nil
 	case "challenge":
 		return Challenge, nil
+	case "too_many_requests":
+		return TooManyRequests, nil
 	case "nginx_block":
 		return NginxBlock, nil
 	case "iptables_block":
@@ -47,6 +50,8 @@ func (d Decision) String() string {
 		return "Allow"
 	case Challenge:
 		return "Challenge"
+	case TooManyRequests:
+		return "TooManyRequests"
 	case NginxBlock:
 		return "NginxBlock"
 	case IptablesBlock:
@@ -123,7 +128,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	// perSiteDecisionListsIPMatcher has different struct as perSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+	for _, iterateDecision := range []Decision{Allow, Challenge, TooManyRequests, NginxBlock, IptablesBlock} {
 		if c.perSiteDecisionListsIPMatcher[site][iterateDecision].Contains(clientIp) {
 			if config.Debug {
 				log.Printf("matched in per-site ipMatcher %s %v %s", site, iterateDecision, clientIp)
@@ -143,7 +148,7 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	if ok {
 		return decision, true
 	} else {
-		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+		for _, iterateDecision := range []Decision{Allow, Challenge, TooManyRequests, NginxBlock, IptablesBlock} {
 			if c.globalDecisionListsIPMatcher[iterateDecision].Contains(clientIp) {
 				if config.Debug {
 					log.Printf("matched in ipMatcher %v %s", iterateDecision, clientIp)
@@ -177,7 +182,8 @@ func (l *StaticDecisionLists) CheckSitewideShaInv(site string) (FailAction, bool
 	return failAction, ok
 }
 
-func (l *StaticDecisionLists) CheckIsAllowed(site string, clientIp string) bool {
+// Reports whether the per-site decision lists allow the client ip on the given site.
+func (l *StaticDecisionLists) CheckIsPerSiteAllowed(site string, clientIp string) bool {
 	c := l.content.Load()
 
 	// check per-site decision list first
@@ -192,8 +198,14 @@ func (l *StaticDecisionLists) CheckIsAllowed(site string, clientIp string) bool 
 		return true
 	}
 
-	// check global decision list
-	decision, ok = c.globalDecisionLists[clientIp]
+	return false
+}
+
+// Reports whether the global decision lists allow the client ip.
+func (l *StaticDecisionLists) CheckIsGlobalAllowed(clientIp string) bool {
+	c := l.content.Load()
+
+	decision, ok := c.globalDecisionLists[clientIp]
 	if ok && decision == Allow {
 		// log.Printf("checkIpInGlobalDecisionList: matched %s", ipString)
 		return true
@@ -438,6 +450,7 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 		expiringDecisionListsHost:      make(hostToExpiringDecision),
 		expiringDecisionListsUA:        make(uaToExpiringDecision),
 		expiringDecisionListsSubnet:    make(subnetToExpiringDecision),
+		expiringDecisionListsIpHost:    make(ipHostToExpiringDecision),
 	}
 
 	lists := &DynamicDecisionLists{
@@ -749,6 +762,70 @@ func (h *DynamicDecisionLists) RemoveBySubnet(subnet netip.Prefix) (ExpiringDeci
 	return expiringDecision, ok
 }
 
+// UpdateByIpHost stores a decision that only applies to one ip on one host. It is used to
+// rate limit globally allowlisted ips (verified bots share their ips across every site, so
+// a decision keyed on the ip alone would cut them off from sites they are not overloading).
+func (h *DynamicDecisionLists) UpdateByIpHost(
+	config *Config,
+	ip string,
+	host string,
+	expires time.Time,
+	newDecision Decision,
+) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	key := ipHostKey{ip, host}
+	existingExpiringDecision, ok := h.value.expiringDecisionListsIpHost[key]
+	if ok {
+		if newDecision <= existingExpiringDecision.Decision {
+			if config.Debug {
+				log.Println("updateExpiringDecisionListsIpHost: not with less serious", existingExpiringDecision.Decision, newDecision, ip, host)
+			}
+			return
+		}
+	}
+	if config.Debug {
+		log.Println("updateExpiringDecisionListsIpHost: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ip, host)
+	}
+
+	h.value.expiringDecisionListsIpHost[key] = ExpiringDecision{
+		newDecision,
+		expires,
+		ip,
+		false,
+		host,
+	}
+}
+
+func (h *DynamicDecisionLists) CheckByIpHost(ip string, host string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	key := ipHostKey{ip, host}
+	expiringDecision, ok := h.value.expiringDecisionListsIpHost[key]
+	if ok {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsIpHost, key)
+			ok = false
+		}
+	}
+	return expiringDecision, ok
+}
+
+// CheckAnyByIpHost returns an unexpired per-host decision for the ip on any host.
+func (h *DynamicDecisionLists) CheckAnyByIpHost(ip string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for key, expiringDecision := range h.value.expiringDecisionListsIpHost {
+		if key.ip == ip && time.Now().Sub(expiringDecision.Expires) <= 0 {
+			return expiringDecision, true
+		}
+	}
+	return ExpiringDecision{}, false
+}
+
 func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -787,6 +864,17 @@ func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 			})
 		}
 	}
+	for key, expiringDecision := range h.value.expiringDecisionListsIpHost {
+		if key.host == domain && expiringDecision.Decision >= Challenge {
+			bannedEntries = append(bannedEntries, BannedEntry{
+				IpOrSessionId:   key.ip,
+				domain:          key.host,
+				Decision:        expiringDecision.Decision.String(),
+				Expires:         expiringDecision.Expires,
+				FromBaskerville: expiringDecision.fromBaskerville,
+			})
+		}
+	}
 	return bannedEntries
 }
 
@@ -795,6 +883,11 @@ func (h *DynamicDecisionLists) RemoveByIp(ip string) {
 	defer h.mutex.Unlock()
 
 	delete(h.value.expiringDecisionLists, ip)
+	for key := range h.value.expiringDecisionListsIpHost {
+		if key.ip == ip {
+			delete(h.value.expiringDecisionListsIpHost, key)
+		}
+	}
 	// log.Printf("deleted IP %v from expiring lists", ip)
 }
 
@@ -828,6 +921,7 @@ func (h *DynamicDecisionLists) Clear() {
 	clear(h.value.expiringDecisionListsHost)
 	clear(h.value.expiringDecisionListsUA)
 	clear(h.value.expiringDecisionListsSubnet)
+	clear(h.value.expiringDecisionListsIpHost)
 }
 
 func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int, lenExpiringSubnetChallenges int, lenExpiringSubnetBlocks int) {
@@ -906,6 +1000,32 @@ func (h *DynamicDecisionLists) removeExpired() {
 			delete(h.value.expiringDecisionListsSubnet, subnet)
 		}
 	}
+
+	for key, expiringDecision := range h.value.expiringDecisionListsIpHost {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsIpHost, key)
+		}
+	}
+}
+
+// Number of TooManyRequests decisions, whether keyed on the ip alone or on ip+host.
+func (h *DynamicDecisionLists) MetricsTooManyRequests() (lenExpiringTooManyRequests int) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for _, expiringDecision := range h.value.expiringDecisionLists {
+		if expiringDecision.Decision == TooManyRequests {
+			lenExpiringTooManyRequests += 1
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsIpHost {
+		if expiringDecision.Decision == TooManyRequests {
+			lenExpiringTooManyRequests += 1
+		}
+	}
+
+	return
 }
 
 type ipAddrToExpiringDecision map[string]ExpiringDecision
@@ -941,6 +1061,28 @@ func (m hostToExpiringDecision) String() string {
 			expiringDecision.Decision.String(),
 			expiringDecision.Expires.Format("15:04:05"),
 			expiringDecision.fromBaskerville,
+		))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+type ipHostKey struct {
+	ip   string
+	host string
+}
+
+type ipHostToExpiringDecision map[ipHostKey]ExpiringDecision
+
+func (m ipHostToExpiringDecision) String() string {
+	b := strings.Builder{}
+	for key, expiringDecision := range m {
+		b.WriteString(fmt.Sprintf("%v %v", key.ip, key.host))
+		b.WriteString(":\n")
+		b.WriteString("\t")
+		b.WriteString(fmt.Sprintf("%v until %v",
+			expiringDecision.Decision.String(),
+			expiringDecision.Expires.Format("15:04:05"),
 		))
 		b.WriteString("\n")
 	}
@@ -992,6 +1134,7 @@ type dynamicDecisionLists struct {
 	expiringDecisionListsHost      hostToExpiringDecision
 	expiringDecisionListsUA        uaToExpiringDecision
 	expiringDecisionListsSubnet    subnetToExpiringDecision
+	expiringDecisionListsIpHost    ipHostToExpiringDecision
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
@@ -1000,12 +1143,13 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v",
+	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v\n\nexpiring_ip_host:\n%v",
 		sc.perSiteDecisionLists,
 		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
 		d.value.expiringDecisionListsHost,
 		d.value.expiringDecisionListsUA,
 		d.value.expiringDecisionListsSubnet,
+		d.value.expiringDecisionListsIpHost,
 	)
 }

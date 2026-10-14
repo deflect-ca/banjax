@@ -356,6 +356,10 @@ func unbanHandler(
 		}
 		// query decision list, check ban type
 		decision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
+		if !ok {
+			// a globally allowlisted ip is only ever rate limited per host
+			decision, ok = dynamicDecisionLists.CheckAnyByIpHost(ip)
+		}
 		if !ok || decision.Decision == IptablesBlock {
 			// not found in expiring list, but maybe still banned at ipset level
 			if !banner.IPSetTest(config, ip) {
@@ -381,7 +385,7 @@ func unbanHandler(
 				return
 			}
 		}
-		// if found, remove from expiring list, whether its nginx or iptables ban
+		// if found, remove from expiring lists (ip and ip+host), whether its nginx or iptables ban
 		if ok {
 			dynamicDecisionLists.RemoveByIp(ip)
 		}
@@ -446,6 +450,28 @@ func accessDenied(
 	c.Header("X-Accel-Redirect", "@access_denied") // nginx named location that gives a ban page
 	sessionCookieEndPoint(c, config)
 	c.String(403, "access denied\n")
+}
+
+// tooManyRequests answers with a plain 429 page. Unlike a challenge it carries no JS to solve,
+// so it is suitable for rate limiting verified bots.
+func tooManyRequests(
+	c *gin.Context,
+	config *Config,
+	decisionListResultString string,
+	retryAfterSeconds int) {
+	c.Header("X-Banjax-Decision", decisionListResultString)
+	c.Header("Cache-Control", "no-cache,no-store")
+	if retryAfterSeconds > 0 {
+		c.Header("Retry-After", fmt.Sprintf("%d", retryAfterSeconds))
+	}
+	sessionCookieEndPoint(c, config)
+	c.Data(429, "text/html", config.TooManyRequestsPageBytes)
+	c.Abort()
+}
+
+// Seconds until the decision expires, rounded up, for the Retry-After header.
+func secondsUntil(expires time.Time) int {
+	return int((time.Until(expires) + time.Second - 1) / time.Second)
 }
 
 func challenge(
@@ -837,6 +863,12 @@ const (
 	ExpiringUABlock
 	ExpiringSubnetChallenge
 	ExpiringSubnetBlock
+	PerSiteTooManyRequests
+	PerSiteUATooManyRequests
+	GlobalTooManyRequests
+	GlobalUATooManyRequests
+	GlobalAllowlistTooManyRequests
+	ExpiringTooManyRequests
 	NoMention
 	NotSet
 )
@@ -868,7 +900,13 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	ExpiringUABlock:                "ExpiringUABlock",
 	ExpiringSubnetChallenge:        "ExpiringSubnetChallenge",
 	ExpiringSubnetBlock:            "ExpiringSubnetBlock",
-	NoMention:                     "NoMention",
+	PerSiteTooManyRequests:         "PerSiteTooManyRequests",
+	PerSiteUATooManyRequests:       "PerSiteUATooManyRequests",
+	GlobalTooManyRequests:          "GlobalTooManyRequests",
+	GlobalUATooManyRequests:        "GlobalUATooManyRequests",
+	GlobalAllowlistTooManyRequests: "GlobalAllowlistTooManyRequests",
+	ExpiringTooManyRequests:        "ExpiringTooManyRequests",
+	NoMention:                      "NoMention",
 	NotSet:                         "NotSet",
 }
 
@@ -1028,6 +1066,10 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[PerSiteTooManyRequests], 0)
+			decisionForNginxResult.DecisionListResult = PerSiteTooManyRequests
+			return
 		case NginxBlock, IptablesBlock:
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ip_list", decision)
 			accessDenied(c, config, DecisionListResultToString[PerSiteBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1057,6 +1099,10 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[PerSiteUATooManyRequests], 0)
+			decisionForNginxResult.DecisionListResult = PerSiteUATooManyRequests
+			return
 		case NginxBlock, IptablesBlock:
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ua_list", uaDecision)
 			accessDenied(c, config, DecisionListResultToString[PerSiteUABlock], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1069,6 +1115,15 @@ func decisionForNginx2(
 	if foundInGlobalList {
 		switch decision {
 		case Allow:
+			// a site may opt in to rate limiting globally allowlisted ips (verified bots)
+			if config.SitesToRateLimitGlobalAllowlist[requestedHost] {
+				ipHostDecision, ipHostOk := dynamicDecisionLists.CheckByIpHost(clientIp, requestedHost)
+				if ipHostOk && ipHostDecision.Decision == TooManyRequests {
+					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], secondsUntil(ipHostDecision.Expires))
+					decisionForNginxResult.DecisionListResult = GlobalAllowlistTooManyRequests
+					return
+				}
+			}
 			accessGranted(c, config, DecisionListResultToString[GlobalAccessGranted], -1.0, "", IntegrityCheckPayloadWrapper{})
 			// log.Println("access granted from global lists")
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
@@ -1086,6 +1141,10 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = GlobalChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[GlobalTooManyRequests], 0)
+			decisionForNginxResult.DecisionListResult = GlobalTooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ip_list", decision)
@@ -1115,6 +1174,10 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = GlobalUAChallenge
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[GlobalUATooManyRequests], 0)
+			decisionForNginxResult.DecisionListResult = GlobalUATooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ua_list", uaDecisionGlobal)
@@ -1301,6 +1364,10 @@ func decisionForNginx2(
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
+		case TooManyRequests:
+			tooManyRequests(c, config, DecisionListResultToString[ExpiringTooManyRequests], secondsUntil(ipExpiringDecision.Expires))
+			decisionForNginxResult.DecisionListResult = ExpiringTooManyRequests
+			return
 		case NginxBlock, IptablesBlock:
 			if ipExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring block for %s", requestedHost, clientIp)

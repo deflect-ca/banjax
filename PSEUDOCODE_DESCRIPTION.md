@@ -1,6 +1,6 @@
 ### The `auth_request` endpoint that Nginx talks to
 
-Nginx `proxy_pass`es to banjax, which makes a decision (Allow, Challenge, NginxBlock, or IptablesBlock)
+Nginx `proxy_pass`es to banjax, which makes a decision (Allow, Challenge, TooManyRequests, NginxBlock, or IptablesBlock)
 based on the requested host, the client IP, and the client User-Agent. In pseudocode, banjax's
 decision-making works like this:
 
@@ -19,6 +19,8 @@ if decision == Allow:
     return access_granted()
 if decision == Challenge:
     return send_or_validate_challenge()
+if decision == TooManyRequests:
+    return too_many_requests()
 if decision in [NginxBlock, IptablesBlock]:
     return access_denied()
 
@@ -31,6 +33,9 @@ if decision in [NginxBlock, IptablesBlock]:
     return access_denied()
 
 decision = global_decision_lists[client_ip]
+if decision == Allow and sites_to_rate_limit_global_allowlist[requested_host]:
+    if expiring_ip_host_decision_lists[client_ip, requested_host] == TooManyRequests:
+        return too_many_requests()
 # [...] same as above
 
 decision = global_user_agent_decision_lists[client_user_agent]
@@ -80,6 +85,8 @@ if decision == Challenge:
         pass  # skip challenge, fall through to sitewide_sha_inv_list check below
     else:
         return send_or_validate_challenge()
+if decision == TooManyRequests:
+    return too_many_requests()
 if decision in [NginxBlock, IptablesBlock]:
     if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
         pass  # skip block, fall through to sitewide_sha_inv_list check below
@@ -119,6 +126,10 @@ Nginx to perform an internal redirect to the location block named `@access_grant
 
 `access_denied()` works similarly, but the `@access_denied` block might just return a "403, access denied"
 response.
+
+`too_many_requests()` is answered by banjax itself, like a challenge page: a 429 with a plain HTML page
+(no JavaScript to solve, `too_many_requests_html` to override it) and a `Retry-After` header when the
+decision has an expiry.
 
 The relevant Nginx config might look similar to:
 
@@ -207,7 +218,8 @@ This includes `clear_rules`: one whose `host` is such a site is dropped as a who
 The lengths of the expiring lists are reported in the metrics log as `LenExpiringChallenges` /
 `LenExpiringBlocks` (IP and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
 (host), `LenExpiringUAChallenges` / `LenExpiringUABlocks` (User-Agent), and
-`LenExpiringSubnetChallenges` / `LenExpiringSubnetBlocks` (subnet).
+`LenExpiringSubnetChallenges` / `LenExpiringSubnetBlocks` (subnet). `LenExpiringTooManyRequests`
+(IP and IP+host).
 
 ### Challenge-response authentication (SHA-inverse and password-protected paths)
 
@@ -246,7 +258,8 @@ and a rule looks like this:
   rule: "All sites/methods: 800 req/30 sec"
 ```
 
-Decisions correspond to those mentioned above: "allow", "challenge", "nginx_block", "iptables_block".
+Decisions correspond to those mentioned above: "allow", "challenge", "too_many_requests", "nginx_block",
+"iptables_block".
 
 The log tailing loop basically looks like this:
 ```python
@@ -271,3 +284,13 @@ from the Nginx cache.
 Regex-triggered decisions are stored in the expiring decision list with a TTL controlled by
 `expiring_decision_ttl_seconds`. After the TTL expires, the decision is removed and any static
 decision from the config file takes effect again.
+
+IPs that a static list allows are skipped by the log tailer. The one exception is an IP in the global
+allow list (exact IP or CIDR) requesting a site listed in `sites_to_rate_limit_global_allowlist`. This
+is meant for verified bots, which share their IPs across every site:
+  * hits are counted per IP+site rather than per IP,
+  * whatever the rule's decision (other than "allow"), the IP gets TooManyRequests, stored in a
+    separate IP+site expiring list, so it only applies to that one site and is never an iptables ban,
+  * an IP in the site's per-site allow list stays exempt.
+
+`/unban` and Kafka `clear_rules` for an IP also clear its IP+site entries.

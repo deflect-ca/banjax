@@ -25,13 +25,20 @@ import (
 )
 
 type MockBanner struct {
-	bannedIp string
+	bannedIp            string
+	tooManyRequestsIp   string
+	tooManyRequestsHost string
 }
 
 // XXX confused why this (with a pointer receiver) and the one in iptables.go
 // (value receiver) both satisfy the Banner interface...
 func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decision, domain string) {
 	mb.bannedIp = ip
+}
+
+func (mb *MockBanner) TooManyRequestsIpOnHost(config *Config, ip string, host string) {
+	mb.tooManyRequestsIp = ip
+	mb.tooManyRequestsHost = host
 }
 
 func (mb *MockBanner) LogFailedChallengeBan(
