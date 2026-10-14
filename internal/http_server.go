@@ -454,15 +454,16 @@ func accessDenied(
 }
 
 // tooManyRequests answers with a plain 429 page. Unlike a challenge it carries no JS to solve,
-// so it is suitable for rate limiting verified bots.
+// so it is suitable for rate limiting verified bots. expires is when the decision ends, or the
+// zero time for a static list decision that never does.
 func tooManyRequests(
 	c *gin.Context,
 	config *Config,
 	decisionListResultString string,
-	retryAfterSeconds int) {
+	expires time.Time) {
 	c.Header("X-Banjax-Decision", decisionListResultString)
 	c.Header("Cache-Control", "no-cache,no-store")
-	if retryAfterSeconds > 0 {
+	if retryAfterSeconds := retryAfterSeconds(config, expires); retryAfterSeconds > 0 {
 		c.Header("Retry-After", fmt.Sprintf("%d", retryAfterSeconds))
 	}
 	sessionCookieEndPoint(c, config)
@@ -475,8 +476,12 @@ func applyArgsToTooManyRequestsPage(config *Config, host string) []byte {
 	return bytes.ReplaceAll(config.TooManyRequestsPageBytes, []byte("{{host}}"), []byte(html.EscapeString(host)))
 }
 
-// Seconds until the decision expires, rounded up, for the Retry-After header.
-func secondsUntil(expires time.Time) int {
+// Seconds for the Retry-After header: until the decision expires, rounded up. A static list
+// decision has no expiry, so the client is told to come back after the configured ban time.
+func retryAfterSeconds(config *Config, expires time.Time) int {
+	if expires.IsZero() {
+		return config.ExpiringDecisionTtlSeconds
+	}
 	return int((time.Until(expires) + time.Second - 1) / time.Second)
 }
 
@@ -1073,7 +1078,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case TooManyRequests:
-			tooManyRequests(c, config, DecisionListResultToString[PerSiteTooManyRequests], 0)
+			tooManyRequests(c, config, DecisionListResultToString[PerSiteTooManyRequests], time.Time{})
 			decisionForNginxResult.DecisionListResult = PerSiteTooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
@@ -1106,7 +1111,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case TooManyRequests:
-			tooManyRequests(c, config, DecisionListResultToString[PerSiteUATooManyRequests], 0)
+			tooManyRequests(c, config, DecisionListResultToString[PerSiteUATooManyRequests], time.Time{})
 			decisionForNginxResult.DecisionListResult = PerSiteUATooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
@@ -1125,7 +1130,7 @@ func decisionForNginx2(
 			if config.SitesToRateLimitGlobalAllowlist[requestedHost] {
 				ipHostDecision, ipHostOk := dynamicDecisionLists.CheckByIpHost(clientIp, requestedHost)
 				if ipHostOk && ipHostDecision.Decision == TooManyRequests {
-					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], secondsUntil(ipHostDecision.Expires))
+					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], ipHostDecision.Expires)
 					decisionForNginxResult.DecisionListResult = GlobalAllowlistTooManyRequests
 					return
 				}
@@ -1149,7 +1154,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case TooManyRequests:
-			tooManyRequests(c, config, DecisionListResultToString[GlobalTooManyRequests], 0)
+			tooManyRequests(c, config, DecisionListResultToString[GlobalTooManyRequests], time.Time{})
 			decisionForNginxResult.DecisionListResult = GlobalTooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
@@ -1182,7 +1187,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case TooManyRequests:
-			tooManyRequests(c, config, DecisionListResultToString[GlobalUATooManyRequests], 0)
+			tooManyRequests(c, config, DecisionListResultToString[GlobalUATooManyRequests], time.Time{})
 			decisionForNginxResult.DecisionListResult = GlobalUATooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
@@ -1371,7 +1376,7 @@ func decisionForNginx2(
 				return
 			}
 		case TooManyRequests:
-			tooManyRequests(c, config, DecisionListResultToString[ExpiringTooManyRequests], secondsUntil(ipExpiringDecision.Expires))
+			tooManyRequests(c, config, DecisionListResultToString[ExpiringTooManyRequests], ipExpiringDecision.Expires)
 			decisionForNginxResult.DecisionListResult = ExpiringTooManyRequests
 			return
 		case NginxBlock, IptablesBlock:

@@ -252,3 +252,34 @@ func TestApplyArgsToTooManyRequestsPage(t *testing.T) {
 	assert.NotContains(t, page, "<img src=x")
 	assert.Contains(t, page, "&lt;img src=x onerror=alert(1)&gt;")
 }
+
+func TestRetryAfterSeconds(t *testing.T) {
+	config := &Config{ExpiringDecisionTtlSeconds: 300}
+
+	// an expiring decision reports the time it has left, rounded up
+	assert.Equal(t, 120, retryAfterSeconds(config, time.Now().Add(119500*time.Millisecond)))
+
+	// a static list decision never expires, so fall back to the configured ban time
+	assert.Equal(t, 300, retryAfterSeconds(config, time.Time{}))
+}
+
+func TestDecisionForNginx2_StaticTooManyRequestsRetryAfter(t *testing.T) {
+	config := &Config{ExpiringDecisionTtlSeconds: 300}
+	err := yaml.Unmarshal([]byte(`
+global_decision_lists:
+  too_many_requests:
+    - 8.8.4.4
+`), config)
+	assert.Nil(t, err)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+
+	c := buildDecisionForNginxTestContext("8.8.4.4", "example.com", "/", "some-ua", "")
+	result := decisionForNginx2(c, config, staticDecisionLists, NewDynamicDecisionLists(), passwordProtectedPaths, NewFailedChallengeRateLimitStates(), &MockBanner{})
+
+	assert.Equal(t, GlobalTooManyRequests, result.DecisionListResult)
+	assert.Equal(t, 429, c.Writer.Status())
+	assert.Equal(t, "300", c.Writer.Header().Get("Retry-After"))
+}
