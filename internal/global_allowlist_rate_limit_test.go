@@ -238,3 +238,17 @@ func TestUnban_ByIp_ClearsPerHostTooManyRequests(t *testing.T) {
 	_, ok := decisionLists.CheckByIpHost("1.2.3.4", "opted.com")
 	assert.False(t, ok)
 }
+
+func TestApplyArgsToTooManyRequestsPage(t *testing.T) {
+	config := &Config{TooManyRequestsPageBytes: tooManyRequestsEmbed}
+
+	page := string(applyArgsToTooManyRequestsPage(config, "example.com"))
+	assert.NotContains(t, page, "{{host}}")
+	assert.Contains(t, page, `<span class="website-title">example.com</span>`)
+	assert.Contains(t, page, `<span class="website-title-footer">example.com</span> is protected by`)
+	assert.NotContains(t, page, "<script")
+
+	page = string(applyArgsToTooManyRequestsPage(config, `<img src=x onerror=alert(1)>`))
+	assert.NotContains(t, page, "<img src=x")
+	assert.Contains(t, page, "&lt;img src=x onerror=alert(1)&gt;")
+}

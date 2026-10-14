@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -465,8 +466,13 @@ func tooManyRequests(
 		c.Header("Retry-After", fmt.Sprintf("%d", retryAfterSeconds))
 	}
 	sessionCookieEndPoint(c, config)
-	c.Data(429, "text/html", config.TooManyRequestsPageBytes)
+	c.Data(429, "text/html", applyArgsToTooManyRequestsPage(config, c.Request.Header.Get("X-Requested-Host")))
 	c.Abort()
+}
+
+// The 429 page carries no JavaScript, so the host is filled in here rather than in the browser.
+func applyArgsToTooManyRequestsPage(config *Config, host string) []byte {
+	return bytes.ReplaceAll(config.TooManyRequestsPageBytes, []byte("{{host}}"), []byte(html.EscapeString(host)))
 }
 
 // Seconds until the decision expires, rounded up, for the Retry-After header.
