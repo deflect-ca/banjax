@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -216,6 +217,13 @@ func handleCommand(
 		ttl := getBlockIpTtl(config, command.Host)
 		handleIPCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
+	case "challenge_subnet":
+		handleSubnetCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "block_subnet":
+		ttl := getBlockIpTtl(config, command.Host)
+		handleSubnetCommand(config, command, decisionLists, NginxBlock, ttl)
+		break
 	case "challenge_session":
 		handleSessionCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
@@ -267,6 +275,41 @@ func handleIPCommand(
 	decisionLists.Update(
 		config,
 		command.Value,
+		time.Now().Add(time.Duration(ttl)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
+		command.Host,
+	)
+}
+
+// handleSubnetCommand is handleIPCommand for an IPv4 subnet in CIDR notation, so one command
+// covers e.g. a botnet rotating through a /24 instead of one command per ip.
+func handleSubnetCommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	subnet, err := ParseSubnet(command.Value)
+	if err != nil {
+		log.Printf("KAFKA: command value is not a valid subnet: %s (%v)\n", command.Value, err)
+		return
+	}
+
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
+	if config.Debug {
+		log.Printf("KAFKA: handleSubnetCommand %s %s %s %d\n",
+			command.Host, subnet, decision, ttl)
+	}
+
+	decisionLists.UpdateBySubnet(
+		config,
+		subnet,
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
@@ -384,7 +427,18 @@ func handleClearRulesCommand(
 		cleared = true
 	}
 
-	if command.Value != "" {
+	if strings.Contains(command.Value, "/") {
+		subnet, err := ParseSubnet(command.Value)
+		if err != nil {
+			log.Printf("KAFKA: clear_rules value is not a valid subnet: %s (%v)\n", command.Value, err)
+		} else {
+			if config.Debug {
+				log.Printf("KAFKA: clear_rules subnet %s\n", subnet)
+			}
+			decisionLists.RemoveBySubnet(subnet)
+			cleared = true
+		}
+	} else if command.Value != "" {
 		if config.Debug {
 			log.Printf("KAFKA: clear_rules ip %s\n", command.Value)
 		}
@@ -416,7 +470,7 @@ func handleClearRulesCommand(
 	}
 
 	if !cleared {
-		log.Printf("KAFKA: clear_rules command has no host, value (ip), session_id, or ua, nothing to clear\n")
+		log.Printf("KAFKA: clear_rules command has no host, value (ip or subnet), session_id, or ua, nothing to clear\n")
 	}
 }
 

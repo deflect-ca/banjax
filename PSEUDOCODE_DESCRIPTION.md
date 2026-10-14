@@ -37,8 +37,9 @@ decision = global_user_agent_decision_lists[client_user_agent]
 # [...] same as above
 
 # The expiring decision lists are checked narrowest scope first: session id,
-# then User-Agent, then host, then IP. Note that a "baskerville is disabled for
-# this site" skip does not return; it falls through to the next check below.
+# then User-Agent, then host, then IP (or a subnet covering it). Note that a
+# "baskerville is disabled for this site" skip does not return; it falls through
+# to the next check below.
 
 decision = expiring_decision_lists_session_id[client_session_id]
 if decision == Allow:
@@ -67,6 +68,9 @@ if decision == Challenge:
     # [...] same as above, falling through to the IP check below
 
 decision = expiring_decision_lists[client_ip]
+# a block_subnet/challenge_subnet acts as if sent for every IP in the subnet,
+# so the most severe of the IP's own entry and any covering subnet entry wins
+decision = max(decision, expiring_decision_lists_subnet[subnet containing client_ip])
 if decision == Allow:
     return access_granted()
 if decision == Challenge:
@@ -151,13 +155,15 @@ It's probably a good idea to add per-block logging and caching behavior to the a
 ### Kafka commands and the expiring decision lists
 
 Baskerville (or `supporting-containers/kafka-cmd-tester` during development) sends JSON command
-messages on `kafka_command_topic`. Each command writes into one of the four expiring decision lists
+messages on `kafka_command_topic`. Each command writes into one of the five expiring decision lists
 checked above:
 
 | Command | Keyed on | Decision | List |
 | --- | --- | --- | --- |
 | `challenge_ip` | `value` (IP) | Challenge | IP |
 | `block_ip` | `value` (IP) | NginxBlock | IP |
+| `challenge_subnet` | `value` (IPv4 CIDR) | Challenge | subnet |
+| `block_subnet` | `value` (IPv4 CIDR) | NginxBlock | subnet |
 | `challenge_session` | `session_id` | Challenge | session id |
 | `block_session` | `session_id` | NginxBlock | session id |
 | `challenge_ua` | `ua` | Challenge | User-Agent |
@@ -170,16 +176,26 @@ entry: it challenges every request to a host until the TTL expires, without edit
 The host list only acts on a Challenge decision; the User-Agent list only acts on Challenge and the
 two block decisions (an Allow there is ignored).
 
+`block_subnet` / `challenge_subnet` cover every IP in a subnet with one command, e.g. a botnet
+rotating through a `/24` to evade per-IP blocks. The value is normalized to its network address
+(`202.46.62.7/24` is stored as `202.46.62.0/24`); IPv6 subnets and anything broader than `/16` are
+rejected. The subnet list is checked in the same step as the IP list and acts as if the command had
+been sent for every IP in the subnet: when both an IP entry and one or more covering subnet entries
+exist, the most severe decision wins. Subnet matches are reported as `ExpiringSubnetChallenge` /
+`ExpiringSubnetBlock`.
+
 Writes never downgrade an existing entry: a new decision is only stored if it is more severe than
 the one already in the list for that key.
 
-`clear_rules` takes any combination of `host`, `value` (IP), `session_id`, and `ua`, and clears each
-one it is given from the corresponding expiring list. The `/unban` HTTP API does the same thing for a
-single `ip`, `host`, or `ua` form field.
+`clear_rules` takes any combination of `host`, `value` (IP, or subnet if it contains a `/`),
+`session_id`, and `ua`, and clears each one it is given from the corresponding expiring list. The
+`/unban` HTTP API does the same thing for a single `ip`, `host`, `ua`, or `subnet` form field. Clearing
+an IP does not clear a subnet covering it, and vice versa.
 
 Each command's lifetime comes from the config (`expiring_decision_ttl_seconds` for challenges,
 `block_ip_ttl_seconds` / `block_session_ttl_seconds`, optionally overridden per site by
-`sites_to_block_ip_ttl_seconds` / `sites_to_block_session_ttl_seconds` for blocks). A command may
+`sites_to_block_ip_ttl_seconds` / `sites_to_block_session_ttl_seconds` for blocks; `block_subnet`
+uses the `block_ip` ones). A command may
 carry a `ttl` field (in seconds) to override that on a per-message basis; any positive value wins
 over the config default.
 
@@ -190,7 +206,8 @@ This includes `clear_rules`: one whose `host` is such a site is dropped as a who
 
 The lengths of the expiring lists are reported in the metrics log as `LenExpiringChallenges` /
 `LenExpiringBlocks` (IP and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
-(host), and `LenExpiringUAChallenges` / `LenExpiringUABlocks` (User-Agent).
+(host), `LenExpiringUAChallenges` / `LenExpiringUABlocks` (User-Agent), and
+`LenExpiringSubnetChallenges` / `LenExpiringSubnetBlocks` (subnet).
 
 ### Challenge-response authentication (SHA-inverse and password-protected paths)
 

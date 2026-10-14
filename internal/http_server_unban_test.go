@@ -172,5 +172,46 @@ func TestUnban_MissingIpHostAndUA(t *testing.T) {
 	code, body := postUnban(t, r, url.Values{"host": {"   "}, "ua": {""}})
 
 	assert.Equal(t, 400, code)
-	assert.Equal(t, "ip, host, or ua in post form is required", body["error"])
+	assert.Equal(t, "ip, host, ua, or subnet in post form is required", body["error"])
+}
+
+func TestUnban_BySubnet_ClearsSubnetDecision(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	subnet, err := ParseSubnet("202.46.62.0/24")
+	assert.Nil(t, err)
+	decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, "my.wiki")
+	r := newUnbanTestRouter(decisionLists)
+
+	// not normalized, still matches the stored entry
+	code, body := postUnban(t, r, url.Values{"subnet": {" 202.46.62.9/24 "}})
+
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "202.46.62.0/24", body["subnet"])
+	assert.Equal(t, true, body["found_in_decision_list"])
+	assert.Equal(t, "NginxBlock", body["decision"])
+	assert.Equal(t, true, body["unban"])
+
+	_, ok := decisionLists.CheckBySubnet("202.46.62.1")
+	assert.False(t, ok)
+}
+
+func TestUnban_BySubnet_NotFound(t *testing.T) {
+	r := newUnbanTestRouter(NewDynamicDecisionLists())
+
+	code, body := postUnban(t, r, url.Values{"subnet": {"10.0.0.0/24"}})
+
+	assert.Equal(t, 200, code)
+	assert.Equal(t, false, body["found_in_decision_list"])
+	assert.Equal(t, false, body["unban"])
+}
+
+func TestUnban_BySubnet_Invalid(t *testing.T) {
+	r := newUnbanTestRouter(NewDynamicDecisionLists())
+
+	code, body := postUnban(t, r, url.Values{"subnet": {"202.46.62.1"}})
+
+	assert.Equal(t, 400, code)
+	assert.Equal(t, "202.46.62.1", body["subnet"])
+	assert.NotEmpty(t, body["error"])
 }

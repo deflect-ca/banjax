@@ -282,7 +282,8 @@ func RunHttpServer(
 }
 
 // API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
-// or clear a block_ua/challenge_ua-triggered decision by exact UA string
+// or clear a block_ua/challenge_ua-triggered decision by exact UA string, or a
+// block_subnet/challenge_subnet-triggered decision by subnet
 func unbanHandler(
 	configHolder *ConfigHolder,
 	dynamicDecisionLists *DynamicDecisionLists,
@@ -323,12 +324,33 @@ func unbanHandler(
 			return
 		}
 
+		// get subnet from post data; when present, just clear the expiring subnet decision for it
+		subnetString := strings.TrimSpace(c.PostForm("subnet"))
+		if subnetString != "" {
+			subnet, err := ParseSubnet(subnetString)
+			if err != nil {
+				c.JSON(400, gin.H{
+					"subnet": subnetString,
+					"error":  err.Error(),
+				})
+				return
+			}
+			subnetDecision, subnetOk := dynamicDecisionLists.RemoveBySubnet(subnet)
+			c.JSON(200, gin.H{
+				"subnet":                 subnet.String(),
+				"found_in_decision_list": subnetOk,
+				"decision":               subnetDecision.Decision.String(),
+				"unban":                  subnetOk,
+			})
+			return
+		}
+
 		// get ip from post data
 		ip := strings.TrimSpace(c.PostForm("ip"))
 		if ip == "" {
 			// return in json
 			c.JSON(400, gin.H{
-				"error": "ip, host, or ua in post form is required",
+				"error": "ip, host, ua, or subnet in post form is required",
 			})
 			return
 		}
@@ -813,6 +835,8 @@ const (
 	GlobalUABlock
 	ExpiringUAChallenge
 	ExpiringUABlock
+	ExpiringSubnetChallenge
+	ExpiringSubnetBlock
 	NoMention
 	NotSet
 )
@@ -842,7 +866,9 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	GlobalUABlock:                  "GlobalUABlock",
 	ExpiringUAChallenge:            "ExpiringUAChallenge",
 	ExpiringUABlock:                "ExpiringUABlock",
-	NoMention:                      "NoMention",
+	ExpiringSubnetChallenge:        "ExpiringSubnetChallenge",
+	ExpiringSubnetBlock:            "ExpiringSubnetBlock",
+	NoMention:                     "NoMention",
 	NotSet:                         "NotSet",
 }
 
@@ -1102,7 +1128,7 @@ func decisionForNginx2(
 	_, disabled := config.SitesToDisableBaskerville[requestedHost]
 
 	// The expiring decision list is applied narrowest-scope first: session id, then user
-	// agent, then a challenge_all-triggered host-wide challenge, then ip.
+	// agent, then a challenge_all-triggered host-wide challenge, then ip (or a subnet covering it).
 
 	// 1. session id
 	sessionId, _ := c.Cookie(SessionCookieName)
@@ -1228,12 +1254,20 @@ func decisionForNginx2(
 		}
 	}
 
-	// 4. ip
+	// 4. ip, or a block_subnet/challenge_subnet covering it
 	// i think this needs to point to a struct {decision: Decision, expires: Time}.
 	// when we insert something into the list, really we might just be extending the expiry time and/or
 	// changing the decision.
 	// XXX i forget if that comment is stale^
 	ipExpiringDecision, ipOk := dynamicDecisionLists.Check("", clientIp)
+	// a block_subnet/challenge_subnet applies as if it were sent for every ip in the subnet,
+	// so like Update it only takes over from the ip's own decision when it is more serious
+	expiringChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringBlock
+	if subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp); subnetOk &&
+		(!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
+		ipExpiringDecision, ipOk = subnetExpiringDecision, true
+		expiringChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetBlock
+	}
 	if !ipOk {
 		// log.Println("no mention in expiring lists")
 	} else {
@@ -1262,7 +1296,7 @@ func decisionForNginx2(
 					Block, // FailAction
 					staticDecisionLists,
 				)
-				decisionForNginxResult.DecisionListResult = ExpiringChallenge
+				decisionForNginxResult.DecisionListResult = expiringChallengeResult
 				decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
@@ -1276,9 +1310,9 @@ func decisionForNginx2(
 				if ipExpiringDecision.fromBaskerville {
 					banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "baskerville", ipExpiringDecision.Decision)
 				}
-				accessDenied(c, config, DecisionListResultToString[ExpiringBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+				accessDenied(c, config, DecisionListResultToString[expiringBlockResult], -1.0, "", IntegrityCheckPayloadWrapper{})
 				// log.Println("access denied from expiring lists")
-				decisionForNginxResult.DecisionListResult = ExpiringBlock
+				decisionForNginxResult.DecisionListResult = expiringBlockResult
 				return
 			}
 		}

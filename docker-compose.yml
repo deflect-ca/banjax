@@ -13,6 +13,7 @@ services:
     volumes:
       - ./logs/banjax:/var/log/banjax/
       - .:/opt/banjax/
+      - ./keys:/etc/banjax/keys:ro
     restart: on-failure:5
     env_file: ".env"
 
