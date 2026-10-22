@@ -34,7 +34,7 @@ performance-tests:
 # Same toolchain as the Dockerfile so stdlib findings match what we ship.
 govulncheck:
   stage: test
-  image: golang:1.26.8-bookworm
+  image: golang:1.26.10-bookworm
   script:
     - go install golang.org/x/vuln/cmd/govulncheck@latest
     - govulncheck ./...
