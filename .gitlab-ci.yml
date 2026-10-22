@@ -1,0 +1,40 @@
+# GitLab CI translation of .github/workflows/test.yml and govulncheck.yml
+# Runs on every push and merge request.
+
+default:
+  image: golang:1.26
+
+stages:
+  - test
+
+# Runs on both branch pushes and merge requests, matching GitHub's
+# `on: [push, pull_request]`. Scheduled pipelines are also allowed so
+# govulncheck can pick up newly published advisories.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH
+
+test:
+  stage: test
+  script:
+    - go test ./... -v
+
+integration-tests:
+  stage: test
+  script:
+    - go test -tags=integration
+
+performance-tests:
+  stage: test
+  script:
+    - go test -tags=performance -bench=.
+
+# Same toolchain as the Dockerfile so stdlib findings match what we ship.
+govulncheck:
+  stage: test
+  image: golang:1.26.8-bookworm
+  script:
+    - go install golang.org/x/vuln/cmd/govulncheck@latest
+    - govulncheck ./...
