@@ -92,6 +92,18 @@ type Config struct {
 	// When a rule trips for such an ip, the ip gets a TooManyRequests (429, no challenge) on
 	// that site only, whatever the rule's own decision is.
 	SitesToRateLimitGlobalAllowlist map[string]bool `yaml:"sites_to_rate_limit_global_allowlist"`
+	// Deflect Challenge: domains that answer POST /_deflect/challenge with an
+	// Ed25519 signature over a client-chosen nonce, so a client can verify it is
+	// really connected to a Deflect edge. A keypair is generated the first time a
+	// domain appears here.
+	SitesToDeflectChallenge   map[string]bool `yaml:"deflect_challenge_sites"`
+	DeflectChallengeKeyDir    string          `yaml:"deflect_challenge_key_dir"`
+	DeflectChallengeMaxLength int             `yaml:"deflect_challenge_max_length"`
+	// Whether banjax may mint a keypair for an enabled domain that has no key
+	// file yet. Off by default: in production the keys come from a provisioning
+	// script, and a self-generated key whose public half nobody holds would fail
+	// verification in a way indistinguishable from a compromised edge.
+	DeflectChallengeGenerateMissingKeys bool `yaml:"deflect_challenge_generate_missing_keys"`
 }
 
 type RegexWithRate struct {

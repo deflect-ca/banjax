@@ -1,0 +1,34 @@
+config_version: 2022-01-02_00:00:00
+iptables_ban_seconds: 10
+iptables_unbanner_seconds: 5
+kafka_brokers:
+  - "localhost:9092"
+kafka_security_protocol: 'ssl'
+kafka_ssl_ca: "/etc/banjax/caroot.pem"
+kafka_ssl_key: "/etc/banjax/key.pem"
+kafka_ssl_key_password: password
+kafka_report_topic: 'banjax_report_topic'
+kafka_command_topic: 'banjax_command_topic'
+server_log_file: /var/log/banjax/banjax-format.log
+banning_log_file: /etc/banjax/ban_ip_list.log
+expiring_decision_ttl_seconds: 10
+too_many_failed_challenges_interval_seconds: 10
+too_many_failed_challenges_threshold: 6
+password_cookie_ttl_seconds: 14400
+sha_inv_cookie_ttl_seconds: 14400
+hmac_secret: secret
+gin_log_file: /var/log/banjax/gin.log
+metrics_log_file: /var/log/banjax/metrics.log
+standalone_testing: true
+
+# Deflect Challenge. In standalone-testing mode addOurXHeadersForTesting sets
+# X-Requested-Host from the request's Host, which is localhost:8081 when the
+# tests hit banjax directly with no nginx in front. not-enabled.example is
+# deliberately absent so the 404 path can be tested.
+deflect_challenge_sites:
+  "localhost:8081": true
+# ./tmp is already gitignored.
+deflect_challenge_key_dir: ./tmp/deflect-challenge-test-keys
+deflect_challenge_max_length: 512
+# The test has no provisioning script, so let banjax mint the key itself.
+deflect_challenge_generate_missing_keys: true
