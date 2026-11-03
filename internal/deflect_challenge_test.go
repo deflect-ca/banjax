@@ -182,6 +182,64 @@ func TestDeflectChallengeDisableAndReEnable(t *testing.T) {
 	}
 }
 
+func TestDeflectChallengeReloadPicksUpRotatedKey(t *testing.T) {
+	config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+	keys := newTestDeflectChallengeKeys(t, config)
+	original, _ := keys.Get("example.com")
+
+	// Stand in for the provisioning script rotating the key on disk.
+	rotator := &DeflectChallengeKeys{dir: config.DeflectChallengeKeyDir}
+	rotated, err := rotator.generateKey("example.com")
+	if err != nil {
+		t.Fatalf("generateKey: %v", err)
+	}
+	if rotated.KeyID == original.KeyID {
+		t.Fatal("setup generated the same key twice")
+	}
+
+	if err := keys.UpdateFromConfig(config); err != nil {
+		t.Fatalf("UpdateFromConfig: %v", err)
+	}
+	reloaded, ok := keys.Get("example.com")
+	if !ok {
+		t.Fatal("domain stopped answering after a reload")
+	}
+	if reloaded.KeyID != rotated.KeyID {
+		t.Errorf("key id after reload = %q, want the rotated %q (old was %q)",
+			reloaded.KeyID, rotated.KeyID, original.KeyID)
+	}
+
+	_, signature, err := keys.Sign("example.com", "a-nonce")
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if !ed25519.Verify(rotated.Public, DeflectChallengeMessage("example.com", "a-nonce"), signature) {
+		t.Error("signature after reload does not verify under the rotated key")
+	}
+}
+
+func TestDeflectChallengeReloadKeepsKeyWhenFileBreaks(t *testing.T) {
+	config := testDeflectChallengeConfig(t, map[string]bool{"example.com": true})
+	keys := newTestDeflectChallengeKeys(t, config)
+	original, _ := keys.Get("example.com")
+
+	path := filepath.Join(config.DeflectChallengeKeyDir, "example.com.json")
+	if err := os.WriteFile(path, []byte("{not json"), deflectChallengeKeyFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := keys.UpdateFromConfig(config); err != nil {
+		t.Fatalf("UpdateFromConfig: %v", err)
+	}
+	kept, ok := keys.Get("example.com")
+	if !ok {
+		t.Fatal("a broken key file on reload took the domain down")
+	}
+	if kept.KeyID != original.KeyID {
+		t.Errorf("key id = %q, want the previously loaded %q", kept.KeyID, original.KeyID)
+	}
+}
+
 func TestDeflectChallengeDomainsAreIndependent(t *testing.T) {
 	config := testDeflectChallengeConfig(t, map[string]bool{"a.example": true, "b.example": true})
 	keys := newTestDeflectChallengeKeys(t, config)

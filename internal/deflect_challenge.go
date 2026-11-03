@@ -156,8 +156,8 @@ func NewDeflectChallengeKeys(config *Config) (*DeflectChallengeKeys, error) {
 	return keys, keys.UpdateFromConfig(config)
 }
 
-// UpdateFromConfig mints a keypair for every newly enabled domain and rebuilds
-// the enabled set. This is what implements "the key pair is generated the first
+// UpdateFromConfig re-reads every enabled domain's key file, mints a keypair
+// for every newly enabled domain that has none, and rebuilds the enabled set. This is what implements "the key pair is generated the first
 // time the domain name turns this feature on": adding a domain to
 // deflect_challenge_sites and sending SIGHUP is the whole flow.
 //
@@ -202,16 +202,12 @@ func (k *DeflectChallengeKeys) UpdateFromConfig(config *Config) error {
 			continue
 		}
 
-		key, ok := known[domain]
-		if !ok {
-			var err error
-			key, err = k.loadOrGenerateKey(domain, config.DeflectChallengeGenerateMissingKeys)
-			if err != nil {
-				log.Printf("DEFLECT-CHALLENGE: no key for %q: %v", domain, err)
-				continue
-			}
-			known[domain] = key
+		key, err := k.reloadKey(domain, known[domain], config.DeflectChallengeGenerateMissingKeys)
+		if err != nil {
+			log.Printf("DEFLECT-CHALLENGE: no key for %q: %v", domain, err)
+			continue
 		}
+		known[domain] = key
 		enabled[domain] = key
 	}
 
@@ -299,6 +295,32 @@ func validateDeflectChallengeDomain(domain string) error {
 // on Linux but awkward everywhere else.
 func (k *DeflectChallengeKeys) keyPath(domain string) string {
 	return filepath.Join(k.dir, strings.ReplaceAll(domain, ":", "_")+"."+deflectChallengeKeyExt)
+}
+
+// reloadKey re-reads a domain's key file on every reload, so a key the
+// provisioning script rotated on disk takes effect on SIGHUP instead of the
+// edge signing with the stale one until a restart.
+//
+// cached is the key already in memory, or nil. If the file has become
+// unreadable since it was loaded, cached keeps the domain answering: a
+// half-written or accidentally deleted file should not take it down.
+func (k *DeflectChallengeKeys) reloadKey(domain string, cached *DeflectChallengeKey, generateMissing bool) (*DeflectChallengeKey, error) {
+	if cached == nil {
+		return k.loadOrGenerateKey(domain, generateMissing)
+	}
+
+	key, err := k.loadKey(domain)
+	if err != nil {
+		log.Printf("DEFLECT-CHALLENGE: cannot reload key for %v, keeping key_id=%v: %v",
+			domain, cached.KeyID, err)
+		return cached, nil
+	}
+	if key.KeyID != cached.KeyID {
+		log.Printf("DEFLECT-CHALLENGE: reloaded ed25519 key for %v key_id=%v (was %v)",
+			domain, key.KeyID, cached.KeyID)
+	}
+
+	return key, nil
 }
 
 // loadOrGenerateKey prefers whatever is already on disk. Generating a fresh key
