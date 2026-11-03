@@ -283,8 +283,9 @@ func RunHttpServer(
 }
 
 // API to unban an IP, or clear a challenge_all-triggered sitewide challenge by host,
-// or clear a block_ua/challenge_ua-triggered decision by exact UA string, or a
-// block_subnet/challenge_subnet-triggered decision by subnet
+// or clear a block_ua/challenge_ua-triggered decision by exact UA string (on the given
+// host, or on every host when none is given), or a block_subnet/challenge_subnet-triggered
+// decision by subnet
 func unbanHandler(
 	configHolder *ConfigHolder,
 	dynamicDecisionLists *DynamicDecisionLists,
@@ -293,8 +294,24 @@ func unbanHandler(
 	return func(c *gin.Context) {
 		config := configHolder.Get()
 
-		// get host from post data; when present, just clear the expiring sitewide challenge for it
 		host := strings.TrimSpace(c.PostForm("host"))
+
+		// get ua from post data; when present, just clear the expiring ua decision for it,
+		// scoped to host if one is given
+		ua := strings.TrimSpace(c.PostForm("ua"))
+		if ua != "" {
+			uaDecision, uaOk := dynamicDecisionLists.RemoveByUA(ua, host)
+			c.JSON(200, gin.H{
+				"ua":                     ua,
+				"host":                   host,
+				"found_in_decision_list": uaOk,
+				"decision":               uaDecision.Decision.String(),
+				"unban":                  uaOk,
+			})
+			return
+		}
+
+		// when host is present, just clear the expiring sitewide challenge for it
 		if host != "" {
 			hostDecision, hostOk := dynamicDecisionLists.CheckByHost(host)
 			if hostOk {
@@ -305,22 +322,6 @@ func unbanHandler(
 				"found_in_decision_list": hostOk,
 				"decision":               hostDecision.Decision.String(),
 				"unban":                  hostOk,
-			})
-			return
-		}
-
-		// get ua from post data; when present, just clear the expiring ua decision for it
-		ua := strings.TrimSpace(c.PostForm("ua"))
-		if ua != "" {
-			uaDecision, uaOk := dynamicDecisionLists.CheckByUA(ua)
-			if uaOk {
-				dynamicDecisionLists.RemoveByUA(ua)
-			}
-			c.JSON(200, gin.H{
-				"ua":                     ua,
-				"found_in_decision_list": uaOk,
-				"decision":               uaDecision.Decision.String(),
-				"unban":                  uaOk,
 			})
 			return
 		}
@@ -1229,9 +1230,9 @@ func decisionForNginx2(
 	}
 
 	// 2. user agent — kafka-triggered, exact-match version of the UA lists above: a
-	// block_ua/challenge_ua command enables this for a UA string until its TTL expires,
-	// without touching the static config lists.
-	uaExpiringDecision, uaOk := dynamicDecisionLists.CheckByUA(clientUserAgent)
+	// block_ua/challenge_ua command enables this for a UA string on one host until its TTL
+	// expires, without touching the static config lists.
+	uaExpiringDecision, uaOk := dynamicDecisionLists.CheckByUA(clientUserAgent, requestedHost)
 	if !uaOk {
 		// log.Println("no mention in expiring ua list")
 	} else {

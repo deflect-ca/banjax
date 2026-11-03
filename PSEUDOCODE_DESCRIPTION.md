@@ -60,7 +60,7 @@ if decision in [NginxBlock, IptablesBlock]:
     else:
         return access_denied()
 
-decision = expiring_user_agent_decision_lists[client_user_agent]
+decision = expiring_user_agent_decision_lists[(client_user_agent, requested_host)]
 if decision == Challenge:
     # [...] same as above, falling through to the host check below
 if decision in [NginxBlock, IptablesBlock]:
@@ -116,7 +116,8 @@ Challenge → Allow; the first matching pattern wins.
 
 The expiring User-Agent and host lists are separate from those static lists. They are populated only by
 Kafka commands (see below), they match the User-Agent string exactly (no substring or regex matching),
-and their entries disappear when their TTL expires.
+and their entries disappear when their TTL expires. An expiring User-Agent entry only applies to the
+host given in the command.
 
 `access_granted()` returns a response with a header: `X-Accel-Redirect: @access_granted` which instructs
 Nginx to perform an internal redirect to the location block named `@access_granted`. That block should
@@ -176,8 +177,8 @@ checked above:
 | `block_subnet` | `value` (IPv4 CIDR) | NginxBlock | subnet |
 | `challenge_session` | `session_id` | Challenge | session id |
 | `block_session` | `session_id` | NginxBlock | session id |
-| `challenge_ua` | `ua` | Challenge | User-Agent |
-| `block_ua` | `ua` | NginxBlock | User-Agent |
+| `challenge_ua` | `ua` + `host` | Challenge | User-Agent |
+| `block_ua` | `ua` + `host` | NginxBlock | User-Agent |
 | `challenge_all` | `host` | Challenge | host |
 | `clear_rules` | any of `host`, `value`, `session_id`, `ua` | — | removes entries |
 
@@ -198,9 +199,12 @@ Writes never downgrade an existing entry: a new decision is only stored if it is
 the one already in the list for that key.
 
 `clear_rules` takes any combination of `host`, `value` (IP, or subnet if it contains a `/`),
-`session_id`, and `ua`, and clears each one it is given from the corresponding expiring list. The
-`/unban` HTTP API does the same thing for a single `ip`, `host`, `ua`, or `subnet` form field. Clearing
-an IP does not clear a subnet covering it, and vice versa.
+`session_id`, and `ua`, and clears each one it is given from the corresponding expiring list. A `ua`
+is cleared only on `host` when one is given, and on every host otherwise. The `/unban` HTTP API does
+the same thing for a single `ip`, `host`, `ua` (optionally scoped by `host`), or `subnet` form field.
+Clearing an IP does not clear a subnet covering it, and vice versa.
+
+`challenge_ua` / `block_ua` without a `host` are dropped.
 
 Each command's lifetime comes from the config (`expiring_decision_ttl_seconds` for challenges,
 `block_ip_ttl_seconds` / `block_session_ttl_seconds`, optionally overridden per site by

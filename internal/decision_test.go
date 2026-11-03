@@ -124,20 +124,20 @@ func TestDynamicDecisionLists_UpdateByUA_UpgradeOnly(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
-	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 
 	// a lower-severity decision should not downgrade the existing one
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Allow, true)
-	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Allow, true, "example.com")
+	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 
 	// a higher-severity decision should upgrade it
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
-	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, expiringDecision.Decision)
 }
@@ -145,7 +145,7 @@ func TestDynamicDecisionLists_UpdateByUA_UpgradeOnly(t *testing.T) {
 func TestDynamicDecisionLists_CheckByUA_NotFound(t *testing.T) {
 	decisionLists := NewDynamicDecisionLists()
 
-	_, ok := decisionLists.CheckByUA("unknown-agent")
+	_, ok := decisionLists.CheckByUA("unknown-agent", "example.com")
 	assert.False(t, ok)
 }
 
@@ -153,9 +153,9 @@ func TestDynamicDecisionLists_CheckByUA_LazyExpiry(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(-time.Second), Challenge, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(-time.Second), Challenge, true, "example.com")
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, ok)
 }
 
@@ -163,9 +163,9 @@ func TestDynamicDecisionLists_CheckByUA_ExactMatchOnly(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0 extra")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0 extra", "example.com")
 	assert.False(t, ok)
 }
 
@@ -173,10 +173,10 @@ func TestDynamicDecisionLists_RemoveByUA(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.RemoveByUA("curl/7.68.0")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.RemoveByUA("curl/7.68.0", "")
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, ok)
 }
 
@@ -184,10 +184,10 @@ func TestDynamicDecisionLists_Clear_WipesUAMap(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
 	decisionLists.Clear()
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, ok)
 }
 
@@ -195,14 +195,14 @@ func TestDynamicDecisionLists_RemoveExpired_SweepsUAMap(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "expired-agent", time.Now().Add(-time.Second), Challenge, true)
-	decisionLists.UpdateByUA(config, "live-agent", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "expired-agent", time.Now().Add(-time.Second), Challenge, true, "example.com")
+	decisionLists.UpdateByUA(config, "live-agent", time.Now().Add(time.Minute), Challenge, true, "example.com")
 
 	decisionLists.removeExpired()
 
 	decisionLists.mutex.Lock()
-	_, expiredStillThere := decisionLists.value.expiringDecisionListsUA["expired-agent"]
-	_, liveStillThere := decisionLists.value.expiringDecisionListsUA["live-agent"]
+	_, expiredStillThere := decisionLists.value.expiringDecisionListsUA[uaHostKey{"expired-agent", "example.com"}]
+	_, liveStillThere := decisionLists.value.expiringDecisionListsUA[uaHostKey{"live-agent", "example.com"}]
 	decisionLists.mutex.Unlock()
 
 	assert.False(t, expiredStillThere)
@@ -213,8 +213,8 @@ func TestDynamicDecisionLists_Metrics_CountsUAEntries(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 
-	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 	_, _, _, _, lenExpiringUAChallenges, lenExpiringUABlocks, _, _ := decisionLists.Metrics()
 	assert.Equal(t, 1, lenExpiringUAChallenges)
@@ -228,8 +228,8 @@ func TestDynamicDecisionLists_Metrics_IptablesBlockAndAllow(t *testing.T) {
 	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
 	decisionLists.UpdateByHost(config, "iptables.com", time.Now().Add(time.Minute), IptablesBlock, true)
 	decisionLists.UpdateByHost(config, "allowed.com", time.Now().Add(time.Minute), Allow, true)
-	decisionLists.UpdateByUA(config, "iptables-agent", time.Now().Add(time.Minute), IptablesBlock, true)
-	decisionLists.UpdateByUA(config, "allowed-agent", time.Now().Add(time.Minute), Allow, true)
+	decisionLists.UpdateByUA(config, "iptables-agent", time.Now().Add(time.Minute), IptablesBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "allowed-agent", time.Now().Add(time.Minute), Allow, true, "example.com")
 
 	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks, _, _ := decisionLists.Metrics()
 
@@ -251,21 +251,21 @@ func TestDynamicDecisionLists_HostUAAndIpMapsAreIndependent(t *testing.T) {
 	// the same key in one map must not leak into the others
 	decisionLists.UpdateByHost(config, "shared-key", time.Now().Add(time.Minute), Challenge, true)
 
-	_, uaOk := decisionLists.CheckByUA("shared-key")
+	_, uaOk := decisionLists.CheckByUA("shared-key", "example.com")
 	_, ipOk := decisionLists.Check("", "shared-key")
 	assert.False(t, uaOk)
 	assert.False(t, ipOk)
 
-	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 	// removing from the ua map leaves the host map alone, and vice versa
-	decisionLists.RemoveByUA("shared-key")
+	decisionLists.RemoveByUA("shared-key", "")
 	_, hostOk := decisionLists.CheckByHost("shared-key")
 	assert.True(t, hostOk)
 
-	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "shared-key", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 	decisionLists.RemoveByHost("shared-key")
-	_, uaOk = decisionLists.CheckByUA("shared-key")
+	_, uaOk = decisionLists.CheckByUA("shared-key", "example.com")
 	assert.True(t, uaOk)
 }
 
@@ -277,12 +277,12 @@ func TestFormatDecisionLists_IncludesSitewideAndUA(t *testing.T) {
 
 	expires := time.Now().Add(time.Hour)
 	decisionLists.UpdateByHost(config, "example.com", expires, Challenge, true)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", expires, NginxBlock, false)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", expires, NginxBlock, false, "example.com")
 
 	out := FormatDecisionLists(staticDecisionLists, decisionLists)
 
 	assert.Contains(t, out, "expiring_sitewide:\nexample.com:\n\tChallenge until "+expires.Format("15:04:05")+" (baskerville: true)\n")
-	assert.Contains(t, out, "expiring_ua:\ncurl/7.68.0:\n\tNginxBlock until "+expires.Format("15:04:05")+" (baskerville: false)\n")
+	assert.Contains(t, out, "expiring_ua:\nexample.com curl/7.68.0:\n\tNginxBlock until "+expires.Format("15:04:05")+" (baskerville: false)\n")
 }
 
 func TestParseSubnet(t *testing.T) {
@@ -613,4 +613,68 @@ func TestIPMatcher(t *testing.T) {
 	var nilMatcher *ipMatcher
 	assert.False(t, nilMatcher.Contains("1.1.1.1"))
 	assert.False(t, newIPMatcher(nil).Contains("1.1.1.1"))
+}
+
+func TestDynamicDecisionLists_UAIsPerHost(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	assert.True(t, ok)
+	assert.Equal(t, "example.com", expiringDecision.domain)
+	_, ok = decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.False(t, ok)
+
+	// a less serious decision on another host is stored separately, not refused as a downgrade
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "other.com")
+	expiringDecision, ok = decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, expiringDecision.Decision)
+}
+
+func TestDynamicDecisionLists_RemoveByUA_ScopedToHost(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "other.com")
+
+	removed, ok := decisionLists.RemoveByUA("curl/7.68.0", "other.com")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, removed.Decision)
+
+	_, exampleOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	_, otherOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.True(t, exampleOk)
+	assert.False(t, otherOk)
+}
+
+func TestDynamicDecisionLists_RemoveByUA_EmptyHostClearsEveryHost(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+	decisionLists.UpdateByUA(config, "other-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+
+	// the most serious removed decision is reported
+	removed, ok := decisionLists.RemoveByUA("curl/7.68.0", "")
+	assert.True(t, ok)
+	assert.Equal(t, NginxBlock, removed.Decision)
+
+	_, exampleOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	_, otherOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	_, otherAgentOk := decisionLists.CheckByUA("other-agent", "example.com")
+	assert.False(t, exampleOk)
+	assert.False(t, otherOk)
+	assert.True(t, otherAgentOk)
+}
+
+func TestDynamicDecisionLists_RemoveByUA_ExpiredNotReported(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(-time.Second), NginxBlock, true, "example.com")
+
+	_, ok := decisionLists.RemoveByUA("curl/7.68.0", "")
+	assert.False(t, ok)
 }

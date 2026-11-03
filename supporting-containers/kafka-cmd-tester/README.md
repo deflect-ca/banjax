@@ -23,11 +23,12 @@ docker compose run --rm kafka-cmd-tester -cmd challenge_ip -value 192.168.65.1 -
 docker compose run --rm kafka-cmd-tester -cmd block_subnet -value 192.168.65.0/24 -host localhost -ttl 1800
 docker compose run --rm kafka-cmd-tester -cmd challenge_subnet -value 192.168.65.0/24 -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
-docker compose run --rm kafka-cmd-tester -cmd block_ua -ua 'curl/7.68.0'
-docker compose run --rm kafka-cmd-tester -cmd challenge_ua -ua 'curl/7.68.0'
+docker compose run --rm kafka-cmd-tester -cmd block_ua -ua 'curl/7.68.0' -host localhost
+docker compose run --rm kafka-cmd-tester -cmd challenge_ua -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
+docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.0/24
 ```
 
@@ -41,11 +42,13 @@ that subnet entry instead of a single IP.
 `block_ua`/`challenge_ua` match the client's User-Agent exactly (no
 substring or regex matching, unlike the static
 `per_site_user_agent_decision_lists`/`global_user_agent_decision_lists` in
-`banjax-config.yaml`).
+`banjax-config.yaml`), and only on the `-host` they were sent for.
 
 `clear_rules` takes any combination of `-host`, `-value`, `-session-id`, and
 `-ua`; each one present clears that entry independently from the expiring
-decision list (at least one is required).
+decision list (at least one is required). The exception is `-ua` together
+with `-host`: that clears the UA only on that host (and still clears the
+host's sitewide challenge). `-ua` alone clears the UA on every host.
 
 Preview the JSON without sending anything with `-dry-run`:
 
@@ -73,7 +76,7 @@ kafka.
 | Flag | Purpose |
 | --- | --- |
 | `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, or `clear_rules` |
-| `-host` | site; required for `challenge_all`, optional for `clear_rules` |
+| `-host` | site; required for `challenge_all`, `block_ua` and `challenge_ua`, optional for `clear_rules` |
 | `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands, optional for `clear_rules` |
 | `-session-id` | required for `*_session` commands, optional for `clear_rules` |
 | `-ua` | exact User-Agent string; required for `block_ua`/`challenge_ua`, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |

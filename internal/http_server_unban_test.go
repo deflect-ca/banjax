@@ -73,7 +73,7 @@ func TestUnban_ByHost_NotFound(t *testing.T) {
 func TestUnban_ByUA_ClearsUADecision(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{"ua": {" curl/7.68.0 "}})
@@ -84,7 +84,7 @@ func TestUnban_ByUA_ClearsUADecision(t *testing.T) {
 	assert.Equal(t, "NginxBlock", body["decision"])
 	assert.Equal(t, true, body["unban"])
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, ok)
 }
 
@@ -99,37 +99,59 @@ func TestUnban_ByUA_NotFound(t *testing.T) {
 	assert.Equal(t, false, body["unban"])
 }
 
-func TestUnban_HostTakesPrecedenceOverUAAndIp(t *testing.T) {
+func TestUnban_HostTakesPrecedenceOverIp(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
 	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
 	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{
 		"host": {"example.com"},
-		"ua":   {"curl/7.68.0"},
 		"ip":   {"1.2.3.4"},
 	})
 
 	assert.Equal(t, 200, code)
 	assert.Equal(t, "example.com", body["host"])
-	assert.NotContains(t, body, "ua")
 	assert.NotContains(t, body, "ip")
 
 	_, hostOk := decisionLists.CheckByHost("example.com")
-	_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
 	_, ipOk := decisionLists.Check("", "1.2.3.4")
 	assert.False(t, hostOk)
-	assert.True(t, uaOk)
 	assert.True(t, ipOk)
+}
+
+// with ua, host only scopes which host's ua decision is cleared; the sitewide challenge stays
+func TestUnban_ByUAAndHost_OnlyClearsThatHostsUA(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+	r := newUnbanTestRouter(decisionLists)
+
+	code, body := postUnban(t, r, url.Values{
+		"host": {"example.com"},
+		"ua":   {"curl/7.68.0"},
+	})
+
+	assert.Equal(t, 200, code)
+	assert.Equal(t, "curl/7.68.0", body["ua"])
+	assert.Equal(t, "example.com", body["host"])
+	assert.Equal(t, true, body["unban"])
+
+	_, hostOk := decisionLists.CheckByHost("example.com")
+	_, exampleUAOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	_, otherUAOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.True(t, hostOk)
+	assert.False(t, exampleUAOk)
+	assert.True(t, otherUAOk)
 }
 
 func TestUnban_UATakesPrecedenceOverIp(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 	r := newUnbanTestRouter(decisionLists)
 
@@ -142,7 +164,7 @@ func TestUnban_UATakesPrecedenceOverIp(t *testing.T) {
 	assert.Equal(t, "curl/7.68.0", body["ua"])
 	assert.NotContains(t, body, "ip")
 
-	_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+	_, uaOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	_, ipOk := decisionLists.Check("", "1.2.3.4")
 	assert.False(t, uaOk)
 	assert.True(t, ipOk)
