@@ -20,6 +20,9 @@ import (
 //go:embed sha-inverse-challenge.html
 var shaInvChallengeEmbed []byte
 
+//go:embed altcha-challenge.html
+var altchaChallengeEmbed []byte
+
 //go:embed password-protected-path.html
 var passProtPathEmbed []byte
 
@@ -110,6 +113,25 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	} else {
 		log.Printf("INIT: Reading SHA-inverse challenge HTML from embed")
 		config.ChallengerBytes = shaInvChallengeEmbed
+	}
+
+	if config.AltChaChallengeHTML != "" {
+		log.Printf("INIT: Reading AltCha challenge HTML from %s", config.AltChaChallengeHTML)
+		altchaBytes, err := os.ReadFile(config.AltChaChallengeHTML)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't read altcha-challenge.html: %w", err)
+		}
+		config.AltChaChallengerBytes = altchaBytes
+	} else {
+		log.Printf("INIT: Reading AltCha challenge HTML from embed")
+		config.AltChaChallengerBytes = altchaChallengeEmbed
+	}
+
+	// A zero/unset altcha_cookie_ttl_seconds mints instantly-expired challenges and a
+	// max-age=0 cookie: the client could never present a valid cookie and would loop until
+	// banned by the failed challenge threshold, so default it rather than trust the zero value.
+	if config.AltChaCookieTtlSeconds <= 0 {
+		config.AltChaCookieTtlSeconds = 14400
 	}
 
 	if config.PasswordProtectedPathHTML != "" {

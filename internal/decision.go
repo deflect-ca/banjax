@@ -22,6 +22,7 @@ const (
 	_ Decision = iota
 	Allow
 	Challenge
+	AltChaChallenge
 	TooManyRequests
 	NginxBlock
 	IptablesBlock
@@ -33,6 +34,8 @@ func ParseDecision(s string) (Decision, error) {
 		return Allow, nil
 	case "challenge":
 		return Challenge, nil
+	case "altcha_challenge":
+		return AltChaChallenge, nil
 	case "too_many_requests":
 		return TooManyRequests, nil
 	case "nginx_block":
@@ -63,6 +66,8 @@ func (d Decision) String() string {
 		return "Allow"
 	case Challenge:
 		return "Challenge"
+	case AltChaChallenge:
+		return "AltChaChallenge"
 	case TooManyRequests:
 		return "TooManyRequests"
 	case NginxBlock:
@@ -141,7 +146,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	// perSiteDecisionListsIPMatcher has different struct as perSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+	for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, NginxBlock, IptablesBlock} {
 		if c.perSiteDecisionListsIPMatcher[site][iterateDecision].Contains(clientIp) {
 			if config.Debug {
 				log.Printf("matched in per-site ipMatcher %s %v %s", site, iterateDecision, clientIp)
@@ -161,7 +166,7 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	if ok {
 		return decision, true
 	} else {
-		for _, iterateDecision := range []Decision{Allow, Challenge, NginxBlock, IptablesBlock} {
+		for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, NginxBlock, IptablesBlock} {
 			if c.globalDecisionListsIPMatcher[iterateDecision].Contains(clientIp) {
 				if config.Debug {
 					log.Printf("matched in ipMatcher %v %s", iterateDecision, clientIp)
@@ -1055,6 +1060,38 @@ func (h *DynamicDecisionLists) MetricsTooManyRequests() (lenExpiringTooManyReque
 	for _, expiringDecision := range h.value.expiringDecisionListsIpHost {
 		if expiringDecision.Decision == TooManyRequests {
 			lenExpiringTooManyRequests += 1
+		}
+	}
+
+	return
+}
+
+// Number of AltChaChallenge decisions across the ip, session, host, UA and subnet lists.
+func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChallenges int) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	for _, list := range []map[string]ExpiringDecision{
+		h.value.expiringDecisionLists,
+		h.value.expiringDecisionListsSessionId,
+		h.value.expiringDecisionListsHost,
+	} {
+		for _, expiringDecision := range list {
+			if expiringDecision.Decision == AltChaChallenge {
+				lenExpiringAltChaChallenges += 1
+			}
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsUA {
+		if expiringDecision.Decision == AltChaChallenge {
+			lenExpiringAltChaChallenges += 1
+		}
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsSubnet {
+		if expiringDecision.Decision == AltChaChallenge {
+			lenExpiringAltChaChallenges += 1
 		}
 	}
 

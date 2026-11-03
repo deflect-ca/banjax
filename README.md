@@ -46,7 +46,7 @@ The diagram below highlights the request life-cycle inside a fully-deployed Defl
 
 # Decision-Making Process
 
-Banjax-go currently has four internal Decision types:
+Banjax-go currently has six internal Decision types:
 
 - Allow
 - returns X-Accel-Redirect: @access\_granted to Nginx.
@@ -56,6 +56,10 @@ Banjax-go currently has four internal Decision types:
 - returns @access\_denied _and also_ blocks that IP with iptables.
 - Challenge
 - returns a JS-based SHA-inverting proof-of-work page. if the request contains a cookie with a solved challenge, banjax-go returns @access\_granted. if an IP exceeds a rate limit of failed challenges, they get blocked.
+- AltChaChallenge
+- a stronger, independent version of Challenge using an AltCha proof-of-work page. its failures are counted separately (`altcha_too_many_failed_challenges_threshold` / `_interval_seconds`), and an IP exceeding them gets blocked with iptables.
+- TooManyRequests
+- returns a plain 429 page. only produced by the regex rate limits.
 
 The Decision lists are populated by:
 
@@ -174,6 +178,10 @@ communicate with our Baskerville ML anomaly detection system.
 Messages sent on `kafka_command_topic` (from Baskerville to banjax-go):
 * `{"name": "challenge_ip", "value": "1.2.3.4"}`
   * Tells banjax-go to challenge this IP the next time it's seen.
+* `{"name": "altcha_challenge_ip", "value": "1.2.3.4"}`
+  * Same, with the AltCha challenge. `altcha_challenge_subnet`, `altcha_challenge_session`,
+    `altcha_challenge_ua` and `altcha_challenge_all` mirror their `challenge_*` counterparts.
+  See [PSEUDOCODE_DESCRIPTION.md](PSEUDOCODE_DESCRIPTION.md) for the full command list.
 
 Messages sent on `kafka_report_topic` (from banjax-go to Baskerville):
 * `{"name": "ip_passed_challenge", "value_ip": "1.2.3.4", "value_site": "example.com"}`
@@ -187,6 +195,9 @@ The banning threshold is configured with:
 ```yaml
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
+# AltCha failures are counted and thresholded separately
+altcha_too_many_failed_challenges_interval_seconds: 10
+altcha_too_many_failed_challenges_threshold: 3
 ```
 
 The Kafka connection is configured with:

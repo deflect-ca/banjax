@@ -240,6 +240,21 @@ func handleCommand(
 	case "block_ua":
 		handleUACommand(config, command, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
 		break
+	case "altcha_challenge_ip":
+		handleIPCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_subnet":
+		handleSubnetCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_session":
+		handleSessionCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_all":
+		handleHostCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_ua":
+		handleUACommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
 	case "clear_rules":
 		handleClearRulesCommand(config, command, decisionLists)
 		break

@@ -79,6 +79,7 @@ func main() {
 
 	regexStates := internal.NewRegexRateLimitStates()
 	failedChallengeStates := internal.NewFailedChallengeRateLimitStates()
+	altchaFailedChallengeStates := internal.NewFailedChallengeRateLimitStates()
 
 	passwordProtectedPaths, err := internal.NewPasswordProtectedPaths(config)
 	if err != nil {
@@ -171,6 +172,7 @@ func main() {
 		passwordProtectedPaths,
 		regexStates,
 		failedChallengeStates,
+		altchaFailedChallengeStates,
 		banner,
 		deflectChallengeKeys,
 	)
@@ -215,6 +217,7 @@ func main() {
 		dynamicDecisionLists,
 		regexStates,
 		failedChallengeStates,
+		altchaFailedChallengeStates,
 	)
 
 	if !config.DisableKafka {
@@ -252,6 +255,7 @@ func reportMetrics(
 	decisionLists *internal.DynamicDecisionLists,
 	regexStates *internal.RegexRateLimitStates,
 	failedChallengeStates *internal.FailedChallengeRateLimitStates,
+	altchaFailedChallengeStates *internal.FailedChallengeRateLimitStates,
 ) {
 	config := configHolder.Get()
 	logFileName := ""
@@ -286,6 +290,7 @@ func reportMetrics(
 				decisionLists,
 				regexStates,
 				failedChallengeStates,
+				altchaFailedChallengeStates,
 			)
 		}
 	}

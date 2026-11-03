@@ -92,7 +92,7 @@ func TestWriteMetricsToEncoder_IncludesSitewideAndUACounts(t *testing.T) {
 	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 	var buf bytes.Buffer
-	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates())
+	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates())
 
 	var metricsLogLine MetricsLogLine
 	err := json.Unmarshal(buf.Bytes(), &metricsLogLine)

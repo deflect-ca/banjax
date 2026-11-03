@@ -109,6 +109,16 @@ server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
+# AltCha challenge (decision: altcha_challenge), a stronger proof-of-work challenge than sha-inv.
+# Its failures are counted separately from sha-inv/password failures; exceeding
+# altcha_too_many_failed_challenges_threshold within the interval gets the ip iptables banned.
+altcha_too_many_failed_challenges_interval_seconds: 10
+altcha_too_many_failed_challenges_threshold: 3
+# lifetime of a solved deflect_altcha cookie (defaults to 14400 when unset)
+altcha_cookie_ttl_seconds: 14400
+# difficulty: average work is about altcha_max_number/2 SHA-256 hashes (0 = library default 1000000)
+altcha_max_number: 50000
+# altcha_challenge_html: /etc/banjax/altcha-challenge.html
 password_cookie_ttl_seconds: 345600  # Dynamic apply to internal/password-protected-path.html:170
 sha_inv_cookie_ttl_seconds: 28800  # Dynamic apply to internal/sha-inverse-challenge.html:92
 hmac_secret: secret

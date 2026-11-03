@@ -122,7 +122,7 @@ func (s *FailedChallengeRateLimitStates) Len() int {
 	return len(s.states)
 }
 
-func (s *FailedChallengeRateLimitStates) Apply(ip string, config *Config) (result RateLimitResult) {
+func (s *FailedChallengeRateLimitStates) Apply(ip string, intervalSeconds int, threshold int) (result RateLimitResult) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -130,7 +130,7 @@ func (s *FailedChallengeRateLimitStates) Apply(ip string, config *Config) (resul
 
 	state, ok := s.states[ip]
 	if ok {
-		if timestamp.Sub(state.IntervalStartTime) > time.Duration(config.TooManyFailedChallengesIntervalSeconds)*time.Second {
+		if timestamp.Sub(state.IntervalStartTime) > time.Duration(intervalSeconds)*time.Second {
 			// log.Println("IP has failed a challenge, but longer ago than $interval")
 			result.MatchType = OutsideInterval
 			*state = NumHitsAndIntervalStart{1, timestamp}
@@ -145,7 +145,7 @@ func (s *FailedChallengeRateLimitStates) Apply(ip string, config *Config) (resul
 		s.states[ip] = state
 	}
 
-	if state.NumHits > config.TooManyFailedChallengesThreshold {
+	if state.NumHits > threshold {
 		state.NumHits = 0 // XXX should it be 1?...
 		result.Exceeded = true
 	} else {
