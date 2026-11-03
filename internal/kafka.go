@@ -393,6 +393,10 @@ func handleUACommand(
 		log.Printf("KAFKA: command ua is empty, skip %s\n", command.Name)
 		return
 	}
+	if command.Host == "" {
+		log.Printf("KAFKA: command host is empty, skip %s for ua %s\n", command.Name, command.UA)
+		return
+	}
 
 	ttl := expireDuration
 	if command.TTL > 0 {
@@ -400,7 +404,7 @@ func handleUACommand(
 	}
 
 	if config.Debug {
-		log.Printf("KAFKA: handleUACommand %s %s %d\n", command.UA, decision, ttl)
+		log.Printf("KAFKA: handleUACommand %s %s %s %d\n", command.Host, command.UA, decision, ttl)
 	}
 
 	decisionLists.UpdateByUA(
@@ -409,6 +413,7 @@ func handleUACommand(
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
+		command.Host,
 	)
 }
 
@@ -462,10 +467,11 @@ func handleClearRulesCommand(
 	}
 
 	if command.UA != "" {
+		// with a host, only that host's ua decision is cleared, otherwise the ua on every host
 		if config.Debug {
-			log.Printf("KAFKA: clear_rules ua %s\n", command.UA)
+			log.Printf("KAFKA: clear_rules ua %s host %s\n", command.UA, command.Host)
 		}
-		decisionLists.RemoveByUA(command.UA)
+		decisionLists.RemoveByUA(command.UA, command.Host)
 		cleared = true
 	}
 

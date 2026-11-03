@@ -167,7 +167,7 @@ func TestHandleCommand_NonPositiveTTLUsesDefault(t *testing.T) {
 	decisionLists := NewDynamicDecisionLists()
 
 	handleCommand(config, commandMessage{Name: "challenge_all", Host: "example.com", TTL: -1}, decisionLists)
-	handleCommand(config, commandMessage{Name: "challenge_ua", UA: "curl/7.68.0", TTL: 0}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: "curl/7.68.0", TTL: 0}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", TTL: -1}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_session", SessionId: "session-a", TTL: -1}, decisionLists)
 
@@ -179,7 +179,7 @@ func TestHandleCommand_NonPositiveTTLUsesDefault(t *testing.T) {
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), hostDecision.Expires, 5*time.Second)
 
-	uaDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	uaDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), uaDecision.Expires, 5*time.Second)
 
@@ -237,9 +237,9 @@ func TestHandleCommand_ChallengeUA_DefaultTtl(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "challenge_ua", UA: "curl/7.68.0"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
-	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 	assert.True(t, expiringDecision.fromBaskerville)
@@ -250,9 +250,9 @@ func TestHandleCommand_ChallengeUA_TTLOverride(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "challenge_ua", UA: "curl/7.68.0", TTL: 15}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: "curl/7.68.0", TTL: 15}, decisionLists)
 
-	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -262,9 +262,9 @@ func TestHandleCommand_ChallengeUA_EmptyUA(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "challenge_ua", UA: ""}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: ""}, decisionLists)
 
-	_, ok := decisionLists.CheckByUA("")
+	_, ok := decisionLists.CheckByUA("", "example.com")
 	assert.False(t, ok)
 }
 
@@ -272,9 +272,9 @@ func TestHandleCommand_ChallengeUA_OtherUAUnaffected(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "challenge_ua", UA: "curl/7.68.0"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
-	_, ok := decisionLists.CheckByUA("other-agent")
+	_, ok := decisionLists.CheckByUA("other-agent", "example.com")
 	assert.False(t, ok)
 }
 
@@ -282,9 +282,9 @@ func TestHandleCommand_BlockUA_DefaultTtl(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "block_ua", UA: "curl/7.68.0"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_ua", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
-	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, expiringDecision.Decision)
 	assert.True(t, expiringDecision.fromBaskerville)
@@ -295,9 +295,9 @@ func TestHandleCommand_BlockUA_TTLOverride(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "block_ua", UA: "curl/7.68.0", TTL: 15}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_ua", Host: "example.com", UA: "curl/7.68.0", TTL: 15}, decisionLists)
 
-	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0")
+	expiringDecision, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -307,9 +307,9 @@ func TestHandleCommand_BlockUA_EmptyUA(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
 
-	handleCommand(config, commandMessage{Name: "block_ua", UA: ""}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_ua", Host: "example.com", UA: ""}, decisionLists)
 
-	_, ok := decisionLists.CheckByUA("")
+	_, ok := decisionLists.CheckByUA("", "example.com")
 	assert.False(t, ok)
 }
 
@@ -327,11 +327,11 @@ func TestHandleCommand_ClearRules_ByHost(t *testing.T) {
 func TestHandleCommand_ClearRules_ByUA(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
 
 	handleCommand(config, commandMessage{Name: "clear_rules", UA: "curl/7.68.0"}, decisionLists)
 
-	_, ok := decisionLists.CheckByUA("curl/7.68.0")
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, ok)
 }
 
@@ -374,7 +374,7 @@ func TestHandleCommand_ClearRules_AllAtOnce(t *testing.T) {
 	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
 	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
 	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 	handleCommand(config, commandMessage{
 		Name:      "clear_rules",
@@ -387,7 +387,7 @@ func TestHandleCommand_ClearRules_AllAtOnce(t *testing.T) {
 	_, hostOk := decisionLists.CheckByHost("example.com")
 	_, ipOk := decisionLists.Check("", "1.2.3.4")
 	_, sessionOk := decisionLists.Check("session-a", "")
-	_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+	_, uaOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 	assert.False(t, hostOk)
 	assert.False(t, ipOk)
 	assert.False(t, sessionOk)
@@ -399,13 +399,13 @@ func TestHandleCommand_ClearRules_OnlyClearsGivenKeys(t *testing.T) {
 	decisionLists := NewDynamicDecisionLists()
 	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
 	decisionLists.UpdateByHost(config, "other.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
-	decisionLists.UpdateByUA(config, "other-agent", time.Now().Add(time.Minute), NginxBlock, true)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "other-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
 	_, otherHostOk := decisionLists.CheckByHost("other.com")
-	_, otherUAOk := decisionLists.CheckByUA("other-agent")
+	_, otherUAOk := decisionLists.CheckByUA("other-agent", "example.com")
 	assert.True(t, otherHostOk)
 	assert.True(t, otherUAOk)
 }
@@ -479,12 +479,11 @@ func TestHandleCommand_DisabledBaskerville_OtherHostsUnaffected(t *testing.T) {
 
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "enabled.com"}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_all", Host: "enabled.com"}, decisionLists)
-	// ua commands usually carry no host, so they are not affected by the per-site disable list
-	handleCommand(config, commandMessage{Name: "block_ua", UA: "curl/7.68.0"}, decisionLists)
+	handleCommand(config, commandMessage{Name: "block_ua", Host: "enabled.com", UA: "curl/7.68.0"}, decisionLists)
 
 	_, ipOk := decisionLists.Check("", "1.2.3.4")
 	_, hostOk := decisionLists.CheckByHost("enabled.com")
-	_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+	_, uaOk := decisionLists.CheckByUA("curl/7.68.0", "enabled.com")
 	assert.True(t, ipOk)
 	assert.True(t, hostOk)
 	assert.True(t, uaOk)
@@ -499,7 +498,7 @@ func TestHandleCommand_DisabledBaskerville_DropsClearRules(t *testing.T) {
 			decisionLists.UpdateByHost(config, "disabled.com", time.Now().Add(time.Minute), Challenge, true)
 			decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
 			decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
-			decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true)
+			decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
 
 			// the whole command is dropped, including the fields that are not per-site
 			handleCommand(config, commandMessage{
@@ -513,7 +512,7 @@ func TestHandleCommand_DisabledBaskerville_DropsClearRules(t *testing.T) {
 			_, hostOk := decisionLists.CheckByHost("disabled.com")
 			_, ipOk := decisionLists.Check("", "1.2.3.4")
 			_, sessionOk := decisionLists.Check("session-a", "")
-			_, uaOk := decisionLists.CheckByUA("curl/7.68.0")
+			_, uaOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
 			assert.True(t, hostOk)
 			assert.True(t, ipOk)
 			assert.True(t, sessionOk)
@@ -633,4 +632,55 @@ func TestHandleCommand_ClearRules_Subnet(t *testing.T) {
 	_, ipOk = decisionLists.Check("", "202.46.62.1")
 	assert.True(t, subnetOk)
 	assert.False(t, ipOk)
+}
+
+func TestHandleCommand_UA_EmptyHostDropped(t *testing.T) {
+	for _, name := range []string{"challenge_ua", "block_ua"} {
+		t.Run(name, func(t *testing.T) {
+			config := loadConfigString(kafkaTestConfString)
+			decisionLists := NewDynamicDecisionLists()
+
+			handleCommand(config, commandMessage{Name: name, UA: "curl/7.68.0"}, decisionLists)
+
+			assertDecisionListsEmpty(t, decisionLists)
+		})
+	}
+}
+
+func TestHandleCommand_UA_OtherHostUnaffected(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "block_ua", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
+
+	_, ok := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.False(t, ok)
+}
+
+func TestHandleCommand_ClearRules_ByUAAndHost_OnlyThatHost(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+
+	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
+
+	_, exampleOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	_, otherOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.False(t, exampleOk)
+	assert.True(t, otherOk)
+}
+
+func TestHandleCommand_ClearRules_ByUAWithoutHost_EveryHost(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+
+	handleCommand(config, commandMessage{Name: "clear_rules", UA: "curl/7.68.0"}, decisionLists)
+
+	_, exampleOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	_, otherOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
+	assert.False(t, exampleOk)
+	assert.False(t, otherOk)
 }

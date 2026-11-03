@@ -630,40 +630,43 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
+	host string,
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	existingExpiringDecision, ok := h.value.expiringDecisionListsUA[ua]
+	key := uaHostKey{ua, host}
+	existingExpiringDecision, ok := h.value.expiringDecisionListsUA[key]
 	if ok {
 		if newDecision <= existingExpiringDecision.Decision {
 			if config.Debug {
-				log.Println("updateExpiringDecisionListsUA: not with less serious", existingExpiringDecision.Decision, newDecision, ua)
+				log.Println("updateExpiringDecisionListsUA: not with less serious", existingExpiringDecision.Decision, newDecision, ua, host)
 			}
 			return
 		}
 	}
 	if config.Debug {
-		log.Println("updateExpiringDecisionListsUA: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ua)
+		log.Println("updateExpiringDecisionListsUA: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ua, host)
 	}
 
-	h.value.expiringDecisionListsUA[ua] = ExpiringDecision{
+	h.value.expiringDecisionListsUA[key] = ExpiringDecision{
 		newDecision,
 		expires,
 		"",
 		fromBaskerville,
-		ua,
+		host,
 	}
 }
 
-func (h *DynamicDecisionLists) CheckByUA(ua string) (ExpiringDecision, bool) {
+func (h *DynamicDecisionLists) CheckByUA(ua string, host string) (ExpiringDecision, bool) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	expiringDecision, ok := h.value.expiringDecisionListsUA[ua]
+	key := uaHostKey{ua, host}
+	expiringDecision, ok := h.value.expiringDecisionListsUA[key]
 	if ok {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
-			delete(h.value.expiringDecisionListsUA, ua)
+			delete(h.value.expiringDecisionListsUA, key)
 			ok = false
 		}
 	}
@@ -911,11 +914,28 @@ func (h *DynamicDecisionLists) RemoveByHost(host string) {
 	delete(h.value.expiringDecisionListsHost, host)
 }
 
-func (h *DynamicDecisionLists) RemoveByUA(ua string) {
+// RemoveByUA clears the expiring decision for ua on host, or on every host when host is empty.
+// It returns the most serious unexpired decision removed.
+func (h *DynamicDecisionLists) RemoveByUA(ua string, host string) (ExpiringDecision, bool) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
-	delete(h.value.expiringDecisionListsUA, ua)
+	var removed ExpiringDecision
+	found := false
+	for key, expiringDecision := range h.value.expiringDecisionListsUA {
+		if key.ua != ua || (host != "" && key.host != host) {
+			continue
+		}
+		delete(h.value.expiringDecisionListsUA, key)
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			continue
+		}
+		if !found || expiringDecision.Decision > removed.Decision {
+			removed = expiringDecision
+		}
+		found = true
+	}
+	return removed, found
 }
 
 func (h *DynamicDecisionLists) RemoveBySessionId(sessionId string) {
@@ -1002,9 +1022,9 @@ func (h *DynamicDecisionLists) removeExpired() {
 		}
 	}
 
-	for ua, expiringDecision := range h.value.expiringDecisionListsUA {
+	for key, expiringDecision := range h.value.expiringDecisionListsUA {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
-			delete(h.value.expiringDecisionListsUA, ua)
+			delete(h.value.expiringDecisionListsUA, key)
 		}
 	}
 
@@ -1102,12 +1122,17 @@ func (m ipHostToExpiringDecision) String() string {
 	return b.String()
 }
 
-type uaToExpiringDecision map[string]ExpiringDecision
+type uaHostKey struct {
+	ua   string
+	host string
+}
+
+type uaToExpiringDecision map[uaHostKey]ExpiringDecision
 
 func (m uaToExpiringDecision) String() string {
 	b := strings.Builder{}
-	for ua, expiringDecision := range m {
-		b.WriteString(fmt.Sprintf("%v", ua))
+	for key, expiringDecision := range m {
+		b.WriteString(fmt.Sprintf("%v %v", key.host, key.ua))
 		b.WriteString(":\n")
 		b.WriteString("\t")
 		b.WriteString(fmt.Sprintf("%v until %v (baskerville: %v)",
