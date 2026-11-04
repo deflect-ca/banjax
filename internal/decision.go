@@ -871,53 +871,57 @@ func (h *DynamicDecisionLists) CheckAnyByIpHost(ip string) (ExpiringDecision, bo
 	return ExpiringDecision{}, false
 }
 
+// CheckByDomain lists every unexpired Challenge-or-worse decision that applies to domain, from
+// all the expiring lists, for the /banned API.
 func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
+	now := time.Now()
 	var bannedEntries []BannedEntry
+	add := func(entryType string, key string, ua string, expiringDecision ExpiringDecision) {
+		// expired entries linger until the next removeExpired sweep
+		if expiringDecision.Decision < Challenge || now.Sub(expiringDecision.Expires) > 0 {
+			return
+		}
+		bannedEntries = append(bannedEntries, BannedEntry{
+			IpOrSessionId:   key,
+			UA:              ua,
+			Type:            entryType,
+			domain:          domain,
+			Decision:        expiringDecision.Decision.String(),
+			Expires:         expiringDecision.Expires,
+			FromBaskerville: expiringDecision.fromBaskerville,
+		})
+	}
+
 	for ip, expiringDecision := range h.value.expiringDecisionLists {
-		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
-			bannedEntries = append(bannedEntries, BannedEntry{
-				IpOrSessionId:   string(ip),
-				domain:          expiringDecision.domain,
-				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
-				Expires:         expiringDecision.Expires,
-				FromBaskerville: expiringDecision.fromBaskerville,
-			})
+		if expiringDecision.domain == domain {
+			add("ip", ip, "", expiringDecision)
 		}
 	}
 	for sessionId, expiringDecision := range h.value.expiringDecisionListsSessionId {
-		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
-			bannedEntries = append(bannedEntries, BannedEntry{
-				IpOrSessionId:   string(sessionId),
-				domain:          expiringDecision.domain,
-				Decision:        expiringDecision.Decision.String(), // Convert Decision to string
-				Expires:         expiringDecision.Expires,
-				FromBaskerville: expiringDecision.fromBaskerville,
-			})
+		if expiringDecision.domain == domain {
+			add("session", sessionId, "", expiringDecision)
 		}
 	}
 	for subnet, expiringDecision := range h.value.expiringDecisionListsSubnet {
-		if expiringDecision.domain == domain && expiringDecision.Decision >= Challenge {
-			bannedEntries = append(bannedEntries, BannedEntry{
-				IpOrSessionId:   subnet.String(),
-				domain:          expiringDecision.domain,
-				Decision:        expiringDecision.Decision.String(),
-				Expires:         expiringDecision.Expires,
-				FromBaskerville: expiringDecision.fromBaskerville,
-			})
+		if expiringDecision.domain == domain {
+			add("subnet", subnet.String(), "", expiringDecision)
 		}
 	}
 	for key, expiringDecision := range h.value.expiringDecisionListsIpHost {
-		if key.host == domain && expiringDecision.Decision >= Challenge {
-			bannedEntries = append(bannedEntries, BannedEntry{
-				IpOrSessionId:   key.ip,
-				domain:          key.host,
-				Decision:        expiringDecision.Decision.String(),
-				Expires:         expiringDecision.Expires,
-				FromBaskerville: expiringDecision.fromBaskerville,
-			})
+		if key.host == domain {
+			add("ip_host", key.ip, "", expiringDecision)
+		}
+	}
+	// challenge_all / altcha_challenge_all: applies to every client of the site
+	if expiringDecision, ok := h.value.expiringDecisionListsHost[domain]; ok {
+		add("host", "", "", expiringDecision)
+	}
+	for key, expiringDecision := range h.value.expiringDecisionListsUA {
+		if key.host == domain {
+			add("ua", "", key.ua, expiringDecision)
 		}
 	}
 	return bannedEntries

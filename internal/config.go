@@ -162,8 +162,13 @@ func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// BannedEntry is one /banned result. Type says which expiring list it came from and what
+// IpOrSessionId holds: an ip ("ip", "ip_host"), a session id ("session"), a CIDR ("subnet"),
+// or nothing for "host" (a challenge_all for the whole site) and "ua" (the User-Agent is in UA).
 type BannedEntry struct {
 	IpOrSessionId   string `json:"ip"`
+	UA              string `json:"ua,omitempty"`
+	Type            string `json:"type"`
 	domain          string
 	Decision        string    `json:"decision"`
 	Expires         time.Time `json:"expires"`
@@ -171,8 +176,13 @@ type BannedEntry struct {
 }
 
 func (bannedEntry BannedEntry) String() string {
-	return fmt.Sprintf("%v: %v until %v (baskerville: %v)",
-		bannedEntry.IpOrSessionId,
+	key := bannedEntry.IpOrSessionId
+	if bannedEntry.Type == "ua" {
+		key = bannedEntry.UA
+	}
+	return fmt.Sprintf("%v %v: %v until %v (baskerville: %v)",
+		bannedEntry.Type,
+		key,
 		bannedEntry.Decision,
 		bannedEntry.Expires.Format("15:04:05"),
 		bannedEntry.FromBaskerville,

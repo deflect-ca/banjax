@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"net/netip"
 	"testing"
 	"time"
@@ -711,4 +712,56 @@ func TestDynamicDecisionLists_AltChaMaxNumberStoredAndReplaced(t *testing.T) {
 	expiringDecision, _ = decisionLists.CheckByHost("example.com")
 	assert.Equal(t, AltChaChallenge, expiringDecision.Decision)
 	assert.Equal(t, int64(600000), expiringDecision.altchaMaxNumber)
+}
+
+func TestCheckByDomain_ReportsEveryExpiringList(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+	expires := time.Now().Add(time.Minute)
+	subnet, err := ParseSubnet("10.1.2.0/24")
+	assert.Nil(t, err)
+
+	decisionLists.Update(config, "1.2.3.4", expires, NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", expires, AltChaChallenge, true, "example.com", 0)
+	decisionLists.UpdateBySubnet(config, subnet, expires, Challenge, true, "example.com", 0)
+	decisionLists.UpdateByIpHost(config, "5.6.7.8", "example.com", expires, TooManyRequests)
+	decisionLists.UpdateByHost(config, "example.com", expires, AltChaChallenge, true, 5000)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", expires, NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "bad-bot/1.0", expires, AltChaChallenge, true, "example.com", 5000)
+
+	// none of these may show up for example.com
+	decisionLists.UpdateByHost(config, "other.com", expires, Challenge, true, 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", expires, NginxBlock, true, "other.com", 0)
+	decisionLists.Update(config, "9.9.9.9", expires, NginxBlock, true, "other.com", 0)
+	decisionLists.Update(config, "8.8.8.8", expires, Allow, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "expired-agent", time.Now().Add(-time.Second), NginxBlock, true, "example.com", 0)
+	decisionLists.Update(config, "7.7.7.7", time.Now().Add(-time.Second), NginxBlock, true, "example.com", 0)
+
+	type row struct{ entryType, ip, ua, decision string }
+	var got []row
+	for _, entry := range decisionLists.CheckByDomain("example.com") {
+		got = append(got, row{entry.Type, entry.IpOrSessionId, entry.UA, entry.Decision})
+		assert.True(t, entry.FromBaskerville || entry.Type == "ip_host")
+	}
+	assert.ElementsMatch(t, []row{
+		{"ip", "1.2.3.4", "", "NginxBlock"},
+		{"session", "session-a", "", "AltChaChallenge"},
+		{"subnet", "10.1.2.0/24", "", "Challenge"},
+		{"ip_host", "5.6.7.8", "", "TooManyRequests"},
+		{"host", "", "", "AltChaChallenge"},
+		{"ua", "", "curl/7.68.0", "NginxBlock"},
+		{"ua", "", "bad-bot/1.0", "AltChaChallenge"},
+	}, got)
+}
+
+func TestBannedEntry_JSON(t *testing.T) {
+	expires := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	uaJSON, err := json.Marshal(BannedEntry{UA: "curl/7.68.0", Type: "ua", Decision: "NginxBlock", Expires: expires, FromBaskerville: true})
+	assert.Nil(t, err)
+	assert.JSONEq(t, `{"ip": "", "ua": "curl/7.68.0", "type": "ua", "decision": "NginxBlock", "expires": "2026-11-04T12:00:00Z", "from_baskerville": true}`, string(uaJSON))
+
+	// existing entries keep their shape, plus type; ua is left out when empty
+	ipJSON, err := json.Marshal(BannedEntry{IpOrSessionId: "1.2.3.4", Type: "ip", Decision: "Challenge", Expires: expires})
+	assert.Nil(t, err)
+	assert.JSONEq(t, `{"ip": "1.2.3.4", "type": "ip", "decision": "Challenge", "expires": "2026-11-04T12:00:00Z", "from_baskerville": false}`, string(ipJSON))
 }
