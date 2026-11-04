@@ -929,49 +929,53 @@ const (
 	ExpiringUAAltChaChallenge
 	ExpiringSiteWideAltChaChallenge
 	ExpiringSubnetAltChaChallenge
+	SiteWideAltChaChallenge
+	SiteWideAltChaChallengeException
 	NoMention
 	NotSet
 )
 
 var DecisionListResultToString = map[DecisionListResult]string{
-	PasswordProtectedPriorityPass:   "PasswordProtectedPriorityPass",
-	PasswordProtectedPath:           "PasswordProtectedPath",
-	PasswordProtectedPathException:  "PasswordProtectedPathException",
-	PerSiteAccessGranted:            "PerSiteAccessGranted",
-	PerSiteChallenge:                "PerSiteChallenge",
-	PerSiteBlock:                    "PerSiteBlock",
-	GlobalAccessGranted:             "GlobalAccessGranted",
-	GlobalChallenge:                 "GlobalChallenge",
-	GlobalBlock:                     "GlobalBlock",
-	ExpiringAccessGranted:           "ExpiringAccessGranted",
-	ExpiringChallenge:               "ExpiringChallenge",
-	ExpiringBlock:                   "ExpiringBlock",
-	PerSiteShaInvPathException:      "PerSiteShaInvPathException",
-	SiteWideChallenge:               "SiteWideChallenge",
-	SiteWideChallengeException:      "SiteWideChallengeException",
-	ExpiringSiteWideChallenge:       "ExpiringSiteWideChallenge",
-	PerSiteUAAccessGranted:          "PerSiteUAAccessGranted",
-	PerSiteUAChallenge:              "PerSiteUAChallenge",
-	PerSiteUABlock:                  "PerSiteUABlock",
-	GlobalUAAccessGranted:           "GlobalUAAccessGranted",
-	GlobalUAChallenge:               "GlobalUAChallenge",
-	GlobalUABlock:                   "GlobalUABlock",
-	ExpiringUAChallenge:             "ExpiringUAChallenge",
-	ExpiringUABlock:                 "ExpiringUABlock",
-	ExpiringSubnetChallenge:         "ExpiringSubnetChallenge",
-	ExpiringSubnetBlock:             "ExpiringSubnetBlock",
-	GlobalAllowlistTooManyRequests:  "GlobalAllowlistTooManyRequests",
-	ExpiringTooManyRequests:         "ExpiringTooManyRequests",
-	PerSiteAltChaChallenge:          "PerSiteAltChaChallenge",
-	PerSiteUAAltChaChallenge:        "PerSiteUAAltChaChallenge",
-	GlobalAltChaChallenge:           "GlobalAltChaChallenge",
-	GlobalUAAltChaChallenge:         "GlobalUAAltChaChallenge",
-	ExpiringAltChaChallenge:         "ExpiringAltChaChallenge",
-	ExpiringUAAltChaChallenge:       "ExpiringUAAltChaChallenge",
-	ExpiringSiteWideAltChaChallenge: "ExpiringSiteWideAltChaChallenge",
-	ExpiringSubnetAltChaChallenge:   "ExpiringSubnetAltChaChallenge",
-	NoMention:                       "NoMention",
-	NotSet:                          "NotSet",
+	PasswordProtectedPriorityPass:    "PasswordProtectedPriorityPass",
+	PasswordProtectedPath:            "PasswordProtectedPath",
+	PasswordProtectedPathException:   "PasswordProtectedPathException",
+	PerSiteAccessGranted:             "PerSiteAccessGranted",
+	PerSiteChallenge:                 "PerSiteChallenge",
+	PerSiteBlock:                     "PerSiteBlock",
+	GlobalAccessGranted:              "GlobalAccessGranted",
+	GlobalChallenge:                  "GlobalChallenge",
+	GlobalBlock:                      "GlobalBlock",
+	ExpiringAccessGranted:            "ExpiringAccessGranted",
+	ExpiringChallenge:                "ExpiringChallenge",
+	ExpiringBlock:                    "ExpiringBlock",
+	PerSiteShaInvPathException:       "PerSiteShaInvPathException",
+	SiteWideChallenge:                "SiteWideChallenge",
+	SiteWideChallengeException:       "SiteWideChallengeException",
+	ExpiringSiteWideChallenge:        "ExpiringSiteWideChallenge",
+	PerSiteUAAccessGranted:           "PerSiteUAAccessGranted",
+	PerSiteUAChallenge:               "PerSiteUAChallenge",
+	PerSiteUABlock:                   "PerSiteUABlock",
+	GlobalUAAccessGranted:            "GlobalUAAccessGranted",
+	GlobalUAChallenge:                "GlobalUAChallenge",
+	GlobalUABlock:                    "GlobalUABlock",
+	ExpiringUAChallenge:              "ExpiringUAChallenge",
+	ExpiringUABlock:                  "ExpiringUABlock",
+	ExpiringSubnetChallenge:          "ExpiringSubnetChallenge",
+	ExpiringSubnetBlock:              "ExpiringSubnetBlock",
+	GlobalAllowlistTooManyRequests:   "GlobalAllowlistTooManyRequests",
+	ExpiringTooManyRequests:          "ExpiringTooManyRequests",
+	PerSiteAltChaChallenge:           "PerSiteAltChaChallenge",
+	PerSiteUAAltChaChallenge:         "PerSiteUAAltChaChallenge",
+	GlobalAltChaChallenge:            "GlobalAltChaChallenge",
+	GlobalUAAltChaChallenge:          "GlobalUAAltChaChallenge",
+	ExpiringAltChaChallenge:          "ExpiringAltChaChallenge",
+	ExpiringUAAltChaChallenge:        "ExpiringUAAltChaChallenge",
+	ExpiringSiteWideAltChaChallenge:  "ExpiringSiteWideAltChaChallenge",
+	ExpiringSubnetAltChaChallenge:    "ExpiringSubnetAltChaChallenge",
+	SiteWideAltChaChallenge:          "SiteWideAltChaChallenge",
+	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
+	NoMention:                        "NoMention",
+	NotSet:                           "NotSet",
 }
 
 func (dfnr DecisionListResult) String() string {
@@ -1600,6 +1604,31 @@ func decisionForNginx2(
 				return
 			}
 		}
+	}
+
+	// sitewide_altcha_list: sitewide_sha_inv_list for the AltCha challenge, checked first so a
+	// site listed in both gets AltCha. Same fail actions and path exceptions.
+	if failAction, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
+		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
+			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallengeException
+			accessGranted(c, config, DecisionListResultToString[SiteWideAltChaChallengeException], -1.0, "", IntegrityCheckPayloadWrapper{})
+		} else {
+			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
+				config,
+				c,
+				banner,
+				altchaFailedChallengeStates,
+				failAction,
+				staticDecisionLists,
+				0, // config.AltChaMaxNumber
+				SiteWideAltChaChallenge,
+			)
+			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallenge
+			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
+		}
+
+		return
 	}
 
 	// the legacy banjax_sha_inv and user_banjax_sha_inv

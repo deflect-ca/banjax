@@ -590,3 +590,107 @@ per_site_decision_lists:
 		assert.Equal(t, "AltChaChallengePassed", recorder.Header().Get("X-Banjax-Decision"))
 	})
 }
+
+func TestSitewideAltChaList(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 5
+altcha_cookie_ttl_seconds: 3600
+sha_inv_cookie_ttl_seconds: 3600
+sha_inv_expected_zero_bits: 10
+too_many_failed_challenges_threshold: 1
+too_many_failed_challenges_interval_seconds: 60
+altcha_too_many_failed_challenges_threshold: 1
+altcha_too_many_failed_challenges_interval_seconds: 60
+sitewide_altcha_list:
+  altcha.com: block
+  both.com: block
+  lenient.com: no_block
+sitewide_sha_inv_list:
+  sha.com: block
+  both.com: block
+password_protected_path_exceptions:
+  altcha.com:
+    - /public
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	config.ChallengerBytes = shaInvChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+
+	newServer := func(decisionLists *DynamicDecisionLists) func(ip, host, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		// failure counters live across requests, as they do in banjax
+		shaStates, altchaStates := NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates()
+		return func(ip, host, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = buildDecisionForNginxTestContext(ip, host, path, "ua", "").Request
+			for _, cookie := range cookies {
+				c.Request.AddCookie(cookie)
+			}
+			decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, shaStates, altchaStates, &MockBanner{})
+			return recorder
+		}
+	}
+
+	t.Run("listed site gets the altcha challenge", func(t *testing.T) {
+		recorder := newServer(NewDynamicDecisionLists())("1.1.1.1", "altcha.com", "/")
+		assert.Equal(t, 429, recorder.Code)
+		assert.Equal(t, "SiteWideAltChaChallenge", recorder.Header().Get("X-Banjax-Decision"))
+		assert.Contains(t, recorder.Body.String(), "<altcha-widget")
+	})
+
+	t.Run("checked before sitewide_sha_inv_list", func(t *testing.T) {
+		serve := newServer(NewDynamicDecisionLists())
+		recorder := serve("1.1.1.1", "both.com", "/")
+		assert.Equal(t, "SiteWideAltChaChallenge", recorder.Header().Get("X-Banjax-Decision"))
+		assert.NotContains(t, recorder.Body.String(), "deflect_challenge3")
+
+		// sites only in the sha-inv list are unchanged
+		recorder = serve("1.1.1.1", "sha.com", "/")
+		assert.Equal(t, "SiteWideChallenge", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("solved challenge passes", func(t *testing.T) {
+		serve := newServer(NewDynamicDecisionLists())
+		challenge := altchaChallengeFromPage(t, serve("1.1.1.1", "altcha.com", "/").Body.String())
+		recorder := serve("1.1.1.1", "altcha.com", "/", &http.Cookie{Name: AltChaCookieName, Value: solveAltChaToCookie(t, challenge)})
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "AltChaChallengePassed", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("password protected path exceptions apply", func(t *testing.T) {
+		recorder := newServer(NewDynamicDecisionLists())("1.1.1.1", "altcha.com", "/public")
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "SiteWideAltChaChallengeException", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("block bans after too many failures, no_block never does", func(t *testing.T) {
+		serve := newServer(NewDynamicDecisionLists())
+		serve("1.1.1.1", "altcha.com", "/")
+		assert.Equal(t, 403, serve("1.1.1.1", "altcha.com", "/").Code, "threshold 1: the second failure bans")
+
+		for i := 0; i < 3; i++ {
+			assert.Equal(t, 429, serve("2.2.2.2", "lenient.com", "/").Code)
+		}
+	})
+
+	t.Run("expiring decisions are checked first", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		decisionLists.UpdateByHost(config, "altcha.com", time.Now().Add(time.Minute), Challenge, true, 0)
+		recorder := newServer(decisionLists)("1.1.1.1", "altcha.com", "/")
+		assert.Equal(t, "ExpiringSiteWideChallenge", recorder.Header().Get("X-Banjax-Decision"))
+	})
+}
+
+func TestSitewideAltChaList_InvalidFailAction(t *testing.T) {
+	_, err := NewStaticDecisionLists(loadConfigString(`
+sitewide_altcha_list:
+  altcha.com: sometimes
+`))
+	assert.NotNil(t, err)
+	assert.Contains(t, err.Error(), "sitewide_altcha_list[altcha.com]")
+}

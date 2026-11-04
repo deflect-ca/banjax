@@ -84,16 +84,24 @@ if decision == Challenge:
     if per_site_sha_inv_path_exceptions[requested_host][requested_path]:
         return access_granted()
     if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
-        pass  # skip challenge, fall through to sitewide_sha_inv_list check below
+        pass  # skip challenge, fall through to the sitewide checks below
     else:
         return send_or_validate_challenge()
 if decision == TooManyRequests:
     return too_many_requests()
 if decision in [NginxBlock, IptablesBlock]:
     if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
-        pass  # skip block, fall through to sitewide_sha_inv_list check below
+        pass  # skip block, fall through to the sitewide checks below
     else:
         return access_denied()
+
+# sitewide_altcha_list is checked first, so a site listed in both gets the AltCha challenge
+if sitewide_altcha_list[requested_host]:
+    fail_action = sitewide_altcha_list[requested_host].fail_action  # Block or Allow
+    if password_protected_path_exceptions[requested_host][requested_path]:
+        return access_granted()
+    else:
+        return send_or_validate_altcha_challenge(fail_action)
 
 if sitewide_sha_inv_list[requested_host]:
     fail_action = sitewide_sha_inv_list[requested_host].fail_action  # Block or Allow

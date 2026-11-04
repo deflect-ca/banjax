@@ -100,6 +100,10 @@ per_site_regexes_with_rates:
       interval: 1
       regex: .*blockme.*
       rule: "instant block"
+# Like sitewide_sha_inv_list, but with the AltCha challenge, and checked first: a site in both
+# lists gets AltCha. block / no_block: whether too many failed challenges get the ip banned.
+sitewide_altcha_list:
+  example.com: block
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block

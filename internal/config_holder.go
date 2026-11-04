@@ -195,6 +195,9 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		for site, failAction := range config.SitewideShaInvList {
 			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
 		}
+		for site, failAction := range config.SitewideAltChaList {
+			log.Printf("load_config: sitewide altcha site: %s, failAction: %s\n", site, failAction)
+		}
 	}
 
 	if !config.Debug && debug {

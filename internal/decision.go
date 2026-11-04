@@ -206,6 +206,13 @@ func (l *StaticDecisionLists) CheckGlobalUserAgent(userAgent string) (Decision, 
 	return checkUADecision(c.globalUserAgentDecisionLists, userAgent)
 }
 
+func (l *StaticDecisionLists) CheckSitewideAltCha(site string) (FailAction, bool) {
+	c := l.content.Load()
+
+	failAction, ok := c.sitewideAltChaList[site]
+	return failAction, ok
+}
+
 func (l *StaticDecisionLists) CheckSitewideShaInv(site string) (FailAction, bool) {
 	c := l.content.Load()
 
@@ -356,6 +363,7 @@ type staticDecisionLists struct {
 	globalDecisionLists          ipAddrToDecision
 	perSiteDecisionLists         siteToIPAddrToDecision
 	sitewideShaInvList           siteToFailAction
+	sitewideAltChaList           siteToFailAction
 	globalDecisionListsIPMatcher  decisionToIPMatcher
 	perSiteDecisionListsIPMatcher siteToDecisionToIPMatcher
 	perSiteUserAgentDecisionLists perSiteUAPatternToDecision
@@ -367,6 +375,7 @@ func newStaticDecisionLists() staticDecisionLists {
 		globalDecisionLists:           make(ipAddrToDecision),
 		perSiteDecisionLists:          make(siteToIPAddrToDecision),
 		sitewideShaInvList:            make(siteToFailAction),
+		sitewideAltChaList:            make(siteToFailAction),
 		globalDecisionListsIPMatcher:  make(decisionToIPMatcher),
 		perSiteDecisionListsIPMatcher: make(siteToDecisionToIPMatcher),
 		perSiteUserAgentDecisionLists: make(perSiteUAPatternToDecision),
@@ -442,6 +451,19 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 		}
 
 		out.sitewideShaInvList[site] = failAction
+	}
+
+	for site, failActionString := range config.SitewideAltChaList {
+		if config.Debug {
+			log.Printf("sitewide altcha site: %s, failAction: %s\n", site, failActionString)
+		}
+
+		failAction, err := ParseFailAction(failActionString)
+		if err != nil {
+			return staticDecisionLists{}, fmt.Errorf("sitewide_altcha_list[%s]: %w", site, err)
+		}
+
+		out.sitewideAltChaList[site] = failAction
 	}
 
 	if len(config.GlobalUserAgentDecisionLists) > 0 {

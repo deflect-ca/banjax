@@ -65,6 +65,7 @@ type Config struct {
 	// string to disable logging.
 	GinLogFile                    string                         `yaml:"gin_log_file"`
 	SitewideShaInvList            map[string]string              `yaml:"sitewide_sha_inv_list"`
+	SitewideAltChaList            map[string]string              `yaml:"sitewide_altcha_list"` // checked before sitewide_sha_inv_list
 	MetricsLogFileName            string                         `yaml:"metrics_log_file"`
 	ShaInvChallengeHTML           string                         `yaml:"sha_inv_challenge_html"`
 	PasswordProtectedPathHTML     string                         `yaml:"password_protected_path_html"`
