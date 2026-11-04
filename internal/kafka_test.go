@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -316,7 +317,7 @@ func TestHandleCommand_BlockUA_EmptyUA(t *testing.T) {
 func TestHandleCommand_ClearRules_ByHost(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com"}, decisionLists)
 
@@ -327,7 +328,7 @@ func TestHandleCommand_ClearRules_ByHost(t *testing.T) {
 func TestHandleCommand_ClearRules_ByUA(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", UA: "curl/7.68.0"}, decisionLists)
 
@@ -338,7 +339,7 @@ func TestHandleCommand_ClearRules_ByUA(t *testing.T) {
 func TestHandleCommand_ClearRules_ByIp(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", Value: "1.2.3.4"}, decisionLists)
 
@@ -349,7 +350,7 @@ func TestHandleCommand_ClearRules_ByIp(t *testing.T) {
 func TestHandleCommand_ClearRules_BySessionId(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", SessionId: "session-a"}, decisionLists)
 
@@ -360,7 +361,7 @@ func TestHandleCommand_ClearRules_BySessionId(t *testing.T) {
 func TestHandleCommand_ClearRules_UrlEncodedSessionId(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session with spaces", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session with spaces", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", SessionId: "session%20with%20spaces"}, decisionLists)
 
@@ -371,10 +372,10 @@ func TestHandleCommand_ClearRules_UrlEncodedSessionId(t *testing.T) {
 func TestHandleCommand_ClearRules_AllAtOnce(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{
 		Name:      "clear_rules",
@@ -397,10 +398,10 @@ func TestHandleCommand_ClearRules_AllAtOnce(t *testing.T) {
 func TestHandleCommand_ClearRules_OnlyClearsGivenKeys(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByHost(config, "other.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByUA(config, "other-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByHost(config, "other.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "other-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
@@ -413,8 +414,8 @@ func TestHandleCommand_ClearRules_OnlyClearsGivenKeys(t *testing.T) {
 func TestHandleCommand_ClearRules_InvalidSessionIdStillClearsOthers(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateBySessionId(config, "1.2.3.4", "%zz", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateBySessionId(config, "1.2.3.4", "%zz", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	// "%zz" is not a valid url escape, so the session part is skipped but the host is still cleared
 	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com", SessionId: "%zz"}, decisionLists)
@@ -495,10 +496,10 @@ func TestHandleCommand_DisabledBaskerville_DropsClearRules(t *testing.T) {
 			config := loadConfigString(kafkaDisabledBaskervilleConfString)
 			config.Debug = debug
 			decisionLists := NewDynamicDecisionLists()
-			decisionLists.UpdateByHost(config, "disabled.com", time.Now().Add(time.Minute), Challenge, true)
-			decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
-			decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com")
-			decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+			decisionLists.UpdateByHost(config, "disabled.com", time.Now().Add(time.Minute), Challenge, true, 0)
+			decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com", 0)
+			decisionLists.UpdateBySessionId(config, "1.2.3.4", "session-a", time.Now().Add(time.Minute), NginxBlock, true, "disabled.com", 0)
+			decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
 
 			// the whole command is dropped, including the fields that are not per-site
 			handleCommand(config, commandMessage{
@@ -524,8 +525,8 @@ func TestHandleCommand_DisabledBaskerville_DropsClearRules(t *testing.T) {
 func TestHandleCommand_ClearRules_NoFieldsIsNoop(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules"}, decisionLists)
 
@@ -613,8 +614,8 @@ func TestHandleCommand_Subnet_InvalidValueIgnored(t *testing.T) {
 func TestHandleCommand_ClearRules_Subnet(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateBySubnet(config, mustParseSubnet(t, "202.46.62.0/24"), time.Now().Add(time.Minute), NginxBlock, true, "my.wiki")
-	decisionLists.Update(config, "202.46.62.1", time.Now().Add(time.Minute), NginxBlock, true, "my.wiki")
+	decisionLists.UpdateBySubnet(config, mustParseSubnet(t, "202.46.62.0/24"), time.Now().Add(time.Minute), NginxBlock, true, "my.wiki", 0)
+	decisionLists.Update(config, "202.46.62.1", time.Now().Add(time.Minute), NginxBlock, true, "my.wiki", 0)
 
 	// a non-normalized subnet still clears the normalized entry, and leaves the exact ip alone
 	handleCommand(config, commandMessage{Name: "clear_rules", Value: "202.46.62.9/24"}, decisionLists)
@@ -625,7 +626,7 @@ func TestHandleCommand_ClearRules_Subnet(t *testing.T) {
 	assert.True(t, ipOk)
 
 	// a plain ip clears the ip, not a subnet covering it
-	decisionLists.UpdateBySubnet(config, mustParseSubnet(t, "202.46.62.0/24"), time.Now().Add(time.Minute), NginxBlock, true, "my.wiki")
+	decisionLists.UpdateBySubnet(config, mustParseSubnet(t, "202.46.62.0/24"), time.Now().Add(time.Minute), NginxBlock, true, "my.wiki", 0)
 	handleCommand(config, commandMessage{Name: "clear_rules", Value: "202.46.62.1"}, decisionLists)
 
 	_, subnetOk = decisionLists.CheckBySubnet("202.46.62.1")
@@ -660,8 +661,8 @@ func TestHandleCommand_UA_OtherHostUnaffected(t *testing.T) {
 func TestHandleCommand_ClearRules_ByUAAndHost_OnlyThatHost(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", Host: "example.com", UA: "curl/7.68.0"}, decisionLists)
 
@@ -674,8 +675,8 @@ func TestHandleCommand_ClearRules_ByUAAndHost_OnlyThatHost(t *testing.T) {
 func TestHandleCommand_ClearRules_ByUAWithoutHost_EveryHost(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com")
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com", 0)
 
 	handleCommand(config, commandMessage{Name: "clear_rules", UA: "curl/7.68.0"}, decisionLists)
 
@@ -683,4 +684,71 @@ func TestHandleCommand_ClearRules_ByUAWithoutHost_EveryHost(t *testing.T) {
 	_, otherOk := decisionLists.CheckByUA("curl/7.68.0", "other.com")
 	assert.False(t, exampleOk)
 	assert.False(t, otherOk)
+}
+
+func TestHandleCommand_AltChaMaxNumber(t *testing.T) {
+	// what each list stores for a given altcha_max_number JSON field ("" = field absent)
+	cases := map[string]int64{
+		"":                               0, // config.AltChaMaxNumber
+		`, "altcha_max_number": 300000`:  300000,
+		`, "altcha_max_number": 10`:      AltChaMaxNumberMin,
+		`, "altcha_max_number": 0`:       AltChaMaxNumberMin,
+		`, "altcha_max_number": -1`:      AltChaMaxNumberMin,
+		`, "altcha_max_number": 5000000`: AltChaMaxNumberMax,
+		`, "altcha_max_number": 1000000`: 1000000,
+	}
+	for field, want := range cases {
+		t.Run(field, func(t *testing.T) {
+			config := loadConfigString(kafkaTestConfString)
+			decisionLists := NewDynamicDecisionLists()
+
+			for _, raw := range []string{
+				`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"` + field + `}`,
+				`{"name": "altcha_challenge_subnet", "value": "5.6.7.0/24", "host": "example.com"` + field + `}`,
+				`{"name": "altcha_challenge_session", "value": "1.2.3.4", "session_id": "session-a", "host": "example.com"` + field + `}`,
+				`{"name": "altcha_challenge_all", "host": "example.com"` + field + `}`,
+				`{"name": "altcha_challenge_ua", "ua": "curl/7.68.0", "host": "example.com"` + field + `}`,
+			} {
+				var command commandMessage
+				assert.Nil(t, json.Unmarshal([]byte(raw), &command), raw)
+				handleCommand(config, command, decisionLists)
+			}
+
+			ipDecision, ipOk := decisionLists.Check("", "1.2.3.4")
+			subnetDecision, subnetOk := decisionLists.CheckBySubnet("5.6.7.8")
+			sessionDecision, sessionOk := decisionLists.Check("session-a", "")
+			hostDecision, hostOk := decisionLists.CheckByHost("example.com")
+			uaDecision, uaOk := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+			assert.True(t, ipOk && subnetOk && sessionOk && hostOk && uaOk)
+			for _, d := range []ExpiringDecision{ipDecision, subnetDecision, sessionDecision, hostDecision, uaDecision} {
+				assert.Equal(t, AltChaChallenge, d.Decision)
+				assert.Equal(t, want, d.altchaMaxNumber)
+			}
+		})
+	}
+}
+
+func TestHandleCommand_AltChaMaxNumber_IgnoredByOtherCommands(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+	maxNumber := int64(300000)
+
+	handleCommand(config, commandMessage{Name: "challenge_all", Host: "example.com", AltChaMaxNumber: &maxNumber}, decisionLists)
+
+	hostDecision, ok := decisionLists.CheckByHost("example.com")
+	assert.True(t, ok)
+	assert.Equal(t, Challenge, hostDecision.Decision)
+	assert.Equal(t, int64(0), hostDecision.altchaMaxNumber)
+}
+
+func TestHandleCommand_AltChaMaxNumber_ResendChangesDifficulty(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+	easy, hard := int64(50000), int64(1000000)
+
+	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaMaxNumber: &easy}, decisionLists)
+	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaMaxNumber: &hard}, decisionLists)
+
+	hostDecision, _ := decisionLists.CheckByHost("example.com")
+	assert.Equal(t, hard, hostDecision.altchaMaxNumber)
 }

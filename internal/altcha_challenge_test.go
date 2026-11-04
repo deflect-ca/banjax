@@ -78,7 +78,7 @@ func TestAltChaChallenge_Ordering(t *testing.T) {
 
 func TestVerifyAltChaPayload_RoundTrip(t *testing.T) {
 	config := altchaTestConfig()
-	challenge, err := CreateAltChaChallenge(config, "1.2.3.4")
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
 
 	ok, err := VerifyAltChaPayload(config, solveAltChaToCookie(t, challenge), "1.2.3.4")
@@ -88,7 +88,7 @@ func TestVerifyAltChaPayload_RoundTrip(t *testing.T) {
 
 func TestVerifyAltChaPayload_WrongBinding(t *testing.T) {
 	config := altchaTestConfig()
-	challenge, err := CreateAltChaChallenge(config, "1.2.3.4")
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
 
 	// a solved token bound to 1.2.3.4 must not be accepted for another client
@@ -100,7 +100,7 @@ func TestVerifyAltChaPayload_WrongBinding(t *testing.T) {
 func TestVerifyAltChaPayload_Expired(t *testing.T) {
 	config := altchaTestConfig()
 	config.AltChaCookieTtlSeconds = -3600
-	challenge, err := CreateAltChaChallenge(config, "1.2.3.4")
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
 
 	ok, err := VerifyAltChaPayload(config, solveAltChaToCookie(t, challenge), "1.2.3.4")
@@ -120,7 +120,7 @@ func TestVerifyAltChaPayload_SpaceMangledCookieRepaired(t *testing.T) {
 	// gin turns '+' into ' ' when reading cookies. "~~~" base64-encodes to "fn5+" when
 	// 3-byte aligned, so a UA-style binding with 6 of them always yields a '+' in the payload.
 	const binding = "UA/1.0 ~~~~~~"
-	challenge, err := CreateAltChaChallenge(config, binding)
+	challenge, err := CreateAltChaChallenge(config, binding, 0)
 	assert.Nil(t, err)
 	cookie := solveAltChaToCookie(t, challenge)
 	assert.Contains(t, cookie, "+")
@@ -133,7 +133,7 @@ func TestVerifyAltChaPayload_SpaceMangledCookieRepaired(t *testing.T) {
 func TestApplyArgsToAltChaPage(t *testing.T) {
 	config := altchaTestConfig()
 	config.AltChaCookieTtlSeconds = 4321
-	challenge, err := CreateAltChaChallenge(config, "1.2.3.4")
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
 
 	page := string(applyArgsToAltChaPage(config, challenge))
@@ -242,7 +242,7 @@ func TestDecisionForNginx2_AltChaChallenge(t *testing.T) {
 
 	newDecisionLists := func() *DynamicDecisionLists {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), AltChaChallenge, true, host)
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), AltChaChallenge, true, host, 0)
 		return decisionLists
 	}
 
@@ -258,7 +258,7 @@ func TestDecisionForNginx2_AltChaChallenge(t *testing.T) {
 	})
 
 	t.Run("passes with a solved cookie", func(t *testing.T) {
-		challenge, err := CreateAltChaChallenge(config, clientIp)
+		challenge, err := CreateAltChaChallenge(config, clientIp, 0)
 		assert.Nil(t, err)
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", "ua", "")
@@ -308,7 +308,7 @@ func TestDecisionForNginx2_AltChaChallenge(t *testing.T) {
 		failedChallengeStates := NewFailedChallengeRateLimitStates()
 		altchaFailedChallengeStates := NewFailedChallengeRateLimitStates()
 		shaDecisionLists := NewDynamicDecisionLists()
-		shaDecisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host)
+		shaDecisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
 
 		for i := 0; i < 5; i++ {
 			c := buildDecisionForNginxTestContext(clientIp, host, "/", "ua", "")
@@ -347,6 +347,34 @@ global_user_agent_decision_lists:
 	assert.Equal(t, GlobalUAAltChaChallenge, run("3.3.3.3", "example.com", "AltChaBot/1.0", NewDynamicDecisionLists()).DecisionListResult)
 
 	hostDecisionLists := NewDynamicDecisionLists()
-	hostDecisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), AltChaChallenge, true)
+	hostDecisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), AltChaChallenge, true, 0)
 	assert.Equal(t, ExpiringSiteWideAltChaChallenge, run("3.3.3.3", "example.com", "ua", hostDecisionLists).DecisionListResult)
+}
+
+func TestClampAltChaMaxNumber(t *testing.T) {
+	cases := map[int64]int64{
+		-5:       AltChaMaxNumberMin,
+		0:        AltChaMaxNumberMin,
+		49999:    AltChaMaxNumberMin,
+		50000:    50000,
+		300000:   300000,
+		1000000:  1000000,
+		1000001:  AltChaMaxNumberMax,
+		50000000: AltChaMaxNumberMax,
+	}
+	for requested, want := range cases {
+		assert.Equal(t, want, ClampAltChaMaxNumber(requested), "requested %d", requested)
+	}
+}
+
+func TestCreateAltChaChallenge_MaxNumber(t *testing.T) {
+	config := altchaTestConfig()
+
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
+	assert.Nil(t, err)
+	assert.Equal(t, config.AltChaMaxNumber, challenge.MaxNumber, "0 falls back to the config value")
+
+	challenge, err = CreateAltChaChallenge(config, "1.2.3.4", 300000)
+	assert.Nil(t, err)
+	assert.Equal(t, int64(300000), challenge.MaxNumber)
 }

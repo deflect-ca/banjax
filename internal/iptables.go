@@ -364,6 +364,7 @@ func (b Banner) BanOrChallengeIp(
 		decision,
 		false, // not from baskerville
 		domain,
+		0, // regex rules use config.AltChaMaxNumber
 	)
 
 	if decision == IptablesBlock {

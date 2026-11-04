@@ -28,6 +28,11 @@ const SOLVE_TIMEOUT_MS = Number(process.env.SOLVE_TIMEOUT_MS || 30000);
 // failed challenges per ip are rate limited (3 in 10s by default, then an iptables
 // ban), so scenarios that fail a challenge are spaced out by this much
 const PAUSE_SECONDS = Number(process.env.PAUSE_SECONDS || 6);
+// headless-browser solves per host, to see the spread of solve times (both challenges
+// are randomized, so one sample says little about the typical cost)
+const SAMPLES = Number(process.env.SAMPLES || 1);
+// Chromium CPU slowdown factor for browser scenarios, e.g. 4 for a mid-range phone
+const CPU_THROTTLE = Number(process.env.CPU_THROTTLE || 1);
 const FILTER = process.argv[2] || "";
 
 // a desktop Chrome UA that does not contain "HeadlessChrome"
@@ -81,6 +86,10 @@ function plainGet(edgeIp, host, { ua, cookie } = {}) {
 async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent } = {}) {
     const context = await browser.newContext({ javaScriptEnabled, userAgent });
     const page = await context.newPage();
+    if (CPU_THROTTLE > 1) {
+        const cdp = await context.newCDPSession(page);
+        await cdp.send("Emulation.setCPUThrottlingRate", { rate: CPU_THROTTLE });
+    }
     let challengePages = 0;
     let decision = "";
     page.on("response", (res) => {
@@ -164,8 +173,19 @@ const SCENARIOS = [
         shouldStop: false,
         failsChallenge: true,
         run: async (ctx, mode) => {
-            const result = await browserVisit(ctx.browser, mode.host);
+            const results = [];
+            for (let i = 0; i < SAMPLES; i++) {
+                // every sample fails one challenge before solving it, so space them out
+                if (i > 0) await sleep(PAUSE_SECONDS * 1000);
+                results.push(await browserVisit(ctx.browser, mode.host));
+            }
+            const solved = results.filter((r) => r.kind === "origin");
+            const result = solved.at(-1) || results.at(-1);
             ctx.solvedCookies[mode.key] = result.cookies?.find((c) => c.name === mode.cookie);
+            if (SAMPLES > 1) {
+                result.times = solved.map((r) => r.solvedMs).sort((a, b) => a - b);
+                result.unsolved = results.length - solved.length;
+            }
             return result;
         },
     },
@@ -192,7 +212,12 @@ const SCENARIOS = [
 function describe(result) {
     if (result.kind !== "origin") return `STOPPED  ${result.kind}`;
     const parts = [];
-    if (result.solvedMs != null) parts.push(`${(result.solvedMs / 1000).toFixed(2)}s`);
+    const secs = (ms) => `${(ms / 1000).toFixed(2)}s`;
+    if (result.times?.length) {
+        const t = result.times;
+        parts.push(`median ${secs(t[Math.floor(t.length / 2)])}, min ${secs(t[0])}, max ${secs(t.at(-1))} over ${t.length}`);
+        if (result.unsolved) parts.push(`${result.unsolved} unsolved`);
+    } else if (result.solvedMs != null) parts.push(secs(result.solvedMs));
     if (result.challengePages) parts.push(`${result.challengePages} challenge page(s)`);
     if (result.decision) parts.push(result.decision);
     return `THROUGH  ${parts.join(", ")}`;
@@ -214,7 +239,8 @@ async function main() {
     console.log(`edge:       ${EDGE_ADDR} (${edgeIp}:${EDGE_PORT})${TEST_PATH}`);
     console.log(`hosts:      sha-inverse=${SHA_HOST}  altcha=${ALTCHA_HOST}`);
     console.log(`browser:    ${headlessUA}`);
-    console.log(`webdriver:  ${webdriver}\n`);
+    console.log(`webdriver:  ${webdriver}`);
+    console.log(`cpu:        ${CPU_THROTTLE > 1 ? `${CPU_THROTTLE}x throttled` : "unthrottled"}, ${SAMPLES} headless sample(s)\n`);
 
     const ctx = { edgeIp, browser, headlessUA, solvedCookies: {} };
     const scenarios = SCENARIOS.filter((s) => s.name.includes(FILTER));

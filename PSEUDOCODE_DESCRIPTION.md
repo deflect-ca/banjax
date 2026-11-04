@@ -200,6 +200,13 @@ checked above:
 | `altcha_challenge_all` | `host` | AltChaChallenge | host |
 | `clear_rules` | any of `host`, `value`, `session_id`, `ua` | — | removes entries |
 
+The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
+challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
+clamped to 50000..1000000 (out-of-range values become the nearest limit) and ignored by every other
+command. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
+holds an AltChaChallenge at a different difficulty replaces it, so resending the command changes the
+difficulty.
+
 `challenge_all` is the temporary, Kafka-driven equivalent of the `sitewide_sha_inv_list` config
 entry: it challenges every request to a host until the TTL expires, without editing the config file.
 The host list only acts on a Challenge or AltChaChallenge decision; the User-Agent list only acts on

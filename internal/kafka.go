@@ -45,6 +45,9 @@ type commandMessage struct {
 	PrintLog  bool   `json:"print_log"`
 	TTL       int	 `json:"ttl"`
 	UA        string `json:"ua"`
+	// optional difficulty for altcha_challenge_* commands, clamped to
+	// [AltChaMaxNumberMin, AltChaMaxNumberMax]; absent means config.AltChaMaxNumber
+	AltChaMaxNumber *int64 `json:"altcha_max_number"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -265,6 +268,15 @@ func handleCommand(
 	}
 }
 
+// altchaMaxNumberFor is the difficulty to store with a decision from command: the command's
+// altcha_max_number clamped into range for an AltChaChallenge, otherwise 0 (config default).
+func altchaMaxNumberFor(command commandMessage, decision Decision) int64 {
+	if decision != AltChaChallenge || command.AltChaMaxNumber == nil {
+		return 0
+	}
+	return ClampAltChaMaxNumber(*command.AltChaMaxNumber)
+}
+
 func handleIPCommand(
 	config *Config,
 	command commandMessage,
@@ -294,6 +306,7 @@ func handleIPCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaMaxNumberFor(command, decision),
 	)
 }
 
@@ -329,6 +342,7 @@ func handleSubnetCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaMaxNumberFor(command, decision),
 	)
 }
 
@@ -364,6 +378,7 @@ func handleSessionCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaMaxNumberFor(command, decision),
 	)
 }
 
@@ -394,6 +409,7 @@ func handleHostCommand(
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
+		altchaMaxNumberFor(command, decision),
 	)
 }
 
@@ -429,6 +445,7 @@ func handleUACommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaMaxNumberFor(command, decision),
 	)
 }
 

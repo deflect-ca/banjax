@@ -35,6 +35,8 @@ type commandMessage struct {
 	PrintLog  bool   `json:"print_log"`
 	TTL       int    `json:"ttl,omitempty"`
 	UA        string `json:"ua,omitempty"`
+	// pointer so an explicit 0 is still sent (banjax clamps it up to 50000)
+	AltChaMaxNumber *int64 `json:"altcha_max_number,omitempty"`
 }
 
 // commandSpec describes what a command name needs and how it is validated,
@@ -91,6 +93,7 @@ func main() {
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
 	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
+	altchaMaxNumber := flag.Int64("altcha-max-number", 0, "altcha_challenge_* difficulty, clamped by banjax to 50000..1000000 (omitted unless given, banjax then uses altcha_max_number from its config)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")
 
@@ -136,6 +139,16 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: -ua is required for %s\n", *cmdName)
 		os.Exit(2)
 	}
+	altchaMaxNumberSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "altcha-max-number" {
+			altchaMaxNumberSet = true
+		}
+	})
+	if altchaMaxNumberSet && !strings.HasPrefix(*cmdName, "altcha_challenge_") {
+		fmt.Fprintf(os.Stderr, "error: -altcha-max-number only applies to altcha_challenge_* commands, not %s\n", *cmdName)
+		os.Exit(2)
+	}
 	if *cmdName == "clear_rules" && *host == "" && *value == "" && *sessionId == "" && *ua == "" {
 		fmt.Fprintln(os.Stderr, "error: clear_rules requires at least one of -host, -value, -session-id, or -ua")
 		os.Exit(2)
@@ -150,6 +163,9 @@ func main() {
 		PrintLog:  *printLog,
 		TTL:       *ttl,
 		UA:        *ua,
+	}
+	if altchaMaxNumberSet {
+		message.AltChaMaxNumber = altchaMaxNumber
 	}
 
 	messageBytes, err := json.Marshal(message)

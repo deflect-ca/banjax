@@ -83,13 +83,13 @@ func TestRegexWithRate(t *testing.T) {
 func TestWriteMetricsToEncoder_IncludesSitewideAndUACounts(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.Update(config, "5.6.7.8", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByHost(config, "other-challenged.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
+	decisionLists.Update(config, "5.6.7.8", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByHost(config, "other-challenged.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
 
 	var buf bytes.Buffer
 	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates())

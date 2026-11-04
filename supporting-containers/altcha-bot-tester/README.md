@@ -82,4 +82,12 @@ or when neither host challenged the headless UA (banjax config not loaded).
 | `ALTCHA_HOST` | `altcha-test.banjax` | host with the AltCha UA rule |
 | `TEST_PATH` | `/hello` | origin path; test-origin answers it with `hello!` |
 | `SOLVE_TIMEOUT_MS` | `30000` | how long a browser gets to reach the origin |
-| `PAUSE_SECONDS` | `6` | gap after scenarios that fail a challenge |
+| `PAUSE_SECONDS` | `6` | gap after scenarios that fail a challenge, and between headless samples |
+| `SAMPLES` | `1` | headless-browser solves per host; above 1, prints median/min/max solve time |
+| `CPU_THROTTLE` | `1` | Chromium CPU slowdown for browser scenarios, e.g. `4` to approximate a mid-range phone |
+
+Measure how long a challenge takes at the current difficulty, on a slow phone:
+
+```sh
+docker compose run --rm -e SAMPLES=10 -e CPU_THROTTLE=4 altcha-bot-tester headless
+```

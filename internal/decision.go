@@ -85,6 +85,19 @@ type ExpiringDecision struct {
 	IpAddress       string
 	fromBaskerville bool
 	domain          string
+	// difficulty of the challenge served for an AltChaChallenge decision, 0 means
+	// config.AltChaMaxNumber
+	altchaMaxNumber int64
+}
+
+// supersededBy reports whether an update should replace this decision: only with a more
+// serious decision, or, for AltChaChallenge, the same decision at a different difficulty
+// (so a repeated altcha command can change it).
+func (d ExpiringDecision) supersededBy(newDecision Decision, altchaMaxNumber int64) bool {
+	if newDecision != d.Decision {
+		return newDecision > d.Decision
+	}
+	return newDecision == AltChaChallenge && altchaMaxNumber != d.altchaMaxNumber
 }
 
 type FailAction int
@@ -492,13 +505,14 @@ func (h *DynamicDecisionLists) Update(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
+	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionLists[ip]
 	if ok {
-		if newDecision <= existingExpiringDecision.Decision {
+		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionLists: not with less serious", existingExpiringDecision.Decision, newDecision, ip, domain)
 			}
@@ -519,6 +533,7 @@ func (h *DynamicDecisionLists) Update(
 		ip,
 		fromBaskerville,
 		domain,
+		altchaMaxNumber,
 	}
 }
 
@@ -530,13 +545,14 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
+	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsSessionId[sessionId]
 	if ok {
-		if newDecision <= existingExpiringDecision.Decision {
+		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
 			return
 		}
 	}
@@ -552,6 +568,7 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 		ip,
 		fromBaskerville,
 		domain,
+		altchaMaxNumber,
 	}
 }
 
@@ -589,13 +606,14 @@ func (h *DynamicDecisionLists) UpdateByHost(
 	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
+	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsHost[host]
 	if ok {
-		if newDecision <= existingExpiringDecision.Decision {
+		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsHost: not with less serious", existingExpiringDecision.Decision, newDecision, host)
 			}
@@ -612,6 +630,7 @@ func (h *DynamicDecisionLists) UpdateByHost(
 		"",
 		fromBaskerville,
 		host,
+		altchaMaxNumber,
 	}
 }
 
@@ -636,6 +655,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	newDecision Decision,
 	fromBaskerville bool,
 	host string,
+	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -643,7 +663,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	key := uaHostKey{ua, host}
 	existingExpiringDecision, ok := h.value.expiringDecisionListsUA[key]
 	if ok {
-		if newDecision <= existingExpiringDecision.Decision {
+		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsUA: not with less serious", existingExpiringDecision.Decision, newDecision, ua, host)
 			}
@@ -660,6 +680,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 		"",
 		fromBaskerville,
 		host,
+		altchaMaxNumber,
 	}
 }
 
@@ -705,13 +726,14 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
+	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsSubnet[subnet]
 	if ok {
-		if newDecision <= existingExpiringDecision.Decision {
+		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsSubnet: not with less serious", existingExpiringDecision.Decision, newDecision, subnet, domain)
 			}
@@ -728,6 +750,7 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 		subnet.String(),
 		fromBaskerville,
 		domain,
+		altchaMaxNumber,
 	}
 }
 
@@ -816,6 +839,7 @@ func (h *DynamicDecisionLists) UpdateByIpHost(
 		ip,
 		false,
 		host,
+		0, // allowlist rate limits never serve altcha
 	}
 }
 

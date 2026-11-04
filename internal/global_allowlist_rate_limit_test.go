@@ -214,7 +214,7 @@ func TestDecisionForNginx2_GlobalAllowlistTooManyRequests(t *testing.T) {
 
 	t.Run("an ip-wide too_many_requests decision gets a 429", func(t *testing.T) {
 		ipDecisionLists := NewDynamicDecisionLists()
-		ipDecisionLists.Update(config, "7.7.7.7", time.Now().Add(time.Minute), TooManyRequests, false, "opted.com")
+		ipDecisionLists.Update(config, "7.7.7.7", time.Now().Add(time.Minute), TooManyRequests, false, "opted.com", 0)
 		c := buildDecisionForNginxTestContext("7.7.7.7", "any.com", "/", "some-ua", "")
 		result := decisionForNginx2(c, config, staticDecisionLists, ipDecisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
 		assert.Equal(t, ExpiringTooManyRequests, result.DecisionListResult)

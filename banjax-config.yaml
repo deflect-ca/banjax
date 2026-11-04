@@ -14,7 +14,9 @@ expiring_decision_ttl_seconds: 300
 iptables_ban_seconds: 300
 iptables_unbanner_seconds: 5
 kafka_brokers:
-  - localhost:9094
+  - kafkadev0.prod.deflect.network:9094
+  - kafkadev1.prod.deflect.network:9094
+  - kafkadev2.prod.deflect.network:9094
 kafka_security_protocol: 'ssl'
 kafka_ssl_ca: "/etc/banjax/keys/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/keys/certificate.pem"
@@ -117,6 +119,8 @@ altcha_too_many_failed_challenges_threshold: 3
 # lifetime of a solved deflect_altcha cookie (defaults to 14400 when unset)
 altcha_cookie_ttl_seconds: 14400
 # difficulty: average work is about altcha_max_number/2 SHA-256 hashes (0 = library default 1000000)
+# an altcha_challenge_* kafka command can override this for its own decision with an
+# altcha_max_number field (clamped to 50000..1000000)
 altcha_max_number: 50000
 # altcha_challenge_html: /etc/banjax/altcha-challenge.html
 password_cookie_ttl_seconds: 345600  # Dynamic apply to internal/password-protected-path.html:170
@@ -125,7 +129,7 @@ hmac_secret: secret
 gin_log_file: /var/log/banjax/gin.log
 metrics_log_file: /var/log/banjax/metrics.log
 debug: true
-disable_kafka: true
+disable_kafka: false
 disable_kafka_writer: true
 # sha_inv_challenge_html: /etc/banjax/sha-inverse-challenge.html
 # password_protected_path_html: /etc/banjax/password-protected-path.html

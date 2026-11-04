@@ -21,15 +21,32 @@ import (
 
 const AltChaCookieName = "deflect_altcha"
 
+// bounds for the altcha_max_number field of altcha_challenge_* kafka commands: below the
+// min a challenge is too cheap to matter, above the max a phone takes 5-12s to solve it
+const (
+	AltChaMaxNumberMin int64 = 50000
+	AltChaMaxNumberMax int64 = 1000000
+)
+
+// ClampAltChaMaxNumber forces a kafka-supplied altcha_max_number into
+// [AltChaMaxNumberMin, AltChaMaxNumberMax]; out-of-range values become the nearest limit.
+func ClampAltChaMaxNumber(maxNumber int64) int64 {
+	return min(max(maxNumber, AltChaMaxNumberMin), AltChaMaxNumberMax)
+}
+
 // CreateAltChaChallenge mints an AltCha SHA-256 proof-of-work challenge bound to the
 // caller-supplied binding (IP or UA, same selector as sha-inv). Expires MUST be set:
 // altcha encodes it into the salt and VerifySolution enforces it only when present,
-// otherwise the solved token would be replayable forever.
-func CreateAltChaChallenge(config *Config, binding string) (altcha.Challenge, error) {
+// otherwise the solved token would be replayable forever. maxNumber is the difficulty
+// carried by the decision that triggered the challenge; 0 means config.AltChaMaxNumber.
+func CreateAltChaChallenge(config *Config, binding string, maxNumber int64) (altcha.Challenge, error) {
+	if maxNumber == 0 {
+		maxNumber = config.AltChaMaxNumber
+	}
 	expireTime := time.Now().Add(time.Duration(config.AltChaCookieTtlSeconds) * time.Second)
 	return altcha.CreateChallenge(altcha.ChallengeOptions{
 		Algorithm: altcha.SHA256,
-		MaxNumber: config.AltChaMaxNumber,
+		MaxNumber: maxNumber,
 		HMACKey:   config.HmacSecret,
 		Expires:   &expireTime,
 		Params:    url.Values{"binding": {binding}},
@@ -78,8 +95,8 @@ func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge) []byte {
 	return applyCookieMaxAge(modifiedPageBytes, AltChaCookieName, config.AltChaCookieTtlSeconds)
 }
 
-func altchaChallenge(c *gin.Context, config *Config) {
-	challenge, err := CreateAltChaChallenge(config, getUserAgentOrIp(c, config))
+func altchaChallenge(c *gin.Context, config *Config, maxNumber int64) {
+	challenge, err := CreateAltChaChallenge(config, getUserAgentOrIp(c, config), maxNumber)
 	if err != nil {
 		// only fails on rand/algorithm errors; the client gets an unsolvable page
 		log.Printf("ALTCHA: failed to create challenge: %v", err)
@@ -138,6 +155,7 @@ func sendOrValidateAltChaChallenge(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
+	maxNumber int64, // difficulty for a new challenge, 0 means config.AltChaMaxNumber
 ) (result SendOrValidateAltChaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -182,6 +200,6 @@ func sendOrValidateAltChaChallenge(
 			return result
 		}
 	}
-	altchaChallenge(c, config)
+	altchaChallenge(c, config, maxNumber)
 	return result
 }
