@@ -690,12 +690,12 @@ func TestHandleCommand_AltChaMaxNumber(t *testing.T) {
 	// what each list stores for a given altcha_max_number JSON field ("" = field absent)
 	cases := map[string]int64{
 		"":                               0, // config.AltChaMaxNumber
-		`, "altcha_max_number": 300000`:  300000,
+		`, "altcha_max_number": 5000`:    5000,
 		`, "altcha_max_number": 10`:      AltChaMaxNumberMin,
 		`, "altcha_max_number": 0`:       AltChaMaxNumberMin,
 		`, "altcha_max_number": -1`:      AltChaMaxNumberMin,
 		`, "altcha_max_number": 5000000`: AltChaMaxNumberMax,
-		`, "altcha_max_number": 1000000`: 1000000,
+		`, "altcha_max_number": 20000`:   20000,
 	}
 	for field, want := range cases {
 		t.Run(field, func(t *testing.T) {
@@ -744,7 +744,7 @@ func TestHandleCommand_AltChaMaxNumber_IgnoredByOtherCommands(t *testing.T) {
 func TestHandleCommand_AltChaMaxNumber_ResendChangesDifficulty(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
-	easy, hard := int64(50000), int64(1000000)
+	easy, hard := int64(2000), int64(15000)
 
 	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaMaxNumber: &easy}, decisionLists)
 	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaMaxNumber: &hard}, decisionLists)

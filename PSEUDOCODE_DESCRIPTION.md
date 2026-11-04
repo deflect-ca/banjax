@@ -135,8 +135,15 @@ response.
 time left on the decision. TooManyRequests only comes from the regex rate limits; the static decision
 lists reject it.
 
-`send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an AltCha proof-of-work page
-(cookie `deflect_altcha`, `altcha_max_number` difficulty, `altcha_challenge_html` to override the page).
+`send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an ALTCHA v2 proof-of-work page
+(cookie `deflect_altcha`, `altcha_max_number` / `altcha_cost` difficulty, `altcha_challenge_html` to override
+the page). The page runs the official ALTCHA widget, loaded from jsDelivr pinned to one version with a
+Subresource Integrity hash. It solves a PBKDF2/SHA-256 challenge in Web Workers: banjax picks a secret
+counter in 0..`altcha_max_number`, and the client derives keys of `altcha_cost` iterations from 0 upwards
+until one matches. The widget needs a secure context (`crypto.subtle`), so the AltCha challenge only
+works over HTTPS; over plain HTTP the page shows a "verification failed" message. A solution is checked
+with one HMAC (the challenge carries a signature of its derived key), never by re-running the key
+derivation, and must carry the binding (IP or User-Agent) in its signed data.
 It is a stronger, independent challenge: a solved sha-inv cookie does not pass it, and its failures are
 counted on their own against `altcha_too_many_failed_challenges_threshold` within
 `altcha_too_many_failed_challenges_interval_seconds`. Exceeding it gets the IP an IptablesBlock (an
@@ -202,7 +209,7 @@ checked above:
 
 The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
 challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
-clamped to 50000..1000000 (out-of-range values become the nearest limit) and ignored by every other
+clamped to 1000..20000 (out-of-range values become the nearest limit) and ignored by every other
 command. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
 holds an AltChaChallenge at a different difficulty replaces it, so resending the command changes the
 difficulty.

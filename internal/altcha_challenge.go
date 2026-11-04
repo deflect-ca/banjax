@@ -8,24 +8,38 @@ package internal
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"html"
 	"log"
-	"net/url"
+	"math/big"
 	"strings"
 	"time"
 
-	altcha "github.com/altcha-org/altcha-lib-go"
+	altcha "github.com/altcha-org/altcha-lib-go/v2"
 	"github.com/gin-gonic/gin"
 )
 
 const AltChaCookieName = "deflect_altcha"
 
-// bounds for the altcha_max_number field of altcha_challenge_* kafka commands: below the
-// min a challenge is too cheap to matter, above the max a phone takes 5-12s to solve it
+// ALTCHA v2 proof of work: the client must find the counter whose PBKDF2/SHA-256 derived key
+// starts with the key prefix in the challenge. banjax picks that counter, so the work is
+// counter+1 key derivations of AltChaCost iterations each, split across the widget's workers.
+const AltChaAlgorithm = "PBKDF2/SHA-256"
+
+// defaults when the config leaves altcha_cost / altcha_max_number unset
 const (
-	AltChaMaxNumberMin int64 = 50000
-	AltChaMaxNumberMax int64 = 1000000
+	AltChaDefaultCost      = 5000
+	AltChaDefaultMaxNumber = 10000
+)
+
+// bounds for the altcha_max_number field of altcha_challenge_* kafka commands: below the
+// min a challenge is too cheap to matter, above the max a phone takes too long to solve it
+const (
+	AltChaMaxNumberMin int64 = 1000
+	AltChaMaxNumberMax int64 = 20000
 )
 
 // ClampAltChaMaxNumber forces a kafka-supplied altcha_max_number into
@@ -34,39 +48,54 @@ func ClampAltChaMaxNumber(maxNumber int64) int64 {
 	return min(max(maxNumber, AltChaMaxNumberMin), AltChaMaxNumberMax)
 }
 
-// CreateAltChaChallenge mints an AltCha SHA-256 proof-of-work challenge bound to the
-// caller-supplied binding (IP or UA, same selector as sha-inv). Expires MUST be set:
-// altcha encodes it into the salt and VerifySolution enforces it only when present,
-// otherwise the solved token would be replayable forever. maxNumber is the difficulty
-// carried by the decision that triggered the challenge; 0 means config.AltChaMaxNumber.
+// altchaKeySignatureSecret signs the derived key of each challenge, so a solution is checked
+// with one HMAC instead of re-running the key derivation on every request with the cookie.
+func altchaKeySignatureSecret(config *Config) string {
+	return config.HmacSecret + "/altcha-key"
+}
+
+// CreateAltChaChallenge mints an ALTCHA v2 challenge bound to the caller-supplied binding
+// (IP or UA, same selector as sha-inv). The binding goes in the signed data, and ExpiresAt
+// MUST be set: VerifySolution only enforces expiry when present, otherwise the solved token
+// would be replayable forever. maxNumber is the difficulty carried by the decision that
+// triggered the challenge; 0 means config.AltChaMaxNumber.
 func CreateAltChaChallenge(config *Config, binding string, maxNumber int64) (altcha.Challenge, error) {
-	if maxNumber == 0 {
+	if maxNumber <= 0 {
 		maxNumber = config.AltChaMaxNumber
 	}
+	if maxNumber <= 0 {
+		maxNumber = AltChaDefaultMaxNumber
+	}
+	cost := config.AltChaCost
+	if cost <= 0 {
+		cost = AltChaDefaultCost
+	}
+	// the counter must be unpredictable, or a client could skip straight to it
+	n, err := rand.Int(rand.Reader, big.NewInt(maxNumber+1))
+	if err != nil {
+		return altcha.Challenge{}, err
+	}
+	counter := int(n.Int64())
 	expireTime := time.Now().Add(time.Duration(config.AltChaCookieTtlSeconds) * time.Second)
-	return altcha.CreateChallenge(altcha.ChallengeOptions{
-		Algorithm: altcha.SHA256,
-		MaxNumber: maxNumber,
-		HMACKey:   config.HmacSecret,
-		Expires:   &expireTime,
-		Params:    url.Values{"binding": {binding}},
+	return altcha.CreateChallenge(altcha.CreateChallengeOptions{
+		Algorithm:              AltChaAlgorithm,
+		DeriveKey:              altcha.DeriveKeyPBKDF2(),
+		Cost:                   cost,
+		Counter:                &counter,
+		HMACSignatureSecret:    config.HmacSecret,
+		HMACKeySignatureSecret: altchaKeySignatureSecret(config),
+		ExpiresAt:              &expireTime,
+		Data:                   map[string]interface{}{"binding": binding},
 	})
 }
 
 // VerifyAltChaPayload validates the base64 payload from the deflect_altcha cookie.
 // VerifySolution alone only proves "someone solved a banjax-minted challenge", not
-// "this client did", so the binding embedded in the salt is checked too.
+// "this client did", so the binding in the signed challenge data is checked too.
 func VerifyAltChaPayload(config *Config, payloadB64 string, binding string) (bool, error) {
 	// gin erroneously QueryUnescapes cookies, turning '+' into ' '. Repair before decoding.
 	// https://github.com/gin-gonic/gin/issues/1717 (same workaround as ParseCookie).
 	repaired := strings.ReplaceAll(payloadB64, " ", "+")
-
-	// checkExpires=true: an expired payload verifies as false (no error).
-	// VerifySolutionSafe uses a constant-time signature comparison.
-	ok, err := altcha.VerifySolutionSafe(repaired, config.HmacSecret, true)
-	if err != nil || !ok {
-		return false, err
-	}
 
 	decoded, err := base64.StdEncoding.DecodeString(repaired)
 	if err != nil {
@@ -76,11 +105,26 @@ func VerifyAltChaPayload(config *Config, payloadB64 string, binding string) (boo
 	if err := json.Unmarshal(decoded, &payload); err != nil {
 		return false, err
 	}
-	return altcha.ExtractParams(payload).Get("binding") == binding, nil
+	// every banjax challenge carries a key signature, so verification takes the HMAC fast
+	// path. DeriveKey is left nil on purpose: a payload without a key signature then fails
+	// with an error instead of making banjax run a key derivation per request.
+	result, err := altcha.VerifySolution(altcha.VerifySolutionOptions{
+		Challenge:              payload.Challenge,
+		Solution:               payload.Solution,
+		HMACSignatureSecret:    config.HmacSecret,
+		HMACKeySignatureSecret: altchaKeySignatureSecret(config),
+	})
+	// an expired payload verifies as false with no error
+	if err != nil || !result.Verified {
+		return false, err
+	}
+	boundTo, _ := payload.Challenge.Parameters.Data["binding"].(string)
+	return boundTo == binding, nil
 }
 
-// applyArgsToAltChaPage injects the per-request challenge JSON into the page and
-// rewrites the cookie max-age, like applyArgsToShaInvPage.
+// applyArgsToAltChaPage injects the per-request challenge JSON into the widget's challenge
+// attribute and rewrites the cookie max-age, like applyArgsToShaInvPage. The JSON is
+// HTML-escaped because the binding inside it can be the client's User-Agent.
 func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge) []byte {
 	challengeJSON, err := json.Marshal(challenge)
 	if err != nil {
@@ -89,8 +133,8 @@ func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge) []byte {
 	}
 	modifiedPageBytes := modifyHTMLContent(
 		config.AltChaChallengerBytes,
-		"var altcha_challenge = {};",
-		"var altcha_challenge = "+string(challengeJSON)+";",
+		`challenge="{}"`,
+		fmt.Sprintf(`challenge="%s"`, html.EscapeString(string(challengeJSON))),
 	)
 	return applyCookieMaxAge(modifiedPageBytes, AltChaCookieName, config.AltChaCookieTtlSeconds)
 }
@@ -98,7 +142,7 @@ func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge) []byte {
 func altchaChallenge(c *gin.Context, config *Config, maxNumber int64) {
 	challenge, err := CreateAltChaChallenge(config, getUserAgentOrIp(c, config), maxNumber)
 	if err != nil {
-		// only fails on rand/algorithm errors; the client gets an unsolvable page
+		// only fails on rand/key derivation errors; the client gets an unsolvable page
 		log.Printf("ALTCHA: failed to create challenge: %v", err)
 	}
 	c.Header("Cache-Control", "no-cache,no-store")

@@ -35,7 +35,7 @@ type commandMessage struct {
 	PrintLog  bool   `json:"print_log"`
 	TTL       int    `json:"ttl,omitempty"`
 	UA        string `json:"ua,omitempty"`
-	// pointer so an explicit 0 is still sent (banjax clamps it up to 50000)
+	// pointer so an explicit 0 is still sent (banjax clamps it up to 1000)
 	AltChaMaxNumber *int64 `json:"altcha_max_number,omitempty"`
 }
 
@@ -93,7 +93,7 @@ func main() {
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
 	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
-	altchaMaxNumber := flag.Int64("altcha-max-number", 0, "altcha_challenge_* difficulty, clamped by banjax to 50000..1000000 (omitted unless given, banjax then uses altcha_max_number from its config)")
+	altchaMaxNumber := flag.Int64("altcha-max-number", 0, "altcha_challenge_* difficulty, clamped by banjax to 1000..20000 (omitted unless given, banjax then uses altcha_max_number from its config)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")
 

@@ -491,9 +491,12 @@ func TestDecisionForNginx2_ExpiringUADecisionOnlyAppliesToItsHost(t *testing.T) 
 }
 
 func TestDecisionForNginx2_ExpiringAltChaServesStoredMaxNumber(t *testing.T) {
+	// a config difficulty no test could solve, so a quick solve proves the stored one was used
 	config := loadConfigString(`
-altcha_max_number: 50000
+altcha_max_number: 1000000000
+altcha_cost: 10
 hmac_secret: secret
+altcha_cookie_ttl_seconds: 3600
 altcha_too_many_failed_challenges_threshold: 10
 altcha_too_many_failed_challenges_interval_seconds: 10
 `)
@@ -503,17 +506,14 @@ altcha_too_many_failed_challenges_interval_seconds: 10
 	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
 	assert.Nil(t, err)
 
-	serve := func(host string) string {
-		recorder := httptest.NewRecorder()
-		c, _ := gin.CreateTestContext(recorder)
-		c.Request = buildDecisionForNginxTestContext("1.1.1.1", host, "/", "some-ua", "").Request
-		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, "stored.com", time.Now().Add(time.Minute), AltChaChallenge, true, 300000)
-		decisionLists.UpdateByHost(config, "default.com", time.Now().Add(time.Minute), AltChaChallenge, true, 0)
-		decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
-		return recorder.Body.String()
-	}
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByHost(config, "stored.com", time.Now().Add(time.Minute), AltChaChallenge, true, 5)
 
-	assert.Contains(t, serve("stored.com"), `"maxNumber":300000`)
-	assert.Contains(t, serve("default.com"), `"maxNumber":50000`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = buildDecisionForNginxTestContext("1.1.1.1", "stored.com", "/", "some-ua", "").Request
+	decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+
+	challenge := altchaChallengeFromPage(t, recorder.Body.String())
+	assert.LessOrEqual(t, solveAltCha(t, challenge).Counter, 5)
 }

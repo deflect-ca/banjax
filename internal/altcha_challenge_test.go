@@ -9,48 +9,57 @@ package internal
 import (
 	"encoding/base64"
 	"encoding/json"
+	"html"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	altcha "github.com/altcha-org/altcha-lib-go"
+	altcha "github.com/altcha-org/altcha-lib-go/v2"
 	"github.com/stretchr/testify/assert"
 )
+
+// solveAltCha solves a minted challenge the way the widget does.
+func solveAltCha(t *testing.T, challenge altcha.Challenge) *altcha.Solution {
+	solution, err := altcha.SolveChallenge(altcha.SolveChallengeOptions{
+		Challenge: challenge,
+		DeriveKey: altcha.DeriveKeyPBKDF2(),
+		Timeout:   30 * time.Second,
+	})
+	assert.Nil(t, err)
+	assert.NotNil(t, solution)
+	return solution
+}
 
 // solveAltChaToCookie solves a minted challenge and returns the base64 payload a
 // browser would set as the deflect_altcha cookie value.
 func solveAltChaToCookie(t *testing.T, challenge altcha.Challenge) string {
-	sol, err := altcha.SolveChallenge(
-		challenge.Challenge,
-		challenge.Salt,
-		altcha.Algorithm(challenge.Algorithm),
-		int(challenge.MaxNumber),
-		0,
-		nil,
-	)
-	assert.Nil(t, err)
-	assert.NotNil(t, sol)
-
-	payload := altcha.Payload{
-		Algorithm: challenge.Algorithm,
-		Challenge: challenge.Challenge,
-		Number:    int64(sol.Number),
-		Salt:      challenge.Salt,
-		Signature: challenge.Signature,
-	}
+	payload := altcha.Payload{Challenge: challenge, Solution: *solveAltCha(t, challenge)}
 	jsonBytes, err := json.Marshal(payload)
 	assert.Nil(t, err)
 	return base64.StdEncoding.EncodeToString(jsonBytes)
 }
 
+var altchaChallengeAttr = regexp.MustCompile(`challenge="([^"]*)"`)
+
+// altchaChallengeFromPage reads the challenge applyArgsToAltChaPage put into the widget.
+func altchaChallengeFromPage(t *testing.T, page string) altcha.Challenge {
+	m := altchaChallengeAttr.FindStringSubmatch(page)
+	assert.NotNil(t, m)
+	var challenge altcha.Challenge
+	assert.Nil(t, json.Unmarshal([]byte(html.UnescapeString(m[1])), &challenge))
+	return challenge
+}
+
 func altchaTestConfig() *Config {
 	return &Config{
-		HmacSecret:                                   "test-secret",
-		AltChaMaxNumber:                              1000,
-		AltChaCookieTtlSeconds:                       3600,
-		AltChaChallengerBytes:                        altchaChallengeEmbed,
-		AltChaTooManyFailedChallengesThreshold:       3,
+		HmacSecret:                             "test-secret",
+		AltChaMaxNumber:                        100,
+		AltChaCost:                             10, // keep test solves fast
+		AltChaCookieTtlSeconds:                 3600,
+		AltChaChallengerBytes:                  altchaChallengeEmbed,
+		AltChaTooManyFailedChallengesThreshold: 3,
 		AltChaTooManyFailedChallengesIntervalSeconds: 60,
 		TooManyFailedChallengesThreshold:             10,
 		TooManyFailedChallengesIntervalSeconds:       60,
@@ -130,6 +139,14 @@ func TestVerifyAltChaPayload_SpaceMangledCookieRepaired(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// modifyHTMLContent only replaces the first occurrence, so each injection target must
+// appear exactly once in the page or the injection can land in a comment instead
+func TestAltChaPage_InjectionTargetsAppearOnce(t *testing.T) {
+	page := string(altchaChallengeEmbed)
+	assert.Equal(t, 1, strings.Count(page, `challenge="{}"`))
+	assert.Equal(t, 1, strings.Count(page, `"deflect_altcha=" + base64_cookie`))
+}
+
 func TestApplyArgsToAltChaPage(t *testing.T) {
 	config := altchaTestConfig()
 	config.AltChaCookieTtlSeconds = 4321
@@ -138,9 +155,30 @@ func TestApplyArgsToAltChaPage(t *testing.T) {
 
 	page := string(applyArgsToAltChaPage(config, challenge))
 
-	assert.Contains(t, page, "max-age=4321")
-	assert.NotContains(t, page, "var altcha_challenge = {};")
-	assert.Contains(t, page, challenge.Signature)
+	// the replacements hit the code, not a comment quoting the same text
+	assert.Contains(t, page, `"deflect_altcha=" + base64_cookie + ";max-age=4321" + ";SameSite=Lax;path=/;"`)
+	assert.NotContains(t, page, `challenge="{}"`)
+	assert.Equal(t, challenge.Signature, altchaChallengeFromPage(t, page).Signature)
+}
+
+// the binding can be the client's User-Agent, which must not be able to break out of the
+// widget's challenge attribute
+func TestApplyArgsToAltChaPage_EscapesBinding(t *testing.T) {
+	config := altchaTestConfig()
+	const binding = `evil" onmouseover="alert(1)" x='<script>`
+	challenge, err := CreateAltChaChallenge(config, binding, 0)
+	assert.Nil(t, err)
+
+	page := string(applyArgsToAltChaPage(config, challenge))
+
+	assert.NotContains(t, page, `onmouseover="alert(1)"`)
+	assert.NotContains(t, page, "<script>`")
+	fromPage := altchaChallengeFromPage(t, page)
+	assert.Equal(t, binding, fromPage.Parameters.Data["binding"])
+	// and what the browser decodes still verifies
+	ok, err := VerifyAltChaPayload(config, solveAltChaToCookie(t, fromPage), binding)
+	assert.Nil(t, err)
+	assert.True(t, ok)
 }
 
 func TestCheckUADecision_AltChaChallengeBeatsChallenge(t *testing.T) {
@@ -355,11 +393,11 @@ func TestClampAltChaMaxNumber(t *testing.T) {
 	cases := map[int64]int64{
 		-5:       AltChaMaxNumberMin,
 		0:        AltChaMaxNumberMin,
-		49999:    AltChaMaxNumberMin,
-		50000:    50000,
-		300000:   300000,
-		1000000:  1000000,
-		1000001:  AltChaMaxNumberMax,
+		999:      AltChaMaxNumberMin,
+		1000:     1000,
+		5000:     5000,
+		20000:    20000,
+		20001:    AltChaMaxNumberMax,
 		50000000: AltChaMaxNumberMax,
 	}
 	for requested, want := range cases {
@@ -367,14 +405,70 @@ func TestClampAltChaMaxNumber(t *testing.T) {
 	}
 }
 
+func TestCreateAltChaChallenge_V2Parameters(t *testing.T) {
+	config := altchaTestConfig()
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
+	assert.Nil(t, err)
+
+	params := challenge.Parameters
+	assert.Equal(t, AltChaAlgorithm, params.Algorithm)
+	assert.Equal(t, config.AltChaCost, params.Cost)
+	assert.NotEmpty(t, params.KeySignature, "verification relies on the key signature fast path")
+	assert.NotEmpty(t, challenge.Signature)
+	assert.InDelta(t, time.Now().Add(time.Hour).Unix(), params.ExpiresAt, 5)
+	assert.Equal(t, "1.2.3.4", params.Data["binding"])
+}
+
+func TestCreateAltChaChallenge_UnsetConfigUsesDefaults(t *testing.T) {
+	config := altchaTestConfig()
+	config.AltChaCost = 0
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
+	assert.Nil(t, err)
+	assert.Equal(t, AltChaDefaultCost, challenge.Parameters.Cost)
+}
+
 func TestCreateAltChaChallenge_MaxNumber(t *testing.T) {
 	config := altchaTestConfig()
 
+	// the counter the client has to find never exceeds the difficulty asked for
+	for _, maxNumber := range []int64{0, 5} {
+		limit := maxNumber
+		if limit == 0 {
+			limit = config.AltChaMaxNumber
+		}
+		for i := 0; i < 5; i++ {
+			challenge, err := CreateAltChaChallenge(config, "1.2.3.4", maxNumber)
+			assert.Nil(t, err)
+			assert.LessOrEqual(t, int64(solveAltCha(t, challenge).Counter), limit)
+		}
+	}
+}
+
+func TestVerifyAltChaPayload_ForgedSolution(t *testing.T) {
+	config := altchaTestConfig()
 	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
-	assert.Equal(t, config.AltChaMaxNumber, challenge.MaxNumber, "0 falls back to the config value")
 
-	challenge, err = CreateAltChaChallenge(config, "1.2.3.4", 300000)
+	// the real signed challenge with a made-up key, as a client that skipped the work would send
+	for _, derivedKey := range []string{strings.Repeat("00", 32), "not hex"} {
+		payload := altcha.Payload{Challenge: challenge, Solution: altcha.Solution{Counter: 1, DerivedKey: derivedKey}}
+		jsonBytes, _ := json.Marshal(payload)
+		ok, err := VerifyAltChaPayload(config, base64.StdEncoding.EncodeToString(jsonBytes), "1.2.3.4")
+		assert.Nil(t, err)
+		assert.False(t, ok, derivedKey)
+	}
+}
+
+func TestVerifyAltChaPayload_TamperedBinding(t *testing.T) {
+	config := altchaTestConfig()
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
-	assert.Equal(t, int64(300000), challenge.MaxNumber)
+	solution := solveAltCha(t, challenge)
+
+	// rebinding a solved challenge to another client breaks the challenge signature
+	challenge.Parameters.Data = map[string]interface{}{"binding": "9.9.9.9"}
+	jsonBytes, _ := json.Marshal(altcha.Payload{Challenge: challenge, Solution: *solution})
+	ok, err := VerifyAltChaPayload(config, base64.StdEncoding.EncodeToString(jsonBytes), "9.9.9.9")
+	assert.Nil(t, err)
+	assert.False(t, ok)
 }

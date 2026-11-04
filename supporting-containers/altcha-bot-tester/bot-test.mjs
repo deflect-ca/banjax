@@ -14,12 +14,17 @@
 //   docker compose run --rm altcha-bot-tester headless   # scenarios matching a substring
 
 import http from "node:http";
+import https from "node:https";
 import { lookup } from "node:dns/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 import { chromium } from "playwright";
 
 const EDGE_ADDR = process.env.EDGE_ADDR || "localhost";
-const EDGE_PORT = Number(process.env.EDGE_PORT || 80);
+// https by default: the ALTCHA widget needs a secure context (crypto.subtle) and refuses to
+// solve over plain http. nginx's certificate is self-signed, so it is not verified.
+const EDGE_SCHEME = process.env.EDGE_SCHEME || "https";
+const DEFAULT_PORT = EDGE_SCHEME === "https" ? 443 : 80;
+const EDGE_PORT = Number(process.env.EDGE_PORT || DEFAULT_PORT);
 const SHA_HOST = process.env.SHA_HOST || "sha-test.banjax";
 const ALTCHA_HOST = process.env.ALTCHA_HOST || "altcha-test.banjax";
 const TEST_PATH = process.env.TEST_PATH || "/hello";
@@ -48,7 +53,7 @@ const MODES = [
 // what a response turned out to be, from the client's point of view
 function classify(status, body) {
     if (status === 200 && body.includes(ORIGIN_MARKER)) return "origin";
-    if (body.includes("var altcha_challenge")) return "altcha-page";
+    if (body.includes("<altcha-widget")) return "altcha-page";
     if (body.includes("deflect_challenge3")) return "sha-page";
     if (status === 403) return "denied";
     return `http-${status}`;
@@ -60,8 +65,18 @@ function plainGet(edgeIp, host, { ua, cookie } = {}) {
     return new Promise((resolve) => {
         const headers = { Host: host, "User-Agent": ua };
         if (cookie) headers.Cookie = cookie;
-        const req = http.request(
-            { host: edgeIp, port: EDGE_PORT, path: TEST_PATH, method: "GET", headers, timeout: 10000 },
+        const client = EDGE_SCHEME === "https" ? https : http;
+        const req = client.request(
+            {
+                host: edgeIp,
+                port: EDGE_PORT,
+                path: TEST_PATH,
+                method: "GET",
+                headers,
+                timeout: 10000,
+                servername: host,
+                rejectUnauthorized: false,
+            },
             (res) => {
                 let body = "";
                 res.setEncoding("utf8");
@@ -84,7 +99,7 @@ function plainGet(edgeIp, host, { ua, cookie } = {}) {
 // browserVisit opens the page in a fresh browser context and waits for the
 // challenge page to solve itself and reload into the origin page.
 async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent } = {}) {
-    const context = await browser.newContext({ javaScriptEnabled, userAgent });
+    const context = await browser.newContext({ javaScriptEnabled, userAgent, ignoreHTTPSErrors: true });
     const page = await context.newPage();
     if (CPU_THROTTLE > 1) {
         const cdp = await context.newCDPSession(page);
@@ -98,7 +113,7 @@ async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent
         decision = res.headers()["x-banjax-decision"] || decision;
     });
 
-    const url = `http://${host}${EDGE_PORT === 80 ? "" : `:${EDGE_PORT}`}${TEST_PATH}`;
+    const url = `${EDGE_SCHEME}://${host}${EDGE_PORT === DEFAULT_PORT ? "" : `:${EDGE_PORT}`}${TEST_PATH}`;
     const started = performance.now();
     let solvedMs = null;
     try {
@@ -132,12 +147,23 @@ async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent
 
 function forgedCookie(mode) {
     if (mode.key === "sha") return `${mode.cookie}=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==`;
+    // ALTCHA v2 payload shape with a made-up challenge, signature and key
     const payload = {
-        algorithm: "SHA-256",
-        challenge: "0".repeat(64),
-        number: 1,
-        salt: "forged?expires=9999999999&binding=1.2.3.4",
-        signature: "0".repeat(64),
+        challenge: {
+            parameters: {
+                algorithm: "PBKDF2/SHA-256",
+                nonce: "0".repeat(32),
+                salt: "0".repeat(32),
+                cost: 1,
+                keyLength: 32,
+                keyPrefix: "00",
+                keySignature: "0".repeat(64),
+                expiresAt: 9999999999,
+                data: { binding: "1.2.3.4" },
+            },
+            signature: "0".repeat(64),
+        },
+        solution: { counter: 1, derivedKey: "0".repeat(64) },
     };
     return `${mode.cookie}=${Buffer.from(JSON.stringify(payload)).toString("base64")}`;
 }
@@ -236,7 +262,7 @@ async function main() {
     const webdriver = await probe.evaluate(() => navigator.webdriver);
     await probe.close();
 
-    console.log(`edge:       ${EDGE_ADDR} (${edgeIp}:${EDGE_PORT})${TEST_PATH}`);
+    console.log(`edge:       ${EDGE_SCHEME}://${EDGE_ADDR} (${edgeIp}:${EDGE_PORT})${TEST_PATH}`);
     console.log(`hosts:      sha-inverse=${SHA_HOST}  altcha=${ALTCHA_HOST}`);
     console.log(`browser:    ${headlessUA}`);
     console.log(`webdriver:  ${webdriver}`);

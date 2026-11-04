@@ -110,7 +110,8 @@ type Config struct {
 	AltChaTooManyFailedChallengesIntervalSeconds int    `yaml:"altcha_too_many_failed_challenges_interval_seconds"`
 	AltChaTooManyFailedChallengesThreshold       int    `yaml:"altcha_too_many_failed_challenges_threshold"`
 	AltChaCookieTtlSeconds                       int    `yaml:"altcha_cookie_ttl_seconds"`
-	AltChaMaxNumber                              int64  `yaml:"altcha_max_number"` // difficulty ~= MaxNumber/2 hashes; 0 means the library default 1,000,000
+	AltChaMaxNumber                              int64  `yaml:"altcha_max_number"` // max PBKDF2 counter; average work ~= MaxNumber/2 derivations; 0 means AltChaDefaultMaxNumber
+	AltChaCost                                   int    `yaml:"altcha_cost"`       // PBKDF2 iterations per attempt; 0 means AltChaDefaultCost
 	AltChaChallengeHTML                          string `yaml:"altcha_challenge_html"`
 	AltChaChallengerBytes                        []byte
 }

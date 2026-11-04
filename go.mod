@@ -23,7 +23,7 @@ require (
 )
 
 require (
-	github.com/altcha-org/altcha-lib-go v1.0.0
+	github.com/altcha-org/altcha-lib-go/v2 v2.4.1
 	github.com/brianvoe/gofakeit/v6 v6.16.0
 	github.com/gin-contrib/pprof v1.5.2
 	github.com/gonetx/ipset v0.1.0

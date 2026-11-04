@@ -77,14 +77,15 @@ or when neither host challenged the headless UA (banjax config not loaded).
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `EDGE_ADDR` | `nginx` | where nginx is reachable |
-| `EDGE_PORT` | `80` | nginx port |
+| `EDGE_SCHEME` | `https` | `https` or `http`; the ALTCHA widget only solves in a secure context, so over `http` every AltCha scenario stops |
+| `EDGE_PORT` | `443` (`80` for http) | nginx port |
 | `SHA_HOST` | `sha-test.banjax` | host with the sha-inverse UA rule |
 | `ALTCHA_HOST` | `altcha-test.banjax` | host with the AltCha UA rule |
 | `TEST_PATH` | `/hello` | origin path; test-origin answers it with `hello!` |
 | `SOLVE_TIMEOUT_MS` | `30000` | how long a browser gets to reach the origin |
 | `PAUSE_SECONDS` | `6` | gap after scenarios that fail a challenge, and between headless samples |
 | `SAMPLES` | `1` | headless-browser solves per host; above 1, prints median/min/max solve time |
-| `CPU_THROTTLE` | `1` | Chromium CPU slowdown for browser scenarios, e.g. `4` to approximate a mid-range phone |
+| `CPU_THROTTLE` | `1` | Chromium CPU slowdown for browser scenarios, e.g. `4` to approximate a mid-range phone. It only slows the page's main thread: the ALTCHA widget solves in Web Workers with native WebCrypto, so it barely affects AltCha solve times |
 
 Measure how long a challenge takes at the current difficulty, on a slow phone:
 

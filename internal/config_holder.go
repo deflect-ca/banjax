@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -98,6 +100,27 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
+	// KAFKA_BROKERS / KAFKA_COMMAND_TOPIC / DISABLE_KAFKA from the untracked
+	// .env file (loaded via docker-compose env_file) override the yaml values when set.
+	if v, ok := os.LookupEnv("KAFKA_BROKERS"); ok && v != "" {
+		config.KafkaBrokers = nil
+		for _, broker := range strings.Split(v, ",") {
+			if broker = strings.TrimSpace(broker); broker != "" {
+				config.KafkaBrokers = append(config.KafkaBrokers, broker)
+			}
+		}
+	}
+	if v, ok := os.LookupEnv("KAFKA_COMMAND_TOPIC"); ok && v != "" {
+		config.KafkaCommandTopic = v
+	}
+	if v, ok := os.LookupEnv("DISABLE_KAFKA"); ok && v != "" {
+		disableKafka, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DISABLE_KAFKA %q: %w", v, err)
+		}
+		config.DisableKafka = disableKafka
+	}
+
 	// boolean default = false
 	if config.Debug {
 		log.Printf("read config %v\n", *config)
@@ -132,6 +155,12 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	// banned by the failed challenge threshold, so default it rather than trust the zero value.
 	if config.AltChaCookieTtlSeconds <= 0 {
 		config.AltChaCookieTtlSeconds = 14400
+	}
+	if config.AltChaMaxNumber <= 0 {
+		config.AltChaMaxNumber = AltChaDefaultMaxNumber
+	}
+	if config.AltChaCost <= 0 {
+		config.AltChaCost = AltChaDefaultCost
 	}
 
 	if config.PasswordProtectedPathHTML != "" {
