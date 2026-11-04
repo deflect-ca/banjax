@@ -121,11 +121,6 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		config.DisableKafka = disableKafka
 	}
 
-	// boolean default = false
-	if config.Debug {
-		log.Printf("read config %v\n", *config)
-	}
-
 	if config.ShaInvChallengeHTML != "" {
 		log.Printf("INIT: Reading SHA-inverse challenge HTML from %s", config.ShaInvChallengeHTML)
 		challengerBytes, err := os.ReadFile(config.ShaInvChallengeHTML)
