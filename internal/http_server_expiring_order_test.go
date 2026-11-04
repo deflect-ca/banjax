@@ -517,3 +517,76 @@ altcha_too_many_failed_challenges_interval_seconds: 10
 	challenge := altchaChallengeFromPage(t, recorder.Body.String())
 	assert.LessOrEqual(t, solveAltCha(t, challenge).Counter, 5)
 }
+
+// Challenge pages must say why the client was challenged, so nginx can log it like it does
+// for granted and denied requests.
+func TestDecisionForNginx2_ChallengeResponsesCarryDecision(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 5
+altcha_cookie_ttl_seconds: 3600
+sha_inv_cookie_ttl_seconds: 3600
+sha_inv_expected_zero_bits: 10
+too_many_failed_challenges_threshold: 10
+too_many_failed_challenges_interval_seconds: 10
+altcha_too_many_failed_challenges_threshold: 10
+altcha_too_many_failed_challenges_interval_seconds: 10
+per_site_decision_lists:
+  static.com:
+    challenge:
+      - 1.1.1.1
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	config.ChallengerBytes = shaInvChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+	subnet, err := ParseSubnet("2.2.2.0/24")
+	assert.Nil(t, err)
+
+	decisionLists := NewDynamicDecisionLists()
+	expires := time.Now().Add(time.Minute)
+	decisionLists.UpdateByUA(config, "bad-bot/1.0", expires, AltChaChallenge, true, "ua.com", 0)
+	decisionLists.UpdateByHost(config, "sitewide.com", expires, Challenge, true, 0)
+	decisionLists.UpdateBySubnet(config, subnet, expires, AltChaChallenge, true, "subnet.com", 0)
+	decisionLists.Update(config, "3.3.3.3", expires, Challenge, true, "ip.com", 0)
+
+	serve := func(ip, host, ua string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = buildDecisionForNginxTestContext(ip, host, "/", ua, "").Request
+		for _, cookie := range cookies {
+			c.Request.AddCookie(cookie)
+		}
+		decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		return recorder
+	}
+
+	cases := []struct {
+		name, ip, host, ua, want string
+	}{
+		{"static per-site challenge", "1.1.1.1", "static.com", "ua", "PerSiteChallenge"},
+		{"expiring ua altcha", "9.9.9.9", "ua.com", "bad-bot/1.0", "ExpiringUAAltChaChallenge"},
+		{"expiring sitewide challenge", "9.9.9.9", "sitewide.com", "ua", "ExpiringSiteWideChallenge"},
+		{"expiring subnet altcha", "2.2.2.7", "subnet.com", "ua", "ExpiringSubnetAltChaChallenge"},
+		{"expiring ip challenge", "3.3.3.3", "ip.com", "ua", "ExpiringChallenge"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := serve(tc.ip, tc.host, tc.ua)
+			assert.Equal(t, 429, recorder.Code)
+			assert.Equal(t, tc.want, recorder.Header().Get("X-Banjax-Decision"))
+		})
+	}
+
+	// once solved, the header reports the pass instead of the trigger
+	t.Run("solved altcha reports the pass", func(t *testing.T) {
+		challenge := altchaChallengeFromPage(t, serve("9.9.9.9", "ua.com", "bad-bot/1.0").Body.String())
+		recorder := serve("9.9.9.9", "ua.com", "bad-bot/1.0",
+			&http.Cookie{Name: AltChaCookieName, Value: solveAltChaToCookie(t, challenge)})
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "AltChaChallengePassed", recorder.Header().Get("X-Banjax-Decision"))
+	})
+}

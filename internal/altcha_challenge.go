@@ -139,12 +139,13 @@ func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge) []byte {
 	return applyCookieMaxAge(modifiedPageBytes, AltChaCookieName, config.AltChaCookieTtlSeconds)
 }
 
-func altchaChallenge(c *gin.Context, config *Config, maxNumber int64) {
+func altchaChallenge(c *gin.Context, config *Config, maxNumber int64, trigger DecisionListResult) {
 	challenge, err := CreateAltChaChallenge(config, getUserAgentOrIp(c, config), maxNumber)
 	if err != nil {
 		// only fails on rand/key derivation errors; the client gets an unsolvable page
 		log.Printf("ALTCHA: failed to create challenge: %v", err)
 	}
+	c.Header("X-Banjax-Decision", DecisionListResultToString[trigger])
 	c.Header("Cache-Control", "no-cache,no-store")
 	sessionCookieEndPoint(c, config)
 	c.Data(429, "text/html", applyArgsToAltChaPage(config, challenge))
@@ -200,6 +201,7 @@ func sendOrValidateAltChaChallenge(
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
 	maxNumber int64, // difficulty for a new challenge, 0 means config.AltChaMaxNumber
+	trigger DecisionListResult, // why the client is challenged, sent as X-Banjax-Decision
 ) (result SendOrValidateAltChaChallengeResult) {
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -244,6 +246,6 @@ func sendOrValidateAltChaChallenge(
 			return result
 		}
 	}
-	altchaChallenge(c, config, maxNumber)
+	altchaChallenge(c, config, maxNumber, trigger)
 	return result
 }
