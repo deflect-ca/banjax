@@ -1,0 +1,264 @@
+// Copyright (c) 2026, eQualit.ie inc.
+// All rights reserved.
+//
+// This source code is licensed under the BSD-style license found in the
+// LICENSE file in the root directory of this source tree.
+
+// Throws a set of bot-like clients at two hosts that challenge the same
+// headless Chromium User-Agent, one with the sha-inverse challenge and one
+// with AltCha (see per_site_user_agent_decision_lists in banjax-config.yaml),
+// and prints side by side which clients each challenge actually stopped.
+//
+// Usage, from the repo root with the stack up (docker compose up --build -d):
+//   docker compose run --rm altcha-bot-tester            # every scenario
+//   docker compose run --rm altcha-bot-tester headless   # scenarios matching a substring
+
+import http from "node:http";
+import { lookup } from "node:dns/promises";
+import { setTimeout as sleep } from "node:timers/promises";
+import { chromium } from "playwright";
+
+const EDGE_ADDR = process.env.EDGE_ADDR || "localhost";
+const EDGE_PORT = Number(process.env.EDGE_PORT || 80);
+const SHA_HOST = process.env.SHA_HOST || "sha-test.banjax";
+const ALTCHA_HOST = process.env.ALTCHA_HOST || "altcha-test.banjax";
+const TEST_PATH = process.env.TEST_PATH || "/hello";
+// how long a browser gets to solve a challenge and land on the origin page
+const SOLVE_TIMEOUT_MS = Number(process.env.SOLVE_TIMEOUT_MS || 30000);
+// failed challenges per ip are rate limited (3 in 10s by default, then an iptables
+// ban), so scenarios that fail a challenge are spaced out by this much
+const PAUSE_SECONDS = Number(process.env.PAUSE_SECONDS || 6);
+const FILTER = process.argv[2] || "";
+
+// a desktop Chrome UA that does not contain "HeadlessChrome"
+const SPOOFED_UA =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+const ORIGIN_MARKER = "hello!";
+
+const MODES = [
+    { key: "sha", label: "sha-inverse", host: SHA_HOST, cookie: "deflect_challenge3" },
+    { key: "altcha", label: "altcha", host: ALTCHA_HOST, cookie: "deflect_altcha" },
+];
+
+// what a response turned out to be, from the client's point of view
+function classify(status, body) {
+    if (status === 200 && body.includes(ORIGIN_MARKER)) return "origin";
+    if (body.includes("var altcha_challenge")) return "altcha-page";
+    if (body.includes("deflect_challenge3")) return "sha-page";
+    if (status === 403) return "denied";
+    return `http-${status}`;
+}
+
+// plainGet sends one request with no JavaScript engine behind it, like curl or a
+// python script would.
+function plainGet(edgeIp, host, { ua, cookie } = {}) {
+    return new Promise((resolve) => {
+        const headers = { Host: host, "User-Agent": ua };
+        if (cookie) headers.Cookie = cookie;
+        const req = http.request(
+            { host: edgeIp, port: EDGE_PORT, path: TEST_PATH, method: "GET", headers, timeout: 10000 },
+            (res) => {
+                let body = "";
+                res.setEncoding("utf8");
+                res.on("data", (chunk) => (body += chunk));
+                res.on("end", () =>
+                    resolve({
+                        kind: classify(res.statusCode, body),
+                        decision: res.headers["x-banjax-decision"] || "",
+                    }),
+                );
+            },
+        );
+        // an iptables ban shows up as a connection that never answers
+        req.on("timeout", () => req.destroy(new Error("timeout")));
+        req.on("error", (err) => resolve({ kind: err.message === "timeout" ? "timeout (banned?)" : `error: ${err.message}` }));
+        req.end();
+    });
+}
+
+// browserVisit opens the page in a fresh browser context and waits for the
+// challenge page to solve itself and reload into the origin page.
+async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent } = {}) {
+    const context = await browser.newContext({ javaScriptEnabled, userAgent });
+    const page = await context.newPage();
+    let challengePages = 0;
+    let decision = "";
+    page.on("response", (res) => {
+        if (res.request().resourceType() !== "document") return;
+        if (res.status() === 429) challengePages += 1;
+        decision = res.headers()["x-banjax-decision"] || decision;
+    });
+
+    const url = `http://${host}${EDGE_PORT === 80 ? "" : `:${EDGE_PORT}`}${TEST_PATH}`;
+    const started = performance.now();
+    let solvedMs = null;
+    try {
+        await page.goto(url, { waitUntil: "load", timeout: 15000 });
+        const deadline = Date.now() + (javaScriptEnabled ? SOLVE_TIMEOUT_MS : 3000);
+        while (Date.now() < deadline) {
+            // evaluate throws while the challenge page is reloading, so just retry
+            const text = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
+            if (text.includes(ORIGIN_MARKER)) {
+                solvedMs = performance.now() - started;
+                break;
+            }
+            await sleep(100);
+        }
+    } catch (err) {
+        await context.close();
+        return { kind: `error: ${err.message.split("\n")[0]}` };
+    }
+
+    const content = await page.content().catch(() => "");
+    const cookies = await context.cookies();
+    await context.close();
+    return {
+        kind: solvedMs !== null ? "origin" : classify(429, content),
+        solvedMs,
+        challengePages,
+        decision,
+        cookies,
+    };
+}
+
+function forgedCookie(mode) {
+    if (mode.key === "sha") return `${mode.cookie}=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==`;
+    const payload = {
+        algorithm: "SHA-256",
+        challenge: "0".repeat(64),
+        number: 1,
+        salt: "forged?expires=9999999999&binding=1.2.3.4",
+        signature: "0".repeat(64),
+    };
+    return `${mode.cookie}=${Buffer.from(JSON.stringify(payload)).toString("base64")}`;
+}
+
+// Each scenario runs once per mode. shouldStop marks clients a working challenge
+// must keep out; the others are reported but are expected to get through.
+// failsChallenge marks scenarios that count towards the failed-challenge ban.
+const SCENARIOS = [
+    {
+        name: "no-js-client",
+        about: "plain HTTP client (curl-like) sending the headless UA",
+        shouldStop: true,
+        failsChallenge: true,
+        run: (ctx, mode) => plainGet(ctx.edgeIp, mode.host, { ua: ctx.headlessUA }),
+    },
+    {
+        name: "forged-cookie",
+        about: "plain HTTP client with a made-up solution cookie",
+        shouldStop: true,
+        failsChallenge: true,
+        run: (ctx, mode) => plainGet(ctx.edgeIp, mode.host, { ua: ctx.headlessUA, cookie: forgedCookie(mode) }),
+    },
+    {
+        name: "js-disabled-browser",
+        about: "headless Chromium with JavaScript turned off",
+        shouldStop: true,
+        failsChallenge: true,
+        run: (ctx, mode) => browserVisit(ctx.browser, mode.host, { javaScriptEnabled: false }),
+    },
+    {
+        name: "headless-browser",
+        about: "stock headless Chromium (navigator.webdriver=true), solves whatever JS it is given",
+        shouldStop: false,
+        failsChallenge: true,
+        run: async (ctx, mode) => {
+            const result = await browserVisit(ctx.browser, mode.host);
+            ctx.solvedCookies[mode.key] = result.cookies?.find((c) => c.name === mode.cookie);
+            return result;
+        },
+    },
+    {
+        name: "cookie-replay",
+        about: "plain HTTP client reusing the cookie the headless browser just earned",
+        shouldStop: false,
+        failsChallenge: false,
+        run: (ctx, mode) => {
+            const cookie = ctx.solvedCookies[mode.key];
+            if (!cookie) return { kind: "skipped (no solved cookie)" };
+            return plainGet(ctx.edgeIp, mode.host, { ua: ctx.headlessUA, cookie: `${cookie.name}=${cookie.value}` });
+        },
+    },
+    {
+        name: "spoofed-ua",
+        about: "plain HTTP client sending a normal desktop Chrome UA",
+        shouldStop: false,
+        failsChallenge: false,
+        run: (ctx, mode) => plainGet(ctx.edgeIp, mode.host, { ua: SPOOFED_UA }),
+    },
+];
+
+function describe(result) {
+    if (result.kind !== "origin") return `STOPPED  ${result.kind}`;
+    const parts = [];
+    if (result.solvedMs != null) parts.push(`${(result.solvedMs / 1000).toFixed(2)}s`);
+    if (result.challengePages) parts.push(`${result.challengePages} challenge page(s)`);
+    if (result.decision) parts.push(result.decision);
+    return `THROUGH  ${parts.join(", ")}`;
+}
+
+async function main() {
+    const edgeIp = (await lookup(EDGE_ADDR, { family: 4 })).address;
+    // send both test hosts to nginx without touching /etc/hosts; nginx has a single
+    // server block on :80, so any Host reaches banjax
+    const browser = await chromium.launch({
+        headless: true,
+        args: [`--host-resolver-rules=MAP ${SHA_HOST} ${edgeIp}, MAP ${ALTCHA_HOST} ${edgeIp}`, "--disable-dev-shm-usage"],
+    });
+    const probe = await browser.newPage();
+    const headlessUA = await probe.evaluate(() => navigator.userAgent);
+    const webdriver = await probe.evaluate(() => navigator.webdriver);
+    await probe.close();
+
+    console.log(`edge:       ${EDGE_ADDR} (${edgeIp}:${EDGE_PORT})${TEST_PATH}`);
+    console.log(`hosts:      sha-inverse=${SHA_HOST}  altcha=${ALTCHA_HOST}`);
+    console.log(`browser:    ${headlessUA}`);
+    console.log(`webdriver:  ${webdriver}\n`);
+
+    const ctx = { edgeIp, browser, headlessUA, solvedCookies: {} };
+    const scenarios = SCENARIOS.filter((s) => s.name.includes(FILTER));
+    const rows = [];
+    let regressions = 0;
+
+    for (const [i, scenario] of scenarios.entries()) {
+        const row = { scenario, results: {} };
+        for (const mode of MODES) {
+            row.results[mode.key] = await scenario.run(ctx, mode);
+            if (scenario.shouldStop && row.results[mode.key].kind === "origin") regressions += 1;
+        }
+        rows.push(row);
+        console.log(`${scenario.name}: ${scenario.about}`);
+        for (const mode of MODES) console.log(`  ${mode.label.padEnd(12)} ${describe(row.results[mode.key])}`);
+        if (scenario.failsChallenge && i < scenarios.length - 1) await sleep(PAUSE_SECONDS * 1000);
+    }
+    await browser.close();
+
+    // the first scenario doubles as the preflight: if the headless UA reaches the
+    // origin with no cookie at all, banjax is not challenging it and nothing above means much
+    const preflight = rows.find((r) => r.scenario.name === "no-js-client");
+    if (preflight && MODES.every((m) => preflight.results[m.key].kind === "origin")) {
+        console.log(
+            `\nneither host challenged the headless UA. Check that banjax-config.yaml has the\n` +
+                `per_site_user_agent_decision_lists entries for ${SHA_HOST} and ${ALTCHA_HOST},\n` +
+                `then reload banjax (docker compose restart banjax).`,
+        );
+        process.exit(2);
+    }
+
+    console.log("\nsummary (stopped = never reached the origin page):");
+    console.log(`  ${"scenario".padEnd(22)}${"should stop".padEnd(13)}${MODES.map((m) => m.label.padEnd(14)).join("")}`);
+    for (const { scenario, results } of rows) {
+        const cells = MODES.map((m) => (results[m.key].kind === "origin" ? "through" : "stopped").padEnd(14));
+        console.log(`  ${scenario.name.padEnd(22)}${(scenario.shouldStop ? "yes" : "no").padEnd(13)}${cells.join("")}`);
+    }
+    if (regressions > 0) {
+        console.log(`\n${regressions} client(s) that should have been stopped reached the origin`);
+        process.exit(1);
+    }
+}
+
+main().catch((err) => {
+    console.error(err);
+    process.exit(3);
+});

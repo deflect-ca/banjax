@@ -178,6 +178,14 @@ per_site_user_agent_decision_lists:
     challenge: []
     allow:
       - "Googlebot"
+  # sha-inv vs altcha comparison for supporting-containers/altcha-bot-tester:
+  # the same headless Chromium UA gets a different challenge on each host
+  "sha-test.banjax":
+    challenge:
+      - "HeadlessChrome"
+  "altcha-test.banjax":
+    altcha_challenge:
+      - "HeadlessChrome"
 
 global_user_agent_decision_lists:
   nginx_block:

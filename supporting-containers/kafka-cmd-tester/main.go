@@ -56,6 +56,13 @@ var commandSpecs = map[string]commandSpec{
 	"challenge_all":     {requireHost: true},
 	"block_ua":          {requireHost: true, requireUA: true},
 	"challenge_ua":      {requireHost: true, requireUA: true},
+	// altcha_challenge_* take the same fields as their challenge_* counterparts,
+	// but banjax serves the altcha challenge instead of the sha-inverse one
+	"altcha_challenge_ip":      {requireValue: true},
+	"altcha_challenge_subnet":  {requireValue: true},
+	"altcha_challenge_session": {requireValue: true, requireSessionId: true},
+	"altcha_challenge_all":     {requireHost: true},
+	"altcha_challenge_ua":      {requireHost: true, requireUA: true},
 	// clear_rules takes any combination of host/value/session-id/ua (each one
 	// clears independently), so it can't be expressed with requireX above;
 	// see the at-least-one check below instead.
@@ -79,10 +86,10 @@ func envOr(key, fallback string) string {
 
 func main() {
 	cmdName := flag.String("cmd", "", "command name, one of: "+strings.Join(supportedCommandNames(), ", "))
-	host := flag.String("host", "", "host (site), required for challenge_all, block_ua and challenge_ua, optional for clear_rules")
+	host := flag.String("host", "", "host (site), required for *_all and *_ua commands, optional for clear_rules")
 	value := flag.String("value", "", "IP address (IPv4 CIDR for *_subnet), required for *_ip, *_subnet and *_session commands, optional for clear_rules")
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
-	ua := flag.String("ua", "", "exact User-Agent string, required for block_ua/challenge_ua, optional for clear_rules")
+	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")

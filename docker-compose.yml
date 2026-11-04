@@ -52,7 +52,7 @@ services:
 
   # One-off tool for sending a simulated banjax kafka command message, to
   # exercise block_ip/challenge_ip/block_session/challenge_session/challenge_all/
-  # block_ua/challenge_ua/clear_rules without needing baskerville. Run with, e.g.:
+  # block_ua/challenge_ua/altcha_challenge_*/clear_rules without needing baskerville. Run with, e.g.:
   #   docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost
   # Built from the repo root context so it can share the main go.mod/go.sum.
   kafka-cmd-tester:
@@ -67,6 +67,19 @@ services:
     env_file: ".env"
     environment:
       - KAFKA_TOPIC=banjax_command_topic_dev
+
+  # Headless-browser bot simulator comparing the sha-inverse and AltCha challenges
+  # on the same User-Agent. Also in the "tools" profile; run it with
+  #   docker compose run --rm altcha-bot-tester
+  altcha-bot-tester:
+    profiles:
+      - tools
+    image: altcha-bot-tester
+    build:
+      context: ./supporting-containers/altcha-bot-tester
+      dockerfile: Dockerfile
+    depends_on:
+      - nginx
 
   # Deflect Challenge verifier: proves cryptographically that the edge really is
   # Deflect. Also in the "tools" profile; run it with
