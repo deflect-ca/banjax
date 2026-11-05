@@ -40,7 +40,8 @@ do not need DNS or `/etc/hosts` entries.
 | `no-js-client` | plain HTTP request with the headless UA, no cookie | yes |
 | `forged-cookie` | plain HTTP request with a made-up solution cookie | yes |
 | `js-disabled-browser` | headless Chromium with JavaScript off | yes |
-| `headless-browser` | stock headless Chromium (`navigator.webdriver` is `true`) | no |
+| `headless-no-click` | stock headless Chromium that runs the page but never clicks | AltCha only (its checkbox needs a click; sha-inverse solves on load) |
+| `headless-browser` | stock headless Chromium (`navigator.webdriver` is `true`) that also clicks the AltCha checkbox | no |
 | `cookie-replay` | plain HTTP request reusing the cookie the browser earned | no |
 | `spoofed-ua` | plain HTTP request with a normal desktop Chrome UA | no |
 

@@ -404,8 +404,10 @@
                    below with the per-request ALTCHA v2 challenge JSON {parameters, signature},
                    HTML-escaped. It replaces the first match only, so do not quote that attribute
                    anywhere above it.
+              One-click checkbox: the proof of work only starts when the visitor ticks it
+              (auto="off"), then the statechange handler below sets the cookie and reloads.
           -->
-          <altcha-widget id="altcha" auto="onload" challenge="{}"
+          <altcha-widget id="altcha" auto="off" type="checkbox" challenge="{}"
                          configuration='{"hideFooter": true, "hideLogo": true}'></altcha-widget>
         </div>
       </div>

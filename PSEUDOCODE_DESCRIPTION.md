@@ -146,7 +146,8 @@ lists reject it.
 `send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an ALTCHA v2 proof-of-work page
 (cookie `deflect_altcha`, `altcha_max_number` / `altcha_cost` difficulty, `altcha_challenge_html` to override
 the page). The page runs the official ALTCHA widget, loaded from jsDelivr pinned to one version with a
-Subresource Integrity hash. It solves a PBKDF2/SHA-256 challenge in Web Workers: banjax picks a secret
+Subresource Integrity hash. It shows the widget's one-click checkbox, and only once the visitor
+ticks it does it solve a PBKDF2/SHA-256 challenge in Web Workers: banjax picks a secret
 counter in 0..`altcha_max_number`, and the client derives keys of `altcha_cost` iterations from 0 upwards
 until one matches. The widget needs a secure context (`crypto.subtle`), so the AltCha challenge only
 works over HTTPS; over plain HTTP the page shows a "verification failed" message. A solution is checked

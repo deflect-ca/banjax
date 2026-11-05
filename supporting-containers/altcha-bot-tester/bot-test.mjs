@@ -98,7 +98,9 @@ function plainGet(edgeIp, host, { ua, cookie } = {}) {
 
 // browserVisit opens the page in a fresh browser context and waits for the
 // challenge page to solve itself and reload into the origin page.
-async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent } = {}) {
+// click ticks the ALTCHA checkbox, as a bot driving a real browser would: the AltCha challenge
+// only starts its proof of work on that click. The sha-inverse page has no checkbox.
+async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent, click = false } = {}) {
     const context = await browser.newContext({ javaScriptEnabled, userAgent, ignoreHTTPSErrors: true });
     const page = await context.newPage();
     if (CPU_THROTTLE > 1) {
@@ -118,6 +120,11 @@ async function browserVisit(browser, host, { javaScriptEnabled = true, userAgent
     let solvedMs = null;
     try {
         await page.goto(url, { waitUntil: "load", timeout: 15000 });
+        if (click && (await page.locator("altcha-widget").count()) > 0) {
+            // click the label: the widget draws its checkmark svg over the checkbox, which a real
+            // mouse click goes through but Playwright's click refuses as "intercepts pointer events"
+            await page.locator("altcha-widget label").click({ timeout: 10000 });
+        }
         const deadline = Date.now() + (javaScriptEnabled ? SOLVE_TIMEOUT_MS : 3000);
         while (Date.now() < deadline) {
             // evaluate throws while the challenge page is reloading, so just retry
@@ -168,6 +175,11 @@ function forgedCookie(mode) {
     return `${mode.cookie}=${Buffer.from(JSON.stringify(payload)).toString("base64")}`;
 }
 
+// shouldStop is a boolean, or per mode as { sha, altcha } when the challenges differ.
+function shouldStop(scenario, mode) {
+    return typeof scenario.shouldStop === "object" ? scenario.shouldStop[mode.key] : scenario.shouldStop;
+}
+
 // Each scenario runs once per mode. shouldStop marks clients a working challenge
 // must keep out; the others are reported but are expected to get through.
 // failsChallenge marks scenarios that count towards the failed-challenge ban.
@@ -194,8 +206,16 @@ const SCENARIOS = [
         run: (ctx, mode) => browserVisit(ctx.browser, mode.host, { javaScriptEnabled: false }),
     },
     {
+        name: "headless-no-click",
+        about: "stock headless Chromium that runs the page's JS but never interacts with it",
+        // the sha-inverse page solves itself on load; the AltCha one waits for a click
+        shouldStop: { sha: false, altcha: true },
+        failsChallenge: true,
+        run: (ctx, mode) => browserVisit(ctx.browser, mode.host),
+    },
+    {
         name: "headless-browser",
-        about: "stock headless Chromium (navigator.webdriver=true), solves whatever JS it is given",
+        about: "stock headless Chromium (navigator.webdriver=true) that also clicks the checkbox",
         shouldStop: false,
         failsChallenge: true,
         run: async (ctx, mode) => {
@@ -203,7 +223,7 @@ const SCENARIOS = [
             for (let i = 0; i < SAMPLES; i++) {
                 // every sample fails one challenge before solving it, so space them out
                 if (i > 0) await sleep(PAUSE_SECONDS * 1000);
-                results.push(await browserVisit(ctx.browser, mode.host));
+                results.push(await browserVisit(ctx.browser, mode.host, { click: true }));
             }
             const solved = results.filter((r) => r.kind === "origin");
             const result = solved.at(-1) || results.at(-1);
@@ -277,7 +297,7 @@ async function main() {
         const row = { scenario, results: {} };
         for (const mode of MODES) {
             row.results[mode.key] = await scenario.run(ctx, mode);
-            if (scenario.shouldStop && row.results[mode.key].kind === "origin") regressions += 1;
+            if (shouldStop(scenario, mode) && row.results[mode.key].kind === "origin") regressions += 1;
         }
         rows.push(row);
         console.log(`${scenario.name}: ${scenario.about}`);
@@ -302,7 +322,9 @@ async function main() {
     console.log(`  ${"scenario".padEnd(22)}${"should stop".padEnd(13)}${MODES.map((m) => m.label.padEnd(14)).join("")}`);
     for (const { scenario, results } of rows) {
         const cells = MODES.map((m) => (results[m.key].kind === "origin" ? "through" : "stopped").padEnd(14));
-        console.log(`  ${scenario.name.padEnd(22)}${(scenario.shouldStop ? "yes" : "no").padEnd(13)}${cells.join("")}`);
+        const stop = MODES.map((m) => (shouldStop(scenario, m) ? "yes" : "no"));
+        const stopLabel = stop.every((v) => v === stop[0]) ? stop[0] : MODES.filter((m, i) => stop[i] === "yes").map((m) => m.key).join(",");
+        console.log(`  ${scenario.name.padEnd(22)}${stopLabel.padEnd(13)}${cells.join("")}`);
     }
     if (regressions > 0) {
         console.log(`\n${regressions} client(s) that should have been stopped reached the origin`);
