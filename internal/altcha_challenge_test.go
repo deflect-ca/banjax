@@ -153,7 +153,7 @@ func TestApplyArgsToAltChaPage(t *testing.T) {
 	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
 	assert.Nil(t, err)
 
-	page := string(applyArgsToAltChaPage(config, challenge))
+	page := string(applyArgsToAltChaPage(config, challenge, false))
 
 	// the replacements hit the code, not a comment quoting the same text
 	assert.Contains(t, page, `"deflect_altcha=" + base64_cookie + ";max-age=4321" + ";SameSite=Lax;path=/;"`)
@@ -169,7 +169,7 @@ func TestApplyArgsToAltChaPage_EscapesBinding(t *testing.T) {
 	challenge, err := CreateAltChaChallenge(config, binding, 0)
 	assert.Nil(t, err)
 
-	page := string(applyArgsToAltChaPage(config, challenge))
+	page := string(applyArgsToAltChaPage(config, challenge, false))
 
 	assert.NotContains(t, page, `onmouseover="alert(1)"`)
 	assert.NotContains(t, page, "<script>`")
@@ -280,7 +280,7 @@ func TestDecisionForNginx2_AltChaChallenge(t *testing.T) {
 
 	newDecisionLists := func() *DynamicDecisionLists {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), AltChaChallenge, true, host, 0)
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), AltChaChallenge, true, host, AltChaOptions{})
 		return decisionLists
 	}
 
@@ -346,7 +346,7 @@ func TestDecisionForNginx2_AltChaChallenge(t *testing.T) {
 		failedChallengeStates := NewFailedChallengeRateLimitStates()
 		altchaFailedChallengeStates := NewFailedChallengeRateLimitStates()
 		shaDecisionLists := NewDynamicDecisionLists()
-		shaDecisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		shaDecisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		for i := 0; i < 5; i++ {
 			c := buildDecisionForNginxTestContext(clientIp, host, "/", "ua", "")
@@ -385,7 +385,7 @@ global_user_agent_decision_lists:
 	assert.Equal(t, GlobalUAAltChaChallenge, run("3.3.3.3", "example.com", "AltChaBot/1.0", NewDynamicDecisionLists()).DecisionListResult)
 
 	hostDecisionLists := NewDynamicDecisionLists()
-	hostDecisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), AltChaChallenge, true, 0)
+	hostDecisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), AltChaChallenge, true, AltChaOptions{})
 	assert.Equal(t, ExpiringSiteWideAltChaChallenge, run("3.3.3.3", "example.com", "ua", hostDecisionLists).DecisionListResult)
 }
 
@@ -471,4 +471,42 @@ func TestVerifyAltChaPayload_TamperedBinding(t *testing.T) {
 	ok, err := VerifyAltChaPayload(config, base64.StdEncoding.EncodeToString(jsonBytes), "9.9.9.9")
 	assert.Nil(t, err)
 	assert.False(t, ok)
+}
+
+func TestApplyArgsToAltChaPage_ClickMode(t *testing.T) {
+	config := altchaTestConfig()
+	challenge, err := CreateAltChaChallenge(config, "1.2.3.4", 0)
+	assert.Nil(t, err)
+
+	// default: the widget solves on page load
+	page := string(applyArgsToAltChaPage(config, challenge, false))
+	assert.Contains(t, page, `<altcha-widget id="altcha" auto="onload"`)
+
+	// click: the widget waits for its checkbox
+	page = string(applyArgsToAltChaPage(config, challenge, true))
+	assert.Contains(t, page, `<altcha-widget id="altcha" auto="off"`)
+	assert.NotContains(t, page, `auto="onload"`)
+}
+
+func TestAltChaPage_ClickTargetAppearsOnce(t *testing.T) {
+	// modifyHTMLContent only replaces the first occurrence
+	assert.Equal(t, 1, strings.Count(string(altchaChallengeEmbed), `auto="onload"`))
+}
+
+func TestParseSitewideAltCha(t *testing.T) {
+	cases := map[string]SitewideAltCha{
+		"block":          {FailAction: Block},
+		"no_block":       {FailAction: NoBlock},
+		"block_click":    {FailAction: Block, Click: true},
+		"no_block_click": {FailAction: NoBlock, Click: true},
+	}
+	for value, want := range cases {
+		got, err := ParseSitewideAltCha(value)
+		assert.Nil(t, err, value)
+		assert.Equal(t, want, got, value)
+	}
+	for _, value := range []string{"", "click", "block_clic", "_click", "sometimes_click"} {
+		_, err := ParseSitewideAltCha(value)
+		assert.NotNil(t, err, value)
+	}
 }

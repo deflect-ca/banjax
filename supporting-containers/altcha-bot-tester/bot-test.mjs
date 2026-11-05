@@ -27,6 +27,8 @@ const DEFAULT_PORT = EDGE_SCHEME === "https" ? 443 : 80;
 const EDGE_PORT = Number(process.env.EDGE_PORT || DEFAULT_PORT);
 const SHA_HOST = process.env.SHA_HOST || "sha-test.banjax";
 const ALTCHA_HOST = process.env.ALTCHA_HOST || "altcha-test.banjax";
+// sitewide_altcha_list entry with no_block_click: the one-click checkbox variant
+const ALTCHA_CLICK_HOST = process.env.ALTCHA_CLICK_HOST || "altcha-click-test.banjax";
 const TEST_PATH = process.env.TEST_PATH || "/hello";
 // how long a browser gets to solve a challenge and land on the origin page
 const SOLVE_TIMEOUT_MS = Number(process.env.SOLVE_TIMEOUT_MS || 30000);
@@ -48,6 +50,7 @@ const ORIGIN_MARKER = "hello!";
 const MODES = [
     { key: "sha", label: "sha-inverse", host: SHA_HOST, cookie: "deflect_challenge3" },
     { key: "altcha", label: "altcha", host: ALTCHA_HOST, cookie: "deflect_altcha" },
+    { key: "altcha_click", label: "altcha-click", host: ALTCHA_CLICK_HOST, cookie: "deflect_altcha" },
 ];
 
 // what a response turned out to be, from the client's point of view
@@ -208,8 +211,8 @@ const SCENARIOS = [
     {
         name: "headless-no-click",
         about: "stock headless Chromium that runs the page's JS but never interacts with it",
-        // the sha-inverse page solves itself on load; the AltCha one waits for a click
-        shouldStop: { sha: false, altcha: true },
+        // sha-inverse and the default AltCha solve on load; the click variant waits for a click
+        shouldStop: { sha: false, altcha: false, altcha_click: true },
         failsChallenge: true,
         run: (ctx, mode) => browserVisit(ctx.browser, mode.host),
     },
@@ -275,7 +278,10 @@ async function main() {
     // server block on :80, so any Host reaches banjax
     const browser = await chromium.launch({
         headless: true,
-        args: [`--host-resolver-rules=MAP ${SHA_HOST} ${edgeIp}, MAP ${ALTCHA_HOST} ${edgeIp}`, "--disable-dev-shm-usage"],
+        args: [
+            `--host-resolver-rules=${MODES.map((m) => `MAP ${m.host} ${edgeIp}`).join(", ")}`,
+            "--disable-dev-shm-usage",
+        ],
     });
     const probe = await browser.newPage();
     const headlessUA = await probe.evaluate(() => navigator.userAgent);
@@ -283,7 +289,7 @@ async function main() {
     await probe.close();
 
     console.log(`edge:       ${EDGE_SCHEME}://${EDGE_ADDR} (${edgeIp}:${EDGE_PORT})${TEST_PATH}`);
-    console.log(`hosts:      sha-inverse=${SHA_HOST}  altcha=${ALTCHA_HOST}`);
+    console.log(`hosts:      ${MODES.map((m) => `${m.label}=${m.host}`).join("  ")}`);
     console.log(`browser:    ${headlessUA}`);
     console.log(`webdriver:  ${webdriver}`);
     console.log(`cpu:        ${CPU_THROTTLE > 1 ? `${CPU_THROTTLE}x throttled` : "unthrottled"}, ${SAMPLES} headless sample(s)\n`);

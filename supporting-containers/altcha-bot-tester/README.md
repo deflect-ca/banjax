@@ -40,8 +40,8 @@ do not need DNS or `/etc/hosts` entries.
 | `no-js-client` | plain HTTP request with the headless UA, no cookie | yes |
 | `forged-cookie` | plain HTTP request with a made-up solution cookie | yes |
 | `js-disabled-browser` | headless Chromium with JavaScript off | yes |
-| `headless-no-click` | stock headless Chromium that runs the page but never clicks | AltCha only (its checkbox needs a click; sha-inverse solves on load) |
-| `headless-browser` | stock headless Chromium (`navigator.webdriver` is `true`) that also clicks the AltCha checkbox | no |
+| `headless-no-click` | stock headless Chromium that runs the page but never clicks | altcha-click only (sha-inverse and the default AltCha solve on load) |
+| `headless-browser` | stock headless Chromium (`navigator.webdriver` is `true`) that also clicks the AltCha checkbox when there is one | no |
 | `cookie-replay` | plain HTTP request reusing the cookie the browser earned | no |
 | `spoofed-ua` | plain HTTP request with a normal desktop Chrome UA | no |
 
@@ -81,7 +81,8 @@ or when neither host challenged the headless UA (banjax config not loaded).
 | `EDGE_SCHEME` | `https` | `https` or `http`; the ALTCHA widget only solves in a secure context, so over `http` every AltCha scenario stops |
 | `EDGE_PORT` | `443` (`80` for http) | nginx port |
 | `SHA_HOST` | `sha-test.banjax` | host with the sha-inverse UA rule |
-| `ALTCHA_HOST` | `altcha-test.banjax` | host with the AltCha UA rule |
+| `ALTCHA_HOST` | `altcha-test.banjax` | host with the AltCha UA rule (default, solves on load) |
+| `ALTCHA_CLICK_HOST` | `altcha-click-test.banjax` | host in `sitewide_altcha_list` with `no_block_click` (one-click checkbox); being sitewide, it challenges every User-Agent |
 | `TEST_PATH` | `/hello` | origin path; test-origin answers it with `hello!` |
 | `SOLVE_TIMEOUT_MS` | `30000` | how long a browser gets to reach the origin |
 | `PAUSE_SECONDS` | `6` | gap after scenarios that fail a challenge, and between headless samples |

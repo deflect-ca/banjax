@@ -44,7 +44,7 @@ func postUnban(t *testing.T, r *gin.Engine, form url.Values) (int, map[string]in
 func TestUnban_ByHost_ClearsSitewideChallenge(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{"host": {" example.com "}})
@@ -73,7 +73,7 @@ func TestUnban_ByHost_NotFound(t *testing.T) {
 func TestUnban_ByUA_ClearsUADecision(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{"ua": {" curl/7.68.0 "}})
@@ -102,8 +102,8 @@ func TestUnban_ByUA_NotFound(t *testing.T) {
 func TestUnban_HostTakesPrecedenceOverIp(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{
@@ -125,9 +125,9 @@ func TestUnban_HostTakesPrecedenceOverIp(t *testing.T) {
 func TestUnban_ByUAAndHost_OnlyClearsThatHostsUA(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com", 0)
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "other.com", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{
@@ -151,8 +151,8 @@ func TestUnban_ByUAAndHost_OnlyClearsThatHostsUA(t *testing.T) {
 func TestUnban_UATakesPrecedenceOverIp(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "curl/7.68.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{
@@ -173,7 +173,7 @@ func TestUnban_UATakesPrecedenceOverIp(t *testing.T) {
 func TestUnban_ByIp_StillWorks(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	code, body := postUnban(t, r, url.Values{"ip": {"1.2.3.4"}})
@@ -202,7 +202,7 @@ func TestUnban_BySubnet_ClearsSubnetDecision(t *testing.T) {
 	decisionLists := NewDynamicDecisionLists()
 	subnet, err := ParseSubnet("202.46.62.0/24")
 	assert.Nil(t, err)
-	decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, "my.wiki", 0)
+	decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, "my.wiki", AltChaOptions{})
 	r := newUnbanTestRouter(decisionLists)
 
 	// not normalized, still matches the stored entry

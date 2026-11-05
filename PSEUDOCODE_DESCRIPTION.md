@@ -97,7 +97,9 @@ if decision in [NginxBlock, IptablesBlock]:
 
 # sitewide_altcha_list is checked first, so a site listed in both gets the AltCha challenge
 if sitewide_altcha_list[requested_host]:
-    fail_action = sitewide_altcha_list[requested_host].fail_action  # Block or Allow
+    # block, no_block, block_click or no_block_click: fail_action Block or Allow, and _click
+    # serves the one-click checkbox instead of solving on page load
+    fail_action = sitewide_altcha_list[requested_host].fail_action
     if password_protected_path_exceptions[requested_host][requested_path]:
         return access_granted()
     else:
@@ -146,8 +148,10 @@ lists reject it.
 `send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an ALTCHA v2 proof-of-work page
 (cookie `deflect_altcha`, `altcha_max_number` / `altcha_cost` difficulty, `altcha_challenge_html` to override
 the page). The page runs the official ALTCHA widget, loaded from jsDelivr pinned to one version with a
-Subresource Integrity hash. It shows the widget's one-click checkbox, and only once the visitor
-ticks it does it solve a PBKDF2/SHA-256 challenge in Web Workers: banjax picks a secret
+Subresource Integrity hash. By default it solves on page load; a decision with the click option
+(Kafka `altcha_click`, or a `*_click` `sitewide_altcha_list` entry) shows the widget's one-click
+checkbox instead, and only solves once the visitor ticks it. Either way it solves a PBKDF2/SHA-256
+challenge in Web Workers: banjax picks a secret
 counter in 0..`altcha_max_number`, and the client derives keys of `altcha_cost` iterations from 0 upwards
 until one matches. The widget needs a secure context (`crypto.subtle`), so the AltCha challenge only
 works over HTTPS; over plain HTTP the page shows a "verification failed" message. A solution is checked
@@ -219,9 +223,10 @@ checked above:
 The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
 challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
 clamped to 1000..20000 (out-of-range values become the nearest limit) and ignored by every other
-command. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
-holds an AltChaChallenge at a different difficulty replaces it, so resending the command changes the
-difficulty.
+command. They also take an optional boolean `altcha_click`: true serves the one-click checkbox
+challenge instead of the default one that solves on page load. Writes still never downgrade, but an
+`altcha_challenge_*` command for a key that already holds an AltChaChallenge with a different
+difficulty or click mode replaces it, so resending the command changes them.
 
 `challenge_all` is the temporary, Kafka-driven equivalent of the `sitewide_sha_inv_list` config
 entry: it challenges every request to a host until the TTL expires, without editing the config file.

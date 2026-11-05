@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,10 +57,10 @@ func TestDecisionForNginx2_ExpiringDecisionOrder(t *testing.T) {
 
 	t.Run("session id wins over user agent, host, and ip", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), Challenge, true, host, 0)
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, 0)
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, path, userAgent, sessionId)
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -69,9 +70,9 @@ func TestDecisionForNginx2_ExpiringDecisionOrder(t *testing.T) {
 
 	t.Run("user agent wins over host and ip when there is no session decision", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, 0)
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, path, userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -81,8 +82,8 @@ func TestDecisionForNginx2_ExpiringDecisionOrder(t *testing.T) {
 
 	t.Run("challenge_all host decision wins over ip when there is no session or ua decision", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, path, "unrelated-ua", "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -92,7 +93,7 @@ func TestDecisionForNginx2_ExpiringDecisionOrder(t *testing.T) {
 
 	t.Run("ip applies when nothing narrower matches", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, "unrelated-host.com", path, "unrelated-ua", "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -133,8 +134,8 @@ func TestDecisionForNginx2_ExpiringUABlock(t *testing.T) {
 		t.Run(decision.String(), func(t *testing.T) {
 			banner := &listDecisionRecordingBanner{}
 			decisionLists := NewDynamicDecisionLists()
-			decisionLists.UpdateByUA(config, "bad-bot/1.0", time.Now().Add(time.Minute), decision, true, "example.com", 0)
-			decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+			decisionLists.UpdateByUA(config, "bad-bot/1.0", time.Now().Add(time.Minute), decision, true, "example.com", AltChaOptions{})
+			decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 			c := buildDecisionForNginxTestContext("1.1.1.1", "example.com", "/", "bad-bot/1.0", "")
 			result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -164,9 +165,9 @@ func TestDecisionForNginx2_ExpiringSessionDecision(t *testing.T) {
 	t.Run("session allow short-circuits ua block and host challenge", func(t *testing.T) {
 		banner := &listDecisionRecordingBanner{}
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), Allow, false, host, 0)
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
+		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), Allow, false, host, AltChaOptions{})
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, sessionId)
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -180,7 +181,7 @@ func TestDecisionForNginx2_ExpiringSessionDecision(t *testing.T) {
 	t.Run("baskerville session block is denied and logged", func(t *testing.T) {
 		banner := &listDecisionRecordingBanner{}
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, sessionId)
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -193,7 +194,7 @@ func TestDecisionForNginx2_ExpiringSessionDecision(t *testing.T) {
 	t.Run("regex session block is denied but not logged again", func(t *testing.T) {
 		banner := &listDecisionRecordingBanner{}
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), NginxBlock, false, host, 0)
+		decisionLists.UpdateBySessionId(config, clientIp, sessionId, time.Now().Add(time.Minute), NginxBlock, false, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, sessionId)
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -205,7 +206,7 @@ func TestDecisionForNginx2_ExpiringSessionDecision(t *testing.T) {
 	t.Run("unknown session id falls through to the ip decision", func(t *testing.T) {
 		banner := &listDecisionRecordingBanner{}
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "unknown-session")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -229,7 +230,7 @@ func TestDecisionForNginx2_ExpiringDecisionDisabledBaskerville(t *testing.T) {
 
 	t.Run("baskerville ua challenge is skipped", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -240,7 +241,7 @@ func TestDecisionForNginx2_ExpiringDecisionDisabledBaskerville(t *testing.T) {
 	t.Run("baskerville ua block is skipped and not logged", func(t *testing.T) {
 		banner := &listDecisionRecordingBanner{}
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -252,7 +253,7 @@ func TestDecisionForNginx2_ExpiringDecisionDisabledBaskerville(t *testing.T) {
 
 	t.Run("baskerville challenge_all is skipped", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -262,9 +263,9 @@ func TestDecisionForNginx2_ExpiringDecisionDisabledBaskerville(t *testing.T) {
 
 	t.Run("skipped ua and host decisions fall through to a regex ip decision", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
-		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, false, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+		decisionLists.Update(config, clientIp, time.Now().Add(time.Minute), Challenge, false, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -288,7 +289,7 @@ func TestDecisionForNginx2_ExpiringDecisionShaInvPathException(t *testing.T) {
 
 	t.Run("ua challenge is exempted on an exception path", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/wp-json/v2/posts", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -298,7 +299,7 @@ func TestDecisionForNginx2_ExpiringDecisionShaInvPathException(t *testing.T) {
 
 	t.Run("challenge_all is exempted on an exception path", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/wp-json/v2/posts", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -308,7 +309,7 @@ func TestDecisionForNginx2_ExpiringDecisionShaInvPathException(t *testing.T) {
 
 	t.Run("challenge_all still applies off the exception path", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, 0)
+		decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/about", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -318,7 +319,7 @@ func TestDecisionForNginx2_ExpiringDecisionShaInvPathException(t *testing.T) {
 
 	t.Run("ua block is not exempted by a sha-inv path exception", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext(clientIp, host, "/wp-json/v2/posts", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
@@ -336,8 +337,8 @@ func TestDecisionForNginx2_ExpiredUAAndHostDecisionsIgnored(t *testing.T) {
 	failedChallengeStates := NewFailedChallengeRateLimitStates()
 
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "some-ua", time.Now().Add(-time.Second), NginxBlock, true, "example.com", 0)
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(-time.Second), Challenge, true, 0)
+	decisionLists.UpdateByUA(config, "some-ua", time.Now().Add(-time.Second), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(-time.Second), Challenge, true, AltChaOptions{})
 
 	c := buildDecisionForNginxTestContext("1.1.1.1", "example.com", "/", "some-ua", "")
 	result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -359,8 +360,8 @@ per_site_decision_lists:
 	failedChallengeStates := NewFailedChallengeRateLimitStates()
 
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "some-ua", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
-	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, 0)
+	decisionLists.UpdateByUA(config, "some-ua", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByHost(config, "example.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 
 	c := buildDecisionForNginxTestContext("1.1.1.1", "example.com", "/", "some-ua", "")
 	result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -386,7 +387,7 @@ sites_to_disable_baskerville:
 
 	t.Run("block_subnet blocks every ip in the subnet", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		for _, clientIp := range []string{"202.46.62.1", "202.46.62.254"} {
 			banner := &listDecisionRecordingBanner{}
@@ -402,7 +403,7 @@ sites_to_disable_baskerville:
 
 	t.Run("ip outside the subnet is unaffected", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.63.1", host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -412,7 +413,7 @@ sites_to_disable_baskerville:
 
 	t.Run("challenge_subnet challenges", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -422,8 +423,8 @@ sites_to_disable_baskerville:
 
 	t.Run("more serious subnet decision wins over the ip's own", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), Challenge, false, host, 0)
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), Challenge, false, host, AltChaOptions{})
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -433,8 +434,8 @@ sites_to_disable_baskerville:
 
 	t.Run("ip's own decision wins when at least as serious", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), NginxBlock, true, host, 0)
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host, 0)
+		decisionLists.Update(config, "202.46.62.7", time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), Challenge, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -444,7 +445,7 @@ sites_to_disable_baskerville:
 
 	t.Run("site with baskerville disabled skips the subnet decision", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateBySubnet(config, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.62.7", "disabled.com", "/", userAgent, "")
 		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -461,7 +462,7 @@ global_decision_lists:
 		allowStaticDecisionLists, err := NewStaticDecisionLists(allowConfig)
 		assert.Nil(t, err)
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateBySubnet(allowConfig, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, 0)
+		decisionLists.UpdateBySubnet(allowConfig, subnet, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})
 
 		c := buildDecisionForNginxTestContext("202.46.62.7", host, "/", userAgent, "")
 		result := decisionForNginx2(c, allowConfig, allowStaticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -479,7 +480,7 @@ func TestDecisionForNginx2_ExpiringUADecisionOnlyAppliesToItsHost(t *testing.T) 
 	failedChallengeStates := NewFailedChallengeRateLimitStates()
 
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByUA(config, "bad-bot/1.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", 0)
+	decisionLists.UpdateByUA(config, "bad-bot/1.0", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 
 	c := buildDecisionForNginxTestContext("1.1.1.1", "example.com", "/", "bad-bot/1.0", "")
 	result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), &MockBanner{})
@@ -507,7 +508,7 @@ altcha_too_many_failed_challenges_interval_seconds: 10
 	assert.Nil(t, err)
 
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.UpdateByHost(config, "stored.com", time.Now().Add(time.Minute), AltChaChallenge, true, 5)
+	decisionLists.UpdateByHost(config, "stored.com", time.Now().Add(time.Minute), AltChaChallenge, true, AltChaOptions{MaxNumber: 5})
 
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
@@ -548,10 +549,10 @@ per_site_decision_lists:
 
 	decisionLists := NewDynamicDecisionLists()
 	expires := time.Now().Add(time.Minute)
-	decisionLists.UpdateByUA(config, "bad-bot/1.0", expires, AltChaChallenge, true, "ua.com", 0)
-	decisionLists.UpdateByHost(config, "sitewide.com", expires, Challenge, true, 0)
-	decisionLists.UpdateBySubnet(config, subnet, expires, AltChaChallenge, true, "subnet.com", 0)
-	decisionLists.Update(config, "3.3.3.3", expires, Challenge, true, "ip.com", 0)
+	decisionLists.UpdateByUA(config, "bad-bot/1.0", expires, AltChaChallenge, true, "ua.com", AltChaOptions{})
+	decisionLists.UpdateByHost(config, "sitewide.com", expires, Challenge, true, AltChaOptions{})
+	decisionLists.UpdateBySubnet(config, subnet, expires, AltChaChallenge, true, "subnet.com", AltChaOptions{})
+	decisionLists.Update(config, "3.3.3.3", expires, Challenge, true, "ip.com", AltChaOptions{})
 
 	serve := func(ip, host, ua string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 		recorder := httptest.NewRecorder()
@@ -680,7 +681,7 @@ password_protected_path_exceptions:
 
 	t.Run("expiring decisions are checked first", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
-		decisionLists.UpdateByHost(config, "altcha.com", time.Now().Add(time.Minute), Challenge, true, 0)
+		decisionLists.UpdateByHost(config, "altcha.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
 		recorder := newServer(decisionLists)("1.1.1.1", "altcha.com", "/")
 		assert.Equal(t, "ExpiringSiteWideChallenge", recorder.Header().Get("X-Banjax-Decision"))
 	})
@@ -693,4 +694,102 @@ sitewide_altcha_list:
 `))
 	assert.NotNil(t, err)
 	assert.Contains(t, err.Error(), "sitewide_altcha_list[altcha.com]")
+}
+
+// Only a Kafka command with altcha_click or a *_click sitewide_altcha_list entry serves the
+// one-click challenge; every other AltCha decision solves on page load.
+func TestDecisionForNginx2_AltChaClickMode(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 5
+altcha_cookie_ttl_seconds: 3600
+altcha_too_many_failed_challenges_threshold: 10
+altcha_too_many_failed_challenges_interval_seconds: 10
+sitewide_altcha_list:
+  sitewide.com: block
+  sitewide-click.com: no_block_click
+per_site_decision_lists:
+  static.com:
+    altcha_challenge:
+      - 1.1.1.1
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+
+	decisionLists := NewDynamicDecisionLists()
+	expires := time.Now().Add(time.Minute)
+	decisionLists.UpdateByHost(config, "kafka.com", expires, AltChaChallenge, true, AltChaOptions{})
+	decisionLists.UpdateByHost(config, "kafka-click.com", expires, AltChaChallenge, true, AltChaOptions{Click: true})
+
+	cases := []struct {
+		host, ip string
+		click    bool
+	}{
+		{"static.com", "1.1.1.1", false},
+		{"kafka.com", "9.9.9.9", false},
+		{"kafka-click.com", "9.9.9.9", true},
+		{"sitewide.com", "9.9.9.9", false},
+		{"sitewide-click.com", "9.9.9.9", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.host, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = buildDecisionForNginxTestContext(tc.ip, tc.host, "/", "ua", "").Request
+			decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+
+			assert.Equal(t, 429, recorder.Code)
+			if tc.click {
+				assert.Contains(t, recorder.Body.String(), `<altcha-widget id="altcha" auto="off"`)
+			} else {
+				assert.Contains(t, recorder.Body.String(), `<altcha-widget id="altcha" auto="onload"`)
+			}
+		})
+	}
+}
+
+// The decisionForNginx log line shows the AltCha settings that were applied, and nothing when
+// the request did not reach an AltCha challenge.
+func TestDecisionForNginx2_ResultIncludesAltChaOptions(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 7
+altcha_cookie_ttl_seconds: 3600
+altcha_too_many_failed_challenges_threshold: 10
+altcha_too_many_failed_challenges_interval_seconds: 10
+sitewide_altcha_list:
+  sitewide-click.com: no_block_click
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByHost(config, "kafka.com", time.Now().Add(time.Minute), AltChaChallenge, true, AltChaOptions{MaxNumber: 5000})
+
+	result := func(host string) DecisionForNginxResult {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = buildDecisionForNginxTestContext("9.9.9.9", host, "/", "ua", "").Request
+		return decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+	}
+
+	kafka := result("kafka.com")
+	assert.Equal(t, &AltChaOptions{MaxNumber: 5000}, kafka.AltChaOptions)
+	// unset difficulty is shown as the config value actually used
+	sitewide := result("sitewide-click.com")
+	assert.Equal(t, &AltChaOptions{MaxNumber: 7, Click: true}, sitewide.AltChaOptions)
+	assert.Nil(t, result("nothing.com").AltChaOptions)
+
+	logged, err := json.Marshal(sitewide)
+	assert.Nil(t, err)
+	assert.Contains(t, string(logged), `"AltChaOptions":{"MaxNumber":7,"Click":true}`)
+	logged, err = json.Marshal(result("nothing.com"))
+	assert.Nil(t, err)
+	assert.Contains(t, string(logged), `"AltChaOptions":null`)
 }

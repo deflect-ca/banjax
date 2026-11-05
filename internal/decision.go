@@ -85,19 +85,19 @@ type ExpiringDecision struct {
 	IpAddress       string
 	fromBaskerville bool
 	domain          string
-	// difficulty of the challenge served for an AltChaChallenge decision, 0 means
-	// config.AltChaMaxNumber
-	altchaMaxNumber int64
+	// settings of the challenge served for an AltChaChallenge decision, zero value for the
+	// config defaults
+	altcha AltChaOptions
 }
 
 // supersededBy reports whether an update should replace this decision: only with a more
-// serious decision, or, for AltChaChallenge, the same decision at a different difficulty
-// (so a repeated altcha command can change it).
-func (d ExpiringDecision) supersededBy(newDecision Decision, altchaMaxNumber int64) bool {
+// serious decision, or, for AltChaChallenge, the same decision with different settings
+// (so a repeated altcha command can change its difficulty or click mode).
+func (d ExpiringDecision) supersededBy(newDecision Decision, altcha AltChaOptions) bool {
 	if newDecision != d.Decision {
 		return newDecision > d.Decision
 	}
-	return newDecision == AltChaChallenge && altchaMaxNumber != d.altchaMaxNumber
+	return newDecision == AltChaChallenge && altcha != d.altcha
 }
 
 type FailAction int
@@ -206,11 +206,11 @@ func (l *StaticDecisionLists) CheckGlobalUserAgent(userAgent string) (Decision, 
 	return checkUADecision(c.globalUserAgentDecisionLists, userAgent)
 }
 
-func (l *StaticDecisionLists) CheckSitewideAltCha(site string) (FailAction, bool) {
+func (l *StaticDecisionLists) CheckSitewideAltCha(site string) (SitewideAltCha, bool) {
 	c := l.content.Load()
 
-	failAction, ok := c.sitewideAltChaList[site]
-	return failAction, ok
+	entry, ok := c.sitewideAltChaList[site]
+	return entry, ok
 }
 
 func (l *StaticDecisionLists) CheckSitewideShaInv(site string) (FailAction, bool) {
@@ -292,6 +292,25 @@ func (m siteToIPAddrToDecision) String() string {
 }
 
 type siteToFailAction map[string]FailAction
+
+// SitewideAltCha is one sitewide_altcha_list entry: block / no_block, optionally with a
+// _click suffix for the one-click checkbox challenge.
+type SitewideAltCha struct {
+	FailAction FailAction
+	Click      bool
+}
+
+type siteToSitewideAltCha map[string]SitewideAltCha
+
+func ParseSitewideAltCha(s string) (SitewideAltCha, error) {
+	click := strings.HasSuffix(s, "_click")
+	failAction, err := ParseFailAction(strings.TrimSuffix(s, "_click"))
+	if err != nil {
+		return SitewideAltCha{}, fmt.Errorf("invalid sitewide altcha value %q, want block, no_block, block_click or no_block_click", s)
+	}
+	return SitewideAltCha{FailAction: failAction, Click: click}, nil
+}
+
 type decisionToIPMatcher map[Decision]*ipMatcher
 type siteToDecisionToIPMatcher map[string]map[Decision]*ipMatcher
 
@@ -360,10 +379,10 @@ func (m *ipMatcher) Contains(ip string) bool {
 
 // Decision lists that don't change unless the program is restarted or the config is hot-reloaded.
 type staticDecisionLists struct {
-	globalDecisionLists          ipAddrToDecision
-	perSiteDecisionLists         siteToIPAddrToDecision
-	sitewideShaInvList           siteToFailAction
-	sitewideAltChaList           siteToFailAction
+	globalDecisionLists           ipAddrToDecision
+	perSiteDecisionLists          siteToIPAddrToDecision
+	sitewideShaInvList            siteToFailAction
+	sitewideAltChaList            siteToSitewideAltCha
 	globalDecisionListsIPMatcher  decisionToIPMatcher
 	perSiteDecisionListsIPMatcher siteToDecisionToIPMatcher
 	perSiteUserAgentDecisionLists perSiteUAPatternToDecision
@@ -375,7 +394,7 @@ func newStaticDecisionLists() staticDecisionLists {
 		globalDecisionLists:           make(ipAddrToDecision),
 		perSiteDecisionLists:          make(siteToIPAddrToDecision),
 		sitewideShaInvList:            make(siteToFailAction),
-		sitewideAltChaList:            make(siteToFailAction),
+		sitewideAltChaList:            make(siteToSitewideAltCha),
 		globalDecisionListsIPMatcher:  make(decisionToIPMatcher),
 		perSiteDecisionListsIPMatcher: make(siteToDecisionToIPMatcher),
 		perSiteUserAgentDecisionLists: make(perSiteUAPatternToDecision),
@@ -458,12 +477,12 @@ func newStaticDecisionListsFromConfig(config *Config) (staticDecisionLists, erro
 			log.Printf("sitewide altcha site: %s, failAction: %s\n", site, failActionString)
 		}
 
-		failAction, err := ParseFailAction(failActionString)
+		entry, err := ParseSitewideAltCha(failActionString)
 		if err != nil {
 			return staticDecisionLists{}, fmt.Errorf("sitewide_altcha_list[%s]: %w", site, err)
 		}
 
-		out.sitewideAltChaList[site] = failAction
+		out.sitewideAltChaList[site] = entry
 	}
 
 	if len(config.GlobalUserAgentDecisionLists) > 0 {
@@ -527,14 +546,14 @@ func (h *DynamicDecisionLists) Update(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
+	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionLists[ip]
 	if ok {
-		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionLists: not with less serious", existingExpiringDecision.Decision, newDecision, ip, domain)
 			}
@@ -555,7 +574,7 @@ func (h *DynamicDecisionLists) Update(
 		ip,
 		fromBaskerville,
 		domain,
-		altchaMaxNumber,
+		altcha,
 	}
 }
 
@@ -567,14 +586,14 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
+	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsSessionId[sessionId]
 	if ok {
-		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
 			return
 		}
 	}
@@ -590,7 +609,7 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 		ip,
 		fromBaskerville,
 		domain,
-		altchaMaxNumber,
+		altcha,
 	}
 }
 
@@ -628,14 +647,14 @@ func (h *DynamicDecisionLists) UpdateByHost(
 	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
-	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
+	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsHost[host]
 	if ok {
-		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsHost: not with less serious", existingExpiringDecision.Decision, newDecision, host)
 			}
@@ -652,7 +671,7 @@ func (h *DynamicDecisionLists) UpdateByHost(
 		"",
 		fromBaskerville,
 		host,
-		altchaMaxNumber,
+		altcha,
 	}
 }
 
@@ -677,7 +696,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	newDecision Decision,
 	fromBaskerville bool,
 	host string,
-	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
+	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -685,7 +704,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	key := uaHostKey{ua, host}
 	existingExpiringDecision, ok := h.value.expiringDecisionListsUA[key]
 	if ok {
-		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsUA: not with less serious", existingExpiringDecision.Decision, newDecision, ua, host)
 			}
@@ -702,7 +721,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 		"",
 		fromBaskerville,
 		host,
-		altchaMaxNumber,
+		altcha,
 	}
 }
 
@@ -748,14 +767,14 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altchaMaxNumber int64, // AltChaChallenge difficulty, 0 means config.AltChaMaxNumber
+	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
 	existingExpiringDecision, ok := h.value.expiringDecisionListsSubnet[subnet]
 	if ok {
-		if !existingExpiringDecision.supersededBy(newDecision, altchaMaxNumber) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
 			if config.Debug {
 				log.Println("updateExpiringDecisionListsSubnet: not with less serious", existingExpiringDecision.Decision, newDecision, subnet, domain)
 			}
@@ -772,7 +791,7 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 		subnet.String(),
 		fromBaskerville,
 		domain,
-		altchaMaxNumber,
+		altcha,
 	}
 }
 
@@ -861,7 +880,7 @@ func (h *DynamicDecisionLists) UpdateByIpHost(
 		ip,
 		false,
 		host,
-		0, // allowlist rate limits never serve altcha
+		AltChaOptions{}, // allowlist rate limits never serve altcha
 	}
 }
 

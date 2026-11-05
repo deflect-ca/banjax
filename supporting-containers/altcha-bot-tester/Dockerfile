@@ -20,6 +20,7 @@ COPY bot-test.mjs ./
 ENV EDGE_ADDR=nginx \
     SHA_HOST=sha-test.banjax \
     ALTCHA_HOST=altcha-test.banjax \
+    ALTCHA_CLICK_HOST=altcha-click-test.banjax \
     TEST_PATH=/hello
 
 # Args passed to `docker compose run altcha-bot-tester` become the scenario filter.

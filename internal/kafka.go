@@ -48,6 +48,9 @@ type commandMessage struct {
 	// optional difficulty for altcha_challenge_* commands, clamped to
 	// [AltChaMaxNumberMin, AltChaMaxNumberMax]; absent means config.AltChaMaxNumber
 	AltChaMaxNumber *int64 `json:"altcha_max_number"`
+	// optional for altcha_challenge_* commands: true serves the one-click checkbox challenge
+	// instead of the default one that solves on page load
+	AltChaClick bool `json:"altcha_click"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -268,13 +271,18 @@ func handleCommand(
 	}
 }
 
-// altchaMaxNumberFor is the difficulty to store with a decision from command: the command's
-// altcha_max_number clamped into range for an AltChaChallenge, otherwise 0 (config default).
-func altchaMaxNumberFor(command commandMessage, decision Decision) int64 {
-	if decision != AltChaChallenge || command.AltChaMaxNumber == nil {
-		return 0
+// altchaOptionsFor is the AltCha settings to store with a decision from command: the command's
+// altcha_max_number (clamped into range) and altcha_click for an AltChaChallenge, otherwise the
+// zero value (config defaults, no click).
+func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
+	if decision != AltChaChallenge {
+		return AltChaOptions{}
 	}
-	return ClampAltChaMaxNumber(*command.AltChaMaxNumber)
+	options := AltChaOptions{Click: command.AltChaClick}
+	if command.AltChaMaxNumber != nil {
+		options.MaxNumber = ClampAltChaMaxNumber(*command.AltChaMaxNumber)
+	}
+	return options
 }
 
 func handleIPCommand(
@@ -306,7 +314,7 @@ func handleIPCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
-		altchaMaxNumberFor(command, decision),
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -342,7 +350,7 @@ func handleSubnetCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
-		altchaMaxNumberFor(command, decision),
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -378,7 +386,7 @@ func handleSessionCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
-		altchaMaxNumberFor(command, decision),
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -409,7 +417,7 @@ func handleHostCommand(
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
-		altchaMaxNumberFor(command, decision),
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -445,7 +453,7 @@ func handleUACommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
-		altchaMaxNumberFor(command, decision),
+		altchaOptionsFor(command, decision),
 	)
 }
 

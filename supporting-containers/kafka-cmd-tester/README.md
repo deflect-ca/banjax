@@ -33,6 +33,7 @@ docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_session -value 19
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_ua -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-max-number 20000
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-click
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
@@ -63,6 +64,11 @@ range is set to the nearest limit. Without the flag the field is left out and
 the config value applies. Sending the same `altcha_challenge_*` command again
 with a different `-altcha-max-number` changes the difficulty of the existing
 decision.
+
+`-altcha-click` makes that decision serve the one-click "I'm not a robot"
+checkbox: the proof of work only starts when the visitor ticks it. Without it
+the AltCha challenge solves on page load. Resending the command with or without
+`-altcha-click` switches an existing decision.
 
 `clear_rules` takes any combination of `-host`, `-value`, `-session-id`, and
 `-ua`; each one present clears that entry independently from the expiring
@@ -101,6 +107,7 @@ kafka.
 | `-session-id` | required for `*_session` commands, optional for `clear_rules` |
 | `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
+| `-altcha-click` | `altcha_challenge_*` only: serve the one-click checkbox challenge instead of the default one that solves on page load (sends `"altcha_click": true`) |
 | `-altcha-max-number` | `altcha_challenge_*` only: challenge difficulty, clamped by banjax to 1000..20000 (omitted by default, banjax falls back to `altcha_max_number`) |
 | `-source` | tags the command's `source` field (default `kafka-cmd-tester`) |
 | `-print-log` | set `print_log` so banjax logs the command even outside debug mode (default `true`) |

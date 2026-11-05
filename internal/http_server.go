@@ -1000,6 +1000,7 @@ type DecisionForNginxResult struct {
 	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
 	ShaChallengeResult            *ShaChallengeResult
 	AltChaChallengeResult         *AltChaChallengeResult
+	AltChaOptions                 *AltChaOptions // difficulty and click mode of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
 	ClientUserAgent			      string
 }
@@ -1148,11 +1149,12 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				0, // config.AltChaMaxNumber
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
 				PerSiteAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = PerSiteAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
@@ -1193,11 +1195,12 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				0, // config.AltChaMaxNumber
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
 				PerSiteUAAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = PerSiteUAAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
@@ -1248,11 +1251,12 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				0, // config.AltChaMaxNumber
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
 				GlobalAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = GlobalAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
@@ -1293,11 +1297,12 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				0, // config.AltChaMaxNumber
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
 				GlobalUAAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = GlobalUAAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
@@ -1365,11 +1370,12 @@ func decisionForNginx2(
 						altchaFailedChallengeStates,
 						Block, // FailAction
 						staticDecisionLists,
-						sessionExpiringDecision.altchaMaxNumber,
+						sessionExpiringDecision.altcha,
 						ExpiringAltChaChallenge,
 					)
 					decisionForNginxResult.DecisionListResult = ExpiringAltChaChallenge
 					decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+					decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 					return
 				}
@@ -1438,11 +1444,12 @@ func decisionForNginx2(
 					altchaFailedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
-					uaExpiringDecision.altchaMaxNumber,
+					uaExpiringDecision.altcha,
 					ExpiringUAAltChaChallenge,
 				)
 				decisionForNginxResult.DecisionListResult = ExpiringUAAltChaChallenge
 				decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+				decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
@@ -1503,11 +1510,12 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				hostExpiringDecision.altchaMaxNumber,
+				hostExpiringDecision.altcha,
 				ExpiringSiteWideAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = ExpiringSiteWideAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		}
@@ -1577,11 +1585,12 @@ func decisionForNginx2(
 					altchaFailedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
-					ipExpiringDecision.altchaMaxNumber,
+					ipExpiringDecision.altcha,
 					expiringAltChaChallengeResult,
 				)
 				decisionForNginxResult.DecisionListResult = expiringAltChaChallengeResult
 				decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+				decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
@@ -1608,7 +1617,7 @@ func decisionForNginx2(
 
 	// sitewide_altcha_list: sitewide_sha_inv_list for the AltCha challenge, checked first so a
 	// site listed in both gets AltCha. Same fail actions and path exceptions.
-	if failAction, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
+	if sitewideAltCha, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
 		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
 			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallengeException
 			accessGranted(c, config, DecisionListResultToString[SiteWideAltChaChallengeException], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1618,13 +1627,14 @@ func decisionForNginx2(
 				c,
 				banner,
 				altchaFailedChallengeStates,
-				failAction,
+				sitewideAltCha.FailAction,
 				staticDecisionLists,
-				0, // config.AltChaMaxNumber
+				AltChaOptions{Click: sitewideAltCha.Click},
 				SiteWideAltChaChallenge,
 			)
 			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallenge
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 		}
 
