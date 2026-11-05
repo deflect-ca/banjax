@@ -677,12 +677,14 @@ const (
 	ShaChallengePassed
 	ShaChallengeFailedNoCookie
 	ShaChallengeFailedBadCookie
+	ShaChallengePassedByAltCha
 )
 
 var ShaChallengeResultToString = map[ShaChallengeResult]string{
 	ShaChallengePassed:          "ShaChallengePassed",
 	ShaChallengeFailedNoCookie:  "ShaChallengeFailedNoCookie",
 	ShaChallengeFailedBadCookie: "ShaChallengeFailedBadCookie",
+	ShaChallengePassedByAltCha:  "ShaChallengePassedByAltCha",
 }
 
 func (scr ShaChallengeResult) String() string {
@@ -739,6 +741,16 @@ func sendOrValidateShaChallenge(
 		}
 	} else {
 		sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengeFailedNoCookie
+	}
+	// AltCha is the stronger challenge, so a client that already solved one (same binding,
+	// unexpired) is not asked to solve a sha-inv challenge too. The reverse does not hold.
+	if altchaCookie, err := c.Cookie(AltChaCookieName); err == nil {
+		if ok, _ := VerifyAltChaPayload(config, altchaCookie, getUserAgentOrIp(c, config)); ok {
+			accessGranted(c, config, ShaChallengeResultToString[ShaChallengePassedByAltCha], botScore, botScoreTopFactor, botFingerprint)
+			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
+			sendOrValidateShaChallengeResult.ShaChallengeResult = ShaChallengePassedByAltCha
+			return sendOrValidateShaChallengeResult
+		}
 	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {

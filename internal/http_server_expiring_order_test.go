@@ -793,3 +793,77 @@ sitewide_altcha_list:
 	assert.Nil(t, err)
 	assert.Contains(t, string(logged), `"AltChaOptions":null`)
 }
+
+// A client that solved an AltCha challenge is not asked to also solve a sha-inv one; the
+// reverse does not hold.
+func TestDecisionForNginx2_AltChaCookiePassesShaInvChallenge(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 5
+altcha_cookie_ttl_seconds: 3600
+sha_inv_cookie_ttl_seconds: 3600
+sha_inv_expected_zero_bits: 10
+too_many_failed_challenges_threshold: 10
+too_many_failed_challenges_interval_seconds: 10
+altcha_too_many_failed_challenges_threshold: 10
+altcha_too_many_failed_challenges_interval_seconds: 10
+sitewide_sha_inv_list:
+  sha-sitewide.com: block
+sitewide_altcha_list:
+  altcha-sitewide.com: block
+per_site_decision_lists:
+  sha-static.com:
+    challenge:
+      - 1.1.1.1
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	config.ChallengerBytes = shaInvChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+	decisionLists := NewDynamicDecisionLists()
+	decisionLists.UpdateByHost(config, "sha-expiring.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+
+	serve := func(ip, host string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = buildDecisionForNginxTestContext(ip, host, "/", "ua", "").Request
+		for _, cookie := range cookies {
+			c.Request.AddCookie(cookie)
+		}
+		decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		return recorder
+	}
+
+	// solve a real AltCha challenge as 1.1.1.1
+	challenge := altchaChallengeFromPage(t, serve("1.1.1.1", "altcha-sitewide.com").Body.String())
+	altchaCookie := &http.Cookie{Name: AltChaCookieName, Value: solveAltChaToCookie(t, challenge)}
+
+	for _, host := range []string{"sha-sitewide.com", "sha-static.com", "sha-expiring.com"} {
+		t.Run("altcha cookie passes sha-inv on "+host, func(t *testing.T) {
+			recorder := serve("1.1.1.1", host, altchaCookie)
+			assert.Equal(t, 200, recorder.Code)
+			assert.Equal(t, "ShaChallengePassedByAltCha", recorder.Header().Get("X-Banjax-Decision"))
+		})
+	}
+
+	t.Run("an altcha cookie bound to another client does not", func(t *testing.T) {
+		recorder := serve("2.2.2.2", "sha-sitewide.com", altchaCookie)
+		assert.Equal(t, 429, recorder.Code)
+		assert.Contains(t, recorder.Body.String(), "deflect_challenge3")
+	})
+
+	t.Run("a forged altcha cookie does not", func(t *testing.T) {
+		recorder := serve("1.1.1.1", "sha-sitewide.com", &http.Cookie{Name: AltChaCookieName, Value: "Zm9yZ2Vk"})
+		assert.Equal(t, 429, recorder.Code)
+		assert.Equal(t, "SiteWideChallenge", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("a sha-inv cookie does not pass an altcha challenge", func(t *testing.T) {
+		recorder := serve("1.1.1.1", "altcha-sitewide.com", &http.Cookie{Name: ChallengeCookieName, Value: "anything"})
+		assert.Equal(t, 429, recorder.Code)
+		assert.Equal(t, "SiteWideAltChaChallenge", recorder.Header().Get("X-Banjax-Decision"))
+	})
+}

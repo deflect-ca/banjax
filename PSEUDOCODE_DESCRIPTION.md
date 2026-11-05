@@ -157,7 +157,8 @@ until one matches. The widget needs a secure context (`crypto.subtle`), so the A
 works over HTTPS; over plain HTTP the page shows a "verification failed" message. A solution is checked
 with one HMAC (the challenge carries a signature of its derived key), never by re-running the key
 derivation, and must carry the binding (IP or User-Agent) in its signed data.
-It is a stronger, independent challenge: a solved sha-inv cookie does not pass it, and its failures are
+It is a stronger, independent challenge: a solved sha-inv cookie does not pass it (while a solved
+AltCha cookie does pass a sha-inv challenge, reported as `ShaChallengePassedByAltCha`), and its failures are
 counted on their own against `altcha_too_many_failed_challenges_threshold` within
 `altcha_too_many_failed_challenges_interval_seconds`. Exceeding it gets the IP an IptablesBlock (an
 NginxBlock if the IP is allowlisted in the per-site list), like too many failed sha-inv challenges.
