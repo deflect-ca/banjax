@@ -58,24 +58,24 @@
             if (loader) {
                 loader.innerHTML = '<a href="#" onclick="location.reload(); return false;">' + msg + '</a>';
             }
-            var footerTitle = document.getElementsByClassName("footer-title")[0];
-            if (footerTitle) {
-                footerTitle.textContent = msg;
+            var challengeTitle = document.getElementsByClassName("challenge-title")[0];
+            if (challengeTitle) {
+                challengeTitle.textContent = msg;
             }
         }
 
         function getLocalizedMessage() {
             // Define messages for different locales
             var messages = {
-                en: "Verifying if your connection is secure",
-                ru: "Проверка безопасности вашего соединения",
-                uk: "Перевірка безпеки вашого з’єднання",
-                be: "Праверка бяспекі вашага злучэнння", // Belarusian version
-                es: "Verificando que su conexión sea segura",
+                en: "Checking if you are a robot",
+                ru: "Проверяем, не робот ли вы",
+                uk: "Перевіряємо, чи ви не робот",
+                be: "Правяраем, ці вы не робат", // Belarusian version
+                es: "Comprobando si eres un robot",
                 zh: {
-                    TW: "正在檢查您的連線是否安全", // Traditional Chinese
-                    HK: "正在檢查您的連線是否安全", // Traditional Chinese
-                    CN: "正在检查您的连接是否安全", // Simplified Chinese
+                    TW: "正在確認您是否為機器人", // Traditional Chinese
+                    HK: "正在確認您是否為機器人", // Traditional Chinese
+                    CN: "正在确认您是否为机器人", // Simplified Chinese
                 },
             };
 
@@ -160,7 +160,7 @@
         }
 
         function setTitle() {
-            document.getElementsByClassName("footer-title")[0].textContent =
+            document.getElementsByClassName("challenge-title")[0].textContent =
                 getLocalizedMessage();
         }
 
@@ -296,9 +296,23 @@
 
     </script>
     <style>
-        body,
+        /*
+         * Same look as sha-inverse-challenge.html. Layout differs: the domain sits in a top
+         * bar, the description and "I'm not a robot" widget are centred on the screen, and the
+         * grey footer is pinned to the bottom, instead of a fixed 33% / 67% split. The grid's
+         * two equal 1fr rows around the centre block keep it at the true middle of the screen
+         * whatever the heights of the top bar and footer.
+         */
         html {
             height: 100%;
+        }
+        body {
+            min-height: 100%;
+            display: grid;
+            grid-template-rows: 1fr auto 1fr;
+        }
+        body,
+        html {
             font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
                 Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue",
                 sans-serif;
@@ -312,8 +326,18 @@
         h2 {
             font-weight: 400;
         }
+        .topbar {
+            align-self: start;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            display: flex;
+            justify-content: center;
+            padding: 40px 15px;
+            background-color: #fff;
+        }
         .header {
-            height: 33%;
+            padding: 15px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -327,17 +351,16 @@
             height: 100%;
         }
         .footer {
-            height: 67%;
+            align-self: end;
             display: flex;
             justify-content: center;
             background-color: #ecece2;
-            padding: 0 15px;
+            padding: 0 15px env(safe-area-inset-bottom);
         }
         .website {
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 15px;
         }
         .website-favicon {
             width: 32px;
@@ -345,9 +368,22 @@
         }
         .website-title {
             font-size: 32px;
+            overflow-wrap: anywhere;
         }
         .loader {
             margin: 15px;
+            display: flex;
+            justify-content: center;
+            width: 100%;
+        }
+        /* large enough to be the obvious thing to tap; the widget inherits its font size */
+        altcha-widget {
+            --altcha-max-width: 340px;
+            --altcha-checkbox-size: 28px;
+            --altcha-padding: 1rem;
+            width: 100%;
+            max-width: 340px;
+            font-size: 20px;
         }
         .footer-wrapper {
             display: flex;
@@ -357,8 +393,9 @@
             margin-bottom: 50px;
             margin-top: 15px;
         }
-        .footer-title {
+        .challenge-title {
             font-size: 24px;
+            margin: 0 0 5px;
         }
         .footer-logo svg {
             width: 50px;
@@ -366,6 +403,38 @@
         }
         .footer-logo-caption {
             font-size: 18px;
+        }
+        /* narrow phones: scale the hostname so a typical one stays on one line */
+        @media screen and (max-width: 480px) {
+            .website-title {
+                font-size: 6.5vw;
+            }
+        }
+        /* short screens, e.g. a phone in landscape: tighten spacing so the footer still fits */
+        @media screen and (max-height: 500px) {
+            .topbar {
+                padding: 10px 15px;
+            }
+            .header {
+                padding: 10px 15px;
+            }
+            .loader {
+                margin: 10px;
+            }
+            .footer-wrapper {
+                margin-top: 10px;
+                margin-bottom: 15px;
+            }
+            .challenge-title {
+                font-size: 20px;
+            }
+            .footer-logo {
+                margin: 8px 0;
+            }
+            .footer-logo svg {
+                width: 30px;
+                height: 48px;
+            }
         }
         @media screen and (min-width: 2400px) {
             .footer-logo svg {
@@ -381,7 +450,7 @@
             .website-favicon {
                 width: 2vw;
             }
-            .footer-title {
+            .challenge-title {
                 font-size: 1.7vw;
             }
         }
@@ -389,15 +458,18 @@
 </head>
 
 <body>
+    <div class="topbar">
+      <div class="website">
+        <img class="website-favicon" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2232%22%20height%3D%2232%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%2210%22%20stroke%3D%22%23333%22%20stroke-width%3D%221.5%22%20fill%3D%22%23cce5ff%22%2F%3E%3Cpath%20d%3D%22M12%202c3%202%205%205.5%205%2010s-2%208-5%2010c-3-2-5-5.5-5-10s2-8%205-10Z%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20fill%3D%22none%22%2F%3E%3Cpath%20d%3D%22M2%2012h20M12%202v20%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" onerror="this.style.display='none'"/>
+        <span class="website-title"></span>
+        <noscript>
+          <h1 class="js-alert">Please turn on JavaScript and reload the page.</h1>
+        </noscript>
+      </div>
+    </div>
     <div class="header">
       <div class="header-wrapper">
-        <div class="website">
-          <img class="website-favicon" src="data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2232%22%20height%3D%2232%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%2210%22%20stroke%3D%22%23333%22%20stroke-width%3D%221.5%22%20fill%3D%22%23cce5ff%22%2F%3E%3Cpath%20d%3D%22M12%202c3%202%205%205.5%205%2010s-2%208-5%2010c-3-2-5-5.5-5-10s2-8%205-10Z%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20fill%3D%22none%22%2F%3E%3Cpath%20d%3D%22M2%2012h20M12%202v20%22%20stroke%3D%22%23333%22%20stroke-width%3D%221%22%20stroke-linecap%3D%22round%22%2F%3E%3C%2Fsvg%3E" onerror="this.style.display='none'"/>
-          <span class="website-title"></span>
-          <noscript>
-            <h1 class="js-alert">Please turn on JavaScript and reload the page.</h1>
-          </noscript>
-        </div>
+        <h2 class="challenge-title">Checking if you are a robot</h2>
         <div class="loader">
           <!--
               XXX: http_server.go applyArgsToAltChaPage() replaces the empty challenge attribute
@@ -416,7 +488,6 @@
     </div>
     <div class="footer">
       <div class="footer-wrapper">
-        <h2 class="footer-title">Verifying if your connection is secure</h2>
         <figure class="footer-logo">
           <a href="https://deflect.ca/" target="_blank">
              <svg version="1.0" xmlns="http://www.w3.org/2000/svg" width="412.000000pt" height="468.000000pt" viewBox="0 0 412.000000 468.000000" preserveAspectRatio="xMidYMid meet" > <g transform="translate(0.000000,468.000000) scale(0.100000,-0.100000)" fill="#e33624" stroke="#e33624" > <path d="M1190 4486 c-459 -100 -915 -199 -1012 -221 l-178 -38 0 -946 c0 -559 4 -993 10 -1061 33 -373 184 -727 458 -1070 170 -214 457 -475 742 -674 271 -191 770 -461 849 -460 24 0 87 25 192 76 539 261 1020 615 1333 979 263 306 416 598 498 949 22 94 22 103 25 1151 l4 1057 -23 5 c-145 36 -2021 437 -2039 436 -13 -1 -400 -83 -859 -183z"/> </g> </svg>
