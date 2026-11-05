@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"html"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -509,4 +511,61 @@ func TestParseSitewideAltCha(t *testing.T) {
 		_, err := ParseSitewideAltCha(value)
 		assert.NotNil(t, err, value)
 	}
+}
+
+// A config written before AltCha existed has no altcha_too_many_failed_challenges_* keys. Left
+// at zero, the first cookie-less request would exceed the threshold and get the ip banned.
+func TestLoad_OmittedAltChaFailureSettingsGetDefaults(t *testing.T) {
+	for _, key := range []string{"KAFKA_BROKERS", "KAFKA_COMMAND_TOPIC", "DISABLE_KAFKA"} {
+		t.Setenv(key, "")
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	configYaml := "hmac_secret: secret\nserver_log_file: unused.log\niptables_ban_seconds: 60\n" +
+		"kafka_brokers: [localhost:9092]\ndisable_kafka: true\n"
+	assert.Nil(t, os.WriteFile(path, []byte(configYaml), 0600))
+	config, err := load(path, 0, false, false)
+	assert.Nil(t, err)
+	assert.Equal(t, AltChaDefaultTooManyFailedChallengesIntervalSeconds, config.AltChaTooManyFailedChallengesIntervalSeconds)
+	assert.Equal(t, AltChaDefaultTooManyFailedChallengesThreshold, config.AltChaTooManyFailedChallengesThreshold)
+
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	c := buildDecisionForNginxTestContext("1.2.3.4", "example.com", "/", "ua", "")
+	banner := &MockBanner{}
+	result := sendOrValidateAltChaChallenge(config, c, banner, NewFailedChallengeRateLimitStates(), Block,
+		staticDecisionLists, AltChaOptions{}, GlobalAltChaChallenge)
+
+	assert.False(t, result.TooManyFailedChallengesResult.Exceeded)
+	assert.Equal(t, 429, c.Writer.Status())
+	assert.Equal(t, "", banner.bannedIp)
+}
+
+func TestSendOrValidateAltChaChallenge_NotBefore(t *testing.T) {
+	config := altchaTestConfig()
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	const clientIp = "1.2.3.4"
+
+	validate := func(cookie string, options AltChaOptions) SendOrValidateAltChaChallengeResult {
+		c := buildDecisionForNginxTestContext(clientIp, "example.com", "/", "ua", "")
+		c.Request.AddCookie(&http.Cookie{Name: AltChaCookieName, Value: cookie})
+		return sendOrValidateAltChaChallenge(config, c, &MockBanner{}, NewFailedChallengeRateLimitStates(), NoBlock,
+			staticDecisionLists, options, GlobalAltChaChallenge)
+	}
+
+	old, err := CreateAltChaChallenge(config, clientIp, 0)
+	assert.Nil(t, err)
+	oldCookie := solveAltChaToCookie(t, old)
+	time.Sleep(2 * time.Millisecond)
+	forceNew := AltChaOptions{NotBefore: time.Now().UnixMilli()}
+
+	assert.Equal(t, AltChaChallengePassed, validate(oldCookie, AltChaOptions{}).AltChaChallengeResult,
+		"without force new an earlier cookie still passes")
+	assert.Equal(t, AltChaChallengeFailedBadCookie, validate(oldCookie, forceNew).AltChaChallengeResult,
+		"a cookie minted before the decision must be re-solved")
+
+	fresh, err := CreateAltChaChallenge(config, clientIp, 0)
+	assert.Nil(t, err)
+	assert.Equal(t, AltChaChallengePassed, validate(solveAltChaToCookie(t, fresh), forceNew).AltChaChallengeResult,
+		"a cookie minted after the decision passes")
 }

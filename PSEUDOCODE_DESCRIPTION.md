@@ -160,8 +160,9 @@ derivation, and must carry the binding (IP or User-Agent) in its signed data.
 It is a stronger, independent challenge: a solved sha-inv cookie does not pass it (while a solved
 AltCha cookie does pass a sha-inv challenge, reported as `ShaChallengePassedByAltCha`), and its failures are
 counted on their own against `altcha_too_many_failed_challenges_threshold` within
-`altcha_too_many_failed_challenges_interval_seconds`. Exceeding it gets the IP an IptablesBlock (an
-NginxBlock if the IP is allowlisted in the per-site list), like too many failed sha-inv challenges.
+`altcha_too_many_failed_challenges_interval_seconds` (3 and 10 when unset or not positive, since a
+zero threshold would ban on the first, cookie-less request). Exceeding it gets the IP an IptablesBlock
+(an NginxBlock if the IP is allowlisted in the per-site list), like too many failed sha-inv challenges.
 AltChaChallenge can be used in the static IP and User-Agent lists, in regex rules, and from Kafka.
 Overall severity is Allow < Challenge < AltChaChallenge < TooManyRequests < NginxBlock < IptablesBlock.
 
@@ -225,9 +226,13 @@ The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: 
 challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
 clamped to 1000..20000 (out-of-range values become the nearest limit) and ignored by every other
 command. They also take an optional boolean `altcha_click`: true serves the one-click checkbox
-challenge instead of the default one that solves on page load. Writes still never downgrade, but an
-`altcha_challenge_*` command for a key that already holds an AltChaChallenge with a different
-difficulty or click mode replaces it, so resending the command changes them.
+challenge instead of the default one that solves on page load. And an optional boolean
+`altcha_force_new`: true rejects AltCha cookies whose challenge was minted before the command arrived
+(each challenge carries a signed `issued_at`), so clients that already passed must solve a new one;
+the new cookie is then accepted. Without it a valid cookie keeps passing a new decision until it
+expires. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
+holds an AltChaChallenge with a different difficulty, click mode or force-new time replaces it, so
+resending the command changes them (and each resent `altcha_force_new` forces another new challenge).
 
 `challenge_all` is the temporary, Kafka-driven equivalent of the `sitewide_sha_inv_list` config
 entry: it challenges every request to a host until the TTL expires, without editing the config file.

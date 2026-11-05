@@ -34,6 +34,7 @@ docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localho
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_ua -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-max-number 20000
 docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-click
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-force-new
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
@@ -69,6 +70,12 @@ decision.
 checkbox: the proof of work only starts when the visitor ticks it. Without it
 the AltCha challenge solves on page load. Resending the command with or without
 `-altcha-click` switches an existing decision.
+
+`-altcha-force-new` makes that decision reject Altcha cookies minted before
+the command arrived, so clients that already passed must solve a new
+challenge (once; the new cookie is accepted). Without it a valid cookie keeps
+passing until it expires. Every resend with `-altcha-force-new` forces
+another new challenge.
 
 `clear_rules` takes any combination of `-host`, `-value`, `-session-id`, and
 `-ua`; each one present clears that entry independently from the expiring
@@ -108,6 +115,7 @@ kafka.
 | `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
 | `-altcha-click` | `altcha_challenge_*` only: serve the one-click checkbox challenge instead of the default one that solves on page load (sends `"altcha_click": true`) |
+| `-altcha-force-new` | `altcha_challenge_*` only: reject Altcha cookies minted before this command, forcing clients to solve a new challenge (sends `"altcha_force_new": true`) |
 | `-altcha-max-number` | `altcha_challenge_*` only: challenge difficulty, clamped by banjax to 1000..20000 (omitted by default, banjax falls back to `altcha_max_number`) |
 | `-source` | tags the command's `source` field (default `kafka-cmd-tester`) |
 | `-print-log` | set `print_log` so banjax logs the command even outside debug mode (default `true`) |

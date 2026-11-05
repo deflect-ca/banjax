@@ -92,7 +92,8 @@ type ExpiringDecision struct {
 
 // supersededBy reports whether an update should replace this decision: only with a more
 // serious decision, or, for AltChaChallenge, the same decision with different settings
-// (so a repeated altcha command can change its difficulty or click mode).
+// (so a repeated altcha command can change its difficulty or click mode, and each
+// altcha_force_new command moves NotBefore forward, forcing another new challenge).
 func (d ExpiringDecision) supersededBy(newDecision Decision, altcha AltChaOptions) bool {
 	if newDecision != d.Decision {
 		return newDecision > d.Decision

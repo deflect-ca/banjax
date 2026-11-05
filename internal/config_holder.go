@@ -157,6 +157,12 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	if config.AltChaCost <= 0 {
 		config.AltChaCost = AltChaDefaultCost
 	}
+	if config.AltChaTooManyFailedChallengesIntervalSeconds <= 0 {
+		config.AltChaTooManyFailedChallengesIntervalSeconds = AltChaDefaultTooManyFailedChallengesIntervalSeconds
+	}
+	if config.AltChaTooManyFailedChallengesThreshold <= 0 {
+		config.AltChaTooManyFailedChallengesThreshold = AltChaDefaultTooManyFailedChallengesThreshold
+	}
 
 	if config.PasswordProtectedPathHTML != "" {
 		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)

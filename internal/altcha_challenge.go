@@ -15,6 +15,7 @@ import (
 	"html"
 	"log"
 	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,14 @@ const (
 	AltChaDefaultMaxNumber = 10000
 )
 
+// defaults when the config leaves altcha_too_many_failed_challenges_* unset. Zero is never
+// what an operator means: a zero threshold bans on the first request (which has no cookie yet),
+// and a zero interval resets the count on every request so the ban never triggers.
+const (
+	AltChaDefaultTooManyFailedChallengesIntervalSeconds = 10
+	AltChaDefaultTooManyFailedChallengesThreshold       = 3
+)
+
 // bounds for the altcha_max_number field of altcha_challenge_* kafka commands: below the
 // min a challenge is too cheap to matter, above the max a phone takes too long to solve it
 const (
@@ -47,6 +56,9 @@ const (
 type AltChaOptions struct {
 	MaxNumber int64 // difficulty, 0 means config.AltChaMaxNumber
 	Click     bool  // one-click checkbox: the proof of work only starts when the visitor ticks it
+	// unix ms; a cookie whose challenge was minted before this is rejected, so clients must
+	// solve a new challenge (kafka altcha_force_new). 0 accepts any valid cookie.
+	NotBefore int64 `json:",omitempty"`
 }
 
 // effectiveAltChaMaxNumber is the difficulty a challenge is minted with: maxNumber from the
@@ -99,7 +111,11 @@ func CreateAltChaChallenge(config *Config, binding string, maxNumber int64) (alt
 		HMACSignatureSecret:    config.HmacSecret,
 		HMACKeySignatureSecret: altchaKeySignatureSecret(config),
 		ExpiresAt:              &expireTime,
-		Data:                   map[string]interface{}{"binding": binding},
+		Data: map[string]interface{}{
+			"binding": binding,
+			// signed, so AltChaOptions.NotBefore can reject cookies minted before a decision
+			"issued_at": strconv.FormatInt(time.Now().UnixMilli(), 10),
+		},
 	})
 }
 
@@ -107,6 +123,13 @@ func CreateAltChaChallenge(config *Config, binding string, maxNumber int64) (alt
 // VerifySolution alone only proves "someone solved a banjax-minted challenge", not
 // "this client did", so the binding in the signed challenge data is checked too.
 func VerifyAltChaPayload(config *Config, payloadB64 string, binding string) (bool, error) {
+	return verifyAltChaPayloadNotBefore(config, payloadB64, binding, 0)
+}
+
+// verifyAltChaPayloadNotBefore is VerifyAltChaPayload that also rejects a payload whose
+// challenge was minted before notBefore (unix ms), or that predates the issued_at field.
+// notBefore 0 skips that check.
+func verifyAltChaPayloadNotBefore(config *Config, payloadB64 string, binding string, notBefore int64) (bool, error) {
 	// gin erroneously QueryUnescapes cookies, turning '+' into ' '. Repair before decoding.
 	// https://github.com/gin-gonic/gin/issues/1717 (same workaround as ParseCookie).
 	repaired := strings.ReplaceAll(payloadB64, " ", "+")
@@ -133,7 +156,17 @@ func VerifyAltChaPayload(config *Config, payloadB64 string, binding string) (boo
 		return false, err
 	}
 	boundTo, _ := payload.Challenge.Parameters.Data["binding"].(string)
-	return boundTo == binding, nil
+	if boundTo != binding {
+		return false, nil
+	}
+	if notBefore > 0 {
+		issuedAtStr, _ := payload.Challenge.Parameters.Data["issued_at"].(string)
+		issuedAt, err := strconv.ParseInt(issuedAtStr, 10, 64)
+		if err != nil || issuedAt < notBefore {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // applyArgsToAltChaPage injects the per-request challenge JSON into the widget's challenge
@@ -225,6 +258,7 @@ func sendOrValidateAltChaChallenge(
 	result.AltChaOptions = AltChaOptions{
 		MaxNumber: effectiveAltChaMaxNumber(config, altchaOptions.MaxNumber),
 		Click:     altchaOptions.Click,
+		NotBefore: altchaOptions.NotBefore,
 	}
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -235,7 +269,7 @@ func sendOrValidateAltChaChallenge(
 	botScore, botScoreTopFactor, botFingerprint := integrityCheckCalcBotScoreWrapper(integrityCheckCookie)
 	requestedMethod := c.Request.Method
 	if err == nil {
-		ok, err := VerifyAltChaPayload(config, altchaCookie, getUserAgentOrIp(c, config))
+		ok, err := verifyAltChaPayloadNotBefore(config, altchaCookie, getUserAgentOrIp(c, config), altchaOptions.NotBefore)
 		if err == nil && ok {
 			accessGranted(c, config, AltChaChallengeResultToString[AltChaChallengePassed], botScore, botScoreTopFactor, botFingerprint)
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)

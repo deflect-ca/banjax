@@ -795,3 +795,46 @@ func TestHandleCommand_AltChaClick(t *testing.T) {
 		assert.True(t, hostDecision.altcha.Click)
 	})
 }
+
+func TestHandleCommand_AltChaForceNew(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+
+	decode := func(raw string) commandMessage {
+		var command commandMessage
+		assert.Nil(t, json.Unmarshal([]byte(raw), &command), raw)
+		return command
+	}
+
+	t.Run("altcha_force_new true stores the command time", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		before := time.Now().UnixMilli()
+		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com", "altcha_force_new": true}`), decisionLists)
+		hostDecision, _ := decisionLists.CheckByHost("example.com")
+		assert.GreaterOrEqual(t, hostDecision.altcha.NotBefore, before)
+		assert.LessOrEqual(t, hostDecision.altcha.NotBefore, time.Now().UnixMilli())
+	})
+
+	t.Run("absent means any valid cookie passes", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		handleCommand(config, decode(`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"}`), decisionLists)
+		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+		assert.Equal(t, int64(0), ipDecision.altcha.NotBefore)
+	})
+
+	t.Run("ignored by non-altcha commands", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		handleCommand(config, decode(`{"name": "challenge_all", "host": "example.com", "altcha_force_new": true}`), decisionLists)
+		hostDecision, _ := decisionLists.CheckByHost("example.com")
+		assert.Equal(t, AltChaOptions{}, hostDecision.altcha)
+	})
+
+	t.Run("resending forces another new challenge", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com", "altcha_force_new": true}`), decisionLists)
+		first, _ := decisionLists.CheckByHost("example.com")
+		time.Sleep(2 * time.Millisecond)
+		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com", "altcha_force_new": true}`), decisionLists)
+		second, _ := decisionLists.CheckByHost("example.com")
+		assert.Greater(t, second.altcha.NotBefore, first.altcha.NotBefore)
+	})
+}

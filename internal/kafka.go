@@ -51,6 +51,9 @@ type commandMessage struct {
 	// optional for altcha_challenge_* commands: true serves the one-click checkbox challenge
 	// instead of the default one that solves on page load
 	AltChaClick bool `json:"altcha_click"`
+	// optional for altcha_challenge_* commands: true rejects altcha cookies minted before the
+	// command arrived, so clients that already passed must solve a new challenge
+	AltChaForceNew bool `json:"altcha_force_new"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -272,8 +275,8 @@ func handleCommand(
 }
 
 // altchaOptionsFor is the AltCha settings to store with a decision from command: the command's
-// altcha_max_number (clamped into range) and altcha_click for an AltChaChallenge, otherwise the
-// zero value (config defaults, no click).
+// altcha_max_number (clamped into range), altcha_click and altcha_force_new for an
+// AltChaChallenge, otherwise the zero value (config defaults, no click, any cookie accepted).
 func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
 	if decision != AltChaChallenge {
 		return AltChaOptions{}
@@ -281,6 +284,9 @@ func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
 	options := AltChaOptions{Click: command.AltChaClick}
 	if command.AltChaMaxNumber != nil {
 		options.MaxNumber = ClampAltChaMaxNumber(*command.AltChaMaxNumber)
+	}
+	if command.AltChaForceNew {
+		options.NotBefore = time.Now().UnixMilli()
 	}
 	return options
 }
