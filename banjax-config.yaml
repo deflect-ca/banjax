@@ -21,7 +21,7 @@ kafka_ssl_cert: "/etc/banjax/keys/certificate.pem"
 kafka_ssl_key: "/etc/banjax/keys/key.pem"
 kafka_ssl_key_password: password
 kafka_report_topic: 'banjax_report_topic'
-kafka_command_topic: 'banjax_command_topic_dev'
+kafka_command_topic: 'banjax_command_topic'
 kafka_min_bytes: 1  # 1
 kafka_max_bytes: 10000000  # 10MB
 kafka_max_wait_ms: 5000
@@ -100,6 +100,14 @@ per_site_regexes_with_rates:
       interval: 1
       regex: .*blockme.*
       rule: "instant block"
+# Like sitewide_sha_inv_list, but with the AltCha challenge, and checked first: a site in both
+# lists gets AltCha. block / no_block: whether too many failed challenges get the ip banned.
+# block_click / no_block_click: the same, but serving the one-click "I'm not a robot" checkbox
+# instead of the default challenge that solves on page load.
+sitewide_altcha_list:
+  example.com: block
+  # one-click variant for supporting-containers/altcha-bot-tester
+  altcha-click-test.banjax: no_block_click
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
@@ -109,6 +117,21 @@ server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
 too_many_failed_challenges_interval_seconds: 10
 too_many_failed_challenges_threshold: 3
+# AltCha challenge (decision: altcha_challenge), a stronger proof-of-work challenge than sha-inv.
+# Its failures are counted separately from sha-inv/password failures; exceeding
+# altcha_too_many_failed_challenges_threshold within the interval gets the ip iptables banned.
+altcha_too_many_failed_challenges_interval_seconds: 10
+altcha_too_many_failed_challenges_threshold: 3
+# lifetime of a solved deflect_altcha cookie (defaults to 14400 when unset)
+altcha_cookie_ttl_seconds: 14400
+# ALTCHA v2 proof of work (PBKDF2/SHA-256, solved by the ALTCHA widget). banjax picks a secret
+# counter in 0..altcha_max_number and the client derives keys from 0 upwards until it hits it, so
+# the average work is altcha_max_number/2 key derivations of altcha_cost PBKDF2 iterations each
+# (defaults 10000 and 5000 when unset). An altcha_challenge_* kafka command can override
+# altcha_max_number for its own decision with an altcha_max_number field (clamped to 1000..20000).
+altcha_max_number: 10000
+altcha_cost: 5000
+# altcha_challenge_html: /etc/banjax/altcha-challenge.html
 password_cookie_ttl_seconds: 345600  # Dynamic apply to internal/password-protected-path.html:170
 sha_inv_cookie_ttl_seconds: 28800  # Dynamic apply to internal/sha-inverse-challenge.html:92
 hmac_secret: secret
@@ -168,6 +191,14 @@ per_site_user_agent_decision_lists:
     challenge: []
     allow:
       - "Googlebot"
+  # sha-inv vs altcha comparison for supporting-containers/altcha-bot-tester:
+  # the same headless Chromium UA gets a different challenge on each host
+  "sha-test.banjax":
+    challenge:
+      - "HeadlessChrome"
+  "altcha-test.banjax":
+    altcha_challenge:
+      - "HeadlessChrome"
 
 global_user_agent_decision_lists:
   nginx_block:

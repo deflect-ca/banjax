@@ -45,6 +45,15 @@ type commandMessage struct {
 	PrintLog  bool   `json:"print_log"`
 	TTL       int	 `json:"ttl"`
 	UA        string `json:"ua"`
+	// optional difficulty for altcha_challenge_* commands, clamped to
+	// [AltChaMaxNumberMin, AltChaMaxNumberMax]; absent means config.AltChaMaxNumber
+	AltChaMaxNumber *int64 `json:"altcha_max_number"`
+	// optional for altcha_challenge_* commands: true serves the one-click checkbox challenge
+	// instead of the default one that solves on page load
+	AltChaClick bool `json:"altcha_click"`
+	// optional for altcha_challenge_* commands: true rejects altcha cookies minted before the
+	// command arrived, so clients that already passed must solve a new challenge
+	AltChaForceNew bool `json:"altcha_force_new"`
 }
 
 func getDNetPartition(config *Config) int {
@@ -240,6 +249,21 @@ func handleCommand(
 	case "block_ua":
 		handleUACommand(config, command, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
 		break
+	case "altcha_challenge_ip":
+		handleIPCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_subnet":
+		handleSubnetCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_session":
+		handleSessionCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_all":
+		handleHostCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
+	case "altcha_challenge_ua":
+		handleUACommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		break
 	case "clear_rules":
 		handleClearRulesCommand(config, command, decisionLists)
 		break
@@ -248,6 +272,23 @@ func handleCommand(
 			log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
 		}
 	}
+}
+
+// altchaOptionsFor is the AltCha settings to store with a decision from command: the command's
+// altcha_max_number (clamped into range), altcha_click and altcha_force_new for an
+// AltChaChallenge, otherwise the zero value (config defaults, no click, any cookie accepted).
+func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
+	if decision != AltChaChallenge {
+		return AltChaOptions{}
+	}
+	options := AltChaOptions{Click: command.AltChaClick}
+	if command.AltChaMaxNumber != nil {
+		options.MaxNumber = ClampAltChaMaxNumber(*command.AltChaMaxNumber)
+	}
+	if command.AltChaForceNew {
+		options.NotBefore = time.Now().UnixMilli()
+	}
+	return options
 }
 
 func handleIPCommand(
@@ -279,6 +320,7 @@ func handleIPCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -314,6 +356,7 @@ func handleSubnetCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -349,6 +392,7 @@ func handleSessionCommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -379,6 +423,7 @@ func handleHostCommand(
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
+		altchaOptionsFor(command, decision),
 	)
 }
 
@@ -414,6 +459,7 @@ func handleUACommand(
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
 		command.Host,
+		altchaOptionsFor(command, decision),
 	)
 }
 

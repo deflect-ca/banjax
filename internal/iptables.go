@@ -364,6 +364,7 @@ func (b Banner) BanOrChallengeIp(
 		decision,
 		false, // not from baskerville
 		domain,
+		AltChaOptions{}, // regex rules use the config defaults
 	)
 
 	if decision == IptablesBlock {

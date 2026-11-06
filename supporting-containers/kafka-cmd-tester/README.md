@@ -4,7 +4,9 @@ One-off tool for sending a single simulated banjax kafka command message,
 without needing baskerville running. Useful for exercising
 `internal/kafka.go`'s `handleCommand` by hand: `block_ip`, `challenge_ip`,
 `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`,
-`challenge_all`, `block_ua`, `challenge_ua`, `clear_rules`.
+`challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`,
+`altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`,
+`altcha_challenge_ua`, `clear_rules`.
 
 The message JSON matches the `commandMessage` struct banjax's kafka reader
 unmarshals, so what you send here is exactly what banjax would receive from
@@ -25,6 +27,14 @@ docker compose run --rm kafka-cmd-tester -cmd challenge_subnet -value 192.168.65
 docker compose run --rm kafka-cmd-tester -cmd challenge_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd block_ua -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd challenge_ua -ua 'curl/7.68.0' -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_ip -value 192.168.65.1 -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_subnet -value 192.168.65.0/24 -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_session -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_ua -ua 'curl/7.68.0' -host localhost
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-max-number 20000
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-click
+docker compose run --rm kafka-cmd-tester -cmd altcha_challenge_all -host localhost -altcha-force-new
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -session-id 'Qe5jhD1T6K8AAAAAapmM0w=='
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
@@ -43,6 +53,29 @@ that subnet entry instead of a single IP.
 substring or regex matching, unlike the static
 `per_site_user_agent_decision_lists`/`global_user_agent_decision_lists` in
 `banjax-config.yaml`), and only on the `-host` they were sent for.
+
+Each `altcha_challenge_*` command takes the same fields as its `challenge_*`
+counterpart (same TTL default too), but banjax serves the Altcha challenge
+instead of the sha-inverse one. `clear_rules` clears them the same way.
+
+`-altcha-max-number` sets the difficulty of the challenge that one
+`altcha_challenge_*` decision serves, in place of `altcha_max_number` from the
+banjax config. Banjax clamps it to 1000..20000, so anything outside that
+range is set to the nearest limit. Without the flag the field is left out and
+the config value applies. Sending the same `altcha_challenge_*` command again
+with a different `-altcha-max-number` changes the difficulty of the existing
+decision.
+
+`-altcha-click` makes that decision serve the one-click "I'm not a robot"
+checkbox: the proof of work only starts when the visitor ticks it. Without it
+the AltCha challenge solves on page load. Resending the command with or without
+`-altcha-click` switches an existing decision.
+
+`-altcha-force-new` makes that decision reject Altcha cookies minted before
+the command arrived, so clients that already passed must solve a new
+challenge (once; the new cookie is accepted). Without it a valid cookie keeps
+passing until it expires. Every resend with `-altcha-force-new` forces
+another new challenge.
 
 `clear_rules` takes any combination of `-host`, `-value`, `-session-id`, and
 `-ua`; each one present clears that entry independently from the expiring
@@ -75,12 +108,15 @@ kafka.
 
 | Flag | Purpose |
 | --- | --- |
-| `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, or `clear_rules` |
-| `-host` | site; required for `challenge_all`, `block_ua` and `challenge_ua`, optional for `clear_rules` |
-| `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands, optional for `clear_rules` |
+| `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`, `altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`, `altcha_challenge_ua`, or `clear_rules` |
+| `-host` | site; required for `*_all` and `*_ua` commands, optional for `clear_rules` |
+| `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands (including the `altcha_challenge_*` ones), optional for `clear_rules` |
 | `-session-id` | required for `*_session` commands, optional for `clear_rules` |
-| `-ua` | exact User-Agent string; required for `block_ua`/`challenge_ua`, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
+| `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
+| `-altcha-click` | `altcha_challenge_*` only: serve the one-click checkbox challenge instead of the default one that solves on page load (sends `"altcha_click": true`) |
+| `-altcha-force-new` | `altcha_challenge_*` only: reject Altcha cookies minted before this command, forcing clients to solve a new challenge (sends `"altcha_force_new": true`) |
+| `-altcha-max-number` | `altcha_challenge_*` only: challenge difficulty, clamped by banjax to 1000..20000 (omitted by default, banjax falls back to `altcha_max_number`) |
 | `-source` | tags the command's `source` field (default `kafka-cmd-tester`) |
 | `-print-log` | set `print_log` so banjax logs the command even outside debug mode (default `true`) |
 | `-count`, `-interval` | send the message more than once, with a delay between sends |

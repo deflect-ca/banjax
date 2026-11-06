@@ -1,0 +1,8 @@
+{
+  "name": "altcha-bot-tester",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.49.1"
+  }
+}

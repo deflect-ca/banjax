@@ -14,6 +14,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -25,6 +27,47 @@ import (
 const (
 	IPSetName = "banjax_ipset"
 )
+
+// Version overrides the version from the Go build info when set at build time, e.g.
+//
+//	go build -ldflags "-X main.Version=$(git describe --tags --always --dirty)"
+var Version = ""
+
+// versionString describes this build: the -ldflags Version if set, otherwise the module version Go
+// derives from the git tags at build time (Go 1.24+), plus the commit and Go version. Builds made
+// without VCS info (e.g. air's -buildvcs=false) report "unknown".
+func versionString() string {
+	info, ok := debug.ReadBuildInfo()
+	version := Version
+	if version == "" && ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	if version == "" {
+		version = "unknown"
+	}
+
+	revision, modified := "", false
+	if ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.modified":
+				modified = setting.Value == "true"
+			}
+		}
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if revision != "" && modified {
+		revision += ", modified"
+	}
+	if revision != "" {
+		return fmt.Sprintf("%s (commit %s, %s)", version, revision, runtime.Version())
+	}
+	return fmt.Sprintf("%s (%s)", version, runtime.Version())
+}
 
 func init_ipset(config *internal.Config) ipset.IPSet {
 	if config.StandaloneTesting {
@@ -64,6 +107,8 @@ func init_ipset(config *internal.Config) ipset.IPSet {
 }
 
 func main() {
+	log.Println("INIT: banjax version", versionString())
+
 	standaloneTestingPtr := flag.Bool("standalone-testing", false, "makes it easy to test standalone")
 	configFilenamePtr := flag.String("config-file", "/etc/banjax/banjax-config.yaml", "config file")
 	debugPtr := flag.Bool("debug", false, "debug mode with verbose logging")
@@ -79,6 +124,7 @@ func main() {
 
 	regexStates := internal.NewRegexRateLimitStates()
 	failedChallengeStates := internal.NewFailedChallengeRateLimitStates()
+	altchaFailedChallengeStates := internal.NewFailedChallengeRateLimitStates()
 
 	passwordProtectedPaths, err := internal.NewPasswordProtectedPaths(config)
 	if err != nil {
@@ -171,6 +217,7 @@ func main() {
 		passwordProtectedPaths,
 		regexStates,
 		failedChallengeStates,
+		altchaFailedChallengeStates,
 		banner,
 		deflectChallengeKeys,
 	)
@@ -215,6 +262,7 @@ func main() {
 		dynamicDecisionLists,
 		regexStates,
 		failedChallengeStates,
+		altchaFailedChallengeStates,
 	)
 
 	if !config.DisableKafka {
@@ -252,6 +300,7 @@ func reportMetrics(
 	decisionLists *internal.DynamicDecisionLists,
 	regexStates *internal.RegexRateLimitStates,
 	failedChallengeStates *internal.FailedChallengeRateLimitStates,
+	altchaFailedChallengeStates *internal.FailedChallengeRateLimitStates,
 ) {
 	config := configHolder.Get()
 	logFileName := ""
@@ -286,6 +335,7 @@ func reportMetrics(
 				decisionLists,
 				regexStates,
 				failedChallengeStates,
+				altchaFailedChallengeStates,
 			)
 		}
 	}

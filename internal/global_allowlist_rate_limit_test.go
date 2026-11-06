@@ -185,7 +185,7 @@ func TestDecisionForNginx2_GlobalAllowlistTooManyRequests(t *testing.T) {
 
 	t.Run("rate limited host gets a 429 without a challenge", func(t *testing.T) {
 		c := buildDecisionForNginxTestContext("1.2.3.4", "opted.com", "/", "Googlebot", "")
-		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, banner)
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
 
 		assert.Equal(t, GlobalAllowlistTooManyRequests, result.DecisionListResult)
 		assert.Equal(t, 429, c.Writer.Status())
@@ -200,7 +200,7 @@ func TestDecisionForNginx2_GlobalAllowlistTooManyRequests(t *testing.T) {
 
 	t.Run("other opted in hosts are still granted", func(t *testing.T) {
 		c := buildDecisionForNginxTestContext("1.2.3.4", "opted2.com", "/", "Googlebot", "")
-		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, banner)
+		result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
 		assert.Equal(t, GlobalAccessGranted, result.DecisionListResult)
 	})
 
@@ -208,15 +208,15 @@ func TestDecisionForNginx2_GlobalAllowlistTooManyRequests(t *testing.T) {
 		optedOut := *config
 		optedOut.SitesToRateLimitGlobalAllowlist = map[string]bool{}
 		c := buildDecisionForNginxTestContext("1.2.3.4", "opted.com", "/", "Googlebot", "")
-		result := decisionForNginx2(c, &optedOut, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, banner)
+		result := decisionForNginx2(c, &optedOut, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
 		assert.Equal(t, GlobalAccessGranted, result.DecisionListResult)
 	})
 
 	t.Run("an ip-wide too_many_requests decision gets a 429", func(t *testing.T) {
 		ipDecisionLists := NewDynamicDecisionLists()
-		ipDecisionLists.Update(config, "7.7.7.7", time.Now().Add(time.Minute), TooManyRequests, false, "opted.com")
+		ipDecisionLists.Update(config, "7.7.7.7", time.Now().Add(time.Minute), TooManyRequests, false, "opted.com", AltChaOptions{})
 		c := buildDecisionForNginxTestContext("7.7.7.7", "any.com", "/", "some-ua", "")
-		result := decisionForNginx2(c, config, staticDecisionLists, ipDecisionLists, passwordProtectedPaths, failedChallengeStates, banner)
+		result := decisionForNginx2(c, config, staticDecisionLists, ipDecisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
 		assert.Equal(t, ExpiringTooManyRequests, result.DecisionListResult)
 		assert.Equal(t, 429, c.Writer.Status())
 	})

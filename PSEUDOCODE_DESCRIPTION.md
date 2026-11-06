@@ -1,6 +1,6 @@
 ### The `auth_request` endpoint that Nginx talks to
 
-Nginx `proxy_pass`es to banjax, which makes a decision (Allow, Challenge, TooManyRequests, NginxBlock, or IptablesBlock)
+Nginx `proxy_pass`es to banjax, which makes a decision (Allow, Challenge, AltChaChallenge, TooManyRequests, NginxBlock, or IptablesBlock)
 based on the requested host, the client IP, and the client User-Agent. In pseudocode, banjax's
 decision-making works like this:
 
@@ -19,6 +19,8 @@ if decision == Allow:
     return access_granted()
 if decision == Challenge:
     return send_or_validate_challenge()
+if decision == AltChaChallenge:
+    return send_or_validate_altcha_challenge()
 if decision in [NginxBlock, IptablesBlock]:
     return access_denied()
 
@@ -43,6 +45,8 @@ decision = global_user_agent_decision_lists[client_user_agent]
 # then User-Agent, then host, then IP (or a subnet covering it). Note that a
 # "baskerville is disabled for this site" skip does not return; it falls through
 # to the next check below.
+# Wherever Challenge is handled below, AltChaChallenge is handled the same way, with
+# send_or_validate_altcha_challenge() in place of send_or_validate_challenge().
 
 decision = expiring_decision_lists_session_id[client_session_id]
 if decision == Allow:
@@ -80,16 +84,26 @@ if decision == Challenge:
     if per_site_sha_inv_path_exceptions[requested_host][requested_path]:
         return access_granted()
     if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
-        pass  # skip challenge, fall through to sitewide_sha_inv_list check below
+        pass  # skip challenge, fall through to the sitewide checks below
     else:
         return send_or_validate_challenge()
 if decision == TooManyRequests:
     return too_many_requests()
 if decision in [NginxBlock, IptablesBlock]:
     if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
-        pass  # skip block, fall through to sitewide_sha_inv_list check below
+        pass  # skip block, fall through to the sitewide checks below
     else:
         return access_denied()
+
+# sitewide_altcha_list is checked first, so a site listed in both gets the AltCha challenge
+if sitewide_altcha_list[requested_host]:
+    # block, no_block, block_click or no_block_click: fail_action Block or Allow, and _click
+    # serves the one-click checkbox instead of solving on page load
+    fail_action = sitewide_altcha_list[requested_host].fail_action
+    if password_protected_path_exceptions[requested_host][requested_path]:
+        return access_granted()
+    else:
+        return send_or_validate_altcha_challenge(fail_action)
 
 if sitewide_sha_inv_list[requested_host]:
     fail_action = sitewide_sha_inv_list[requested_host].fail_action  # Block or Allow
@@ -112,7 +126,7 @@ The static User-Agent decision lists (`per_site_user_agent_decision_lists` and
 `global_user_agent_decision_lists`) are loaded from the config file only. Each entry is either a plain
 substring match or a regex pattern (detected automatically by the presence of regex metacharacters).
 Patterns are pre-compiled at config load time. Decision severity order is IptablesBlock → NginxBlock →
-Challenge → Allow; the first matching pattern wins.
+AltChaChallenge → Challenge → Allow; the first matching pattern wins.
 
 The expiring User-Agent and host lists are separate from those static lists. They are populated only by
 Kafka commands (see below), they match the User-Agent string exactly (no substring or regex matching),
@@ -130,6 +144,27 @@ response.
 (no JavaScript to solve, `too_many_requests_html` to override it) and a `Retry-After` header set to the
 time left on the decision. TooManyRequests only comes from the regex rate limits; the static decision
 lists reject it.
+
+`send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an ALTCHA v2 proof-of-work page
+(cookie `deflect_altcha`, `altcha_max_number` / `altcha_cost` difficulty, `altcha_challenge_html` to override
+the page). The page runs the official ALTCHA widget, loaded from jsDelivr pinned to one version with a
+Subresource Integrity hash. By default it solves on page load; a decision with the click option
+(Kafka `altcha_click`, or a `*_click` `sitewide_altcha_list` entry) shows the widget's one-click
+checkbox instead, and only solves once the visitor ticks it. Either way it solves a PBKDF2/SHA-256
+challenge in Web Workers: banjax picks a secret
+counter in 0..`altcha_max_number`, and the client derives keys of `altcha_cost` iterations from 0 upwards
+until one matches. The widget needs a secure context (`crypto.subtle`), so the AltCha challenge only
+works over HTTPS; over plain HTTP the page shows a "verification failed" message. A solution is checked
+with one HMAC (the challenge carries a signature of its derived key), never by re-running the key
+derivation, and must carry the binding (IP or User-Agent) in its signed data.
+It is a stronger, independent challenge: a solved sha-inv cookie does not pass it (while a solved
+AltCha cookie does pass a sha-inv challenge, reported as `ShaChallengePassedByAltCha`), and its failures are
+counted on their own against `altcha_too_many_failed_challenges_threshold` within
+`altcha_too_many_failed_challenges_interval_seconds` (3 and 10 when unset or not positive, since a
+zero threshold would ban on the first, cookie-less request). Exceeding it gets the IP an IptablesBlock
+(an NginxBlock if the IP is allowlisted in the per-site list), like too many failed sha-inv challenges.
+AltChaChallenge can be used in the static IP and User-Agent lists, in regex rules, and from Kafka.
+Overall severity is Allow < Challenge < AltChaChallenge < TooManyRequests < NginxBlock < IptablesBlock.
 
 The relevant Nginx config might look similar to:
 
@@ -180,12 +215,30 @@ checked above:
 | `challenge_ua` | `ua` + `host` | Challenge | User-Agent |
 | `block_ua` | `ua` + `host` | NginxBlock | User-Agent |
 | `challenge_all` | `host` | Challenge | host |
+| `altcha_challenge_ip` | `value` (IP) | AltChaChallenge | IP |
+| `altcha_challenge_subnet` | `value` (IPv4 CIDR) | AltChaChallenge | subnet |
+| `altcha_challenge_session` | `session_id` | AltChaChallenge | session id |
+| `altcha_challenge_ua` | `ua` + `host` | AltChaChallenge | User-Agent |
+| `altcha_challenge_all` | `host` | AltChaChallenge | host |
 | `clear_rules` | any of `host`, `value`, `session_id`, `ua` | — | removes entries |
+
+The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
+challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
+clamped to 1000..20000 (out-of-range values become the nearest limit) and ignored by every other
+command. They also take an optional boolean `altcha_click`: true serves the one-click checkbox
+challenge instead of the default one that solves on page load. And an optional boolean
+`altcha_force_new`: true rejects AltCha cookies whose challenge was minted before the command arrived
+(each challenge carries a signed `issued_at`), so clients that already passed must solve a new one;
+the new cookie is then accepted. Without it a valid cookie keeps passing a new decision until it
+expires. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
+holds an AltChaChallenge with a different difficulty, click mode or force-new time replaces it, so
+resending the command changes them (and each resent `altcha_force_new` forces another new challenge).
 
 `challenge_all` is the temporary, Kafka-driven equivalent of the `sitewide_sha_inv_list` config
 entry: it challenges every request to a host until the TTL expires, without editing the config file.
-The host list only acts on a Challenge decision; the User-Agent list only acts on Challenge and the
-two block decisions (an Allow there is ignored).
+The host list only acts on a Challenge or AltChaChallenge decision; the User-Agent list only acts on
+those two and the two block decisions (an Allow there is ignored). The `altcha_challenge_*` commands
+use the same `expiring_decision_ttl_seconds` default TTL as the `challenge_*` ones.
 
 `block_subnet` / `challenge_subnet` cover every IP in a subnet with one command, e.g. a botnet
 rotating through a `/24` to evade per-IP blocks. The value is normalized to its network address
@@ -193,7 +246,7 @@ rotating through a `/24` to evade per-IP blocks. The value is normalized to its 
 rejected. The subnet list is checked in the same step as the IP list and acts as if the command had
 been sent for every IP in the subnet: when both an IP entry and one or more covering subnet entries
 exist, the most severe decision wins. Subnet matches are reported as `ExpiringSubnetChallenge` /
-`ExpiringSubnetBlock`.
+`ExpiringSubnetAltChaChallenge` / `ExpiringSubnetBlock`.
 
 Writes never downgrade an existing entry: a new decision is only stored if it is more severe than
 the one already in the list for that key.

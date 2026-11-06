@@ -65,6 +65,7 @@ type Config struct {
 	// string to disable logging.
 	GinLogFile                    string                         `yaml:"gin_log_file"`
 	SitewideShaInvList            map[string]string              `yaml:"sitewide_sha_inv_list"`
+	SitewideAltChaList            map[string]string              `yaml:"sitewide_altcha_list"` // checked before sitewide_sha_inv_list
 	MetricsLogFileName            string                         `yaml:"metrics_log_file"`
 	ShaInvChallengeHTML           string                         `yaml:"sha_inv_challenge_html"`
 	PasswordProtectedPathHTML     string                         `yaml:"password_protected_path_html"`
@@ -104,6 +105,16 @@ type Config struct {
 	// script, and a self-generated key whose public half nobody holds would fail
 	// verification in a way indistinguishable from a compromised edge.
 	DeflectChallengeGenerateMissingKeys bool `yaml:"deflect_challenge_generate_missing_keys"`
+	// AltCha challenge: a stronger proof-of-work challenge than sha-inv, with its own
+	// failed challenge counter, so failing it N times leads to an iptables ban independently
+	// of sha-inv/password failures.
+	AltChaTooManyFailedChallengesIntervalSeconds int    `yaml:"altcha_too_many_failed_challenges_interval_seconds"`
+	AltChaTooManyFailedChallengesThreshold       int    `yaml:"altcha_too_many_failed_challenges_threshold"`
+	AltChaCookieTtlSeconds                       int    `yaml:"altcha_cookie_ttl_seconds"`
+	AltChaMaxNumber                              int64  `yaml:"altcha_max_number"` // max PBKDF2 counter; average work ~= MaxNumber/2 derivations; 0 means AltChaDefaultMaxNumber
+	AltChaCost                                   int    `yaml:"altcha_cost"`       // PBKDF2 iterations per attempt; 0 means AltChaDefaultCost
+	AltChaChallengeHTML                          string `yaml:"altcha_challenge_html"`
+	AltChaChallengerBytes                        []byte
 }
 
 type RegexWithRate struct {
@@ -152,8 +163,13 @@ func (r *RegexWithRate) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
+// BannedEntry is one /banned result. Type says which expiring list it came from and what
+// IpOrSessionId holds: an ip ("ip", "ip_host"), a session id ("session"), a CIDR ("subnet"),
+// or nothing for "host" (a challenge_all for the whole site) and "ua" (the User-Agent is in UA).
 type BannedEntry struct {
 	IpOrSessionId   string `json:"ip"`
+	UA              string `json:"ua,omitempty"`
+	Type            string `json:"type"`
 	domain          string
 	Decision        string    `json:"decision"`
 	Expires         time.Time `json:"expires"`
@@ -161,8 +177,13 @@ type BannedEntry struct {
 }
 
 func (bannedEntry BannedEntry) String() string {
-	return fmt.Sprintf("%v: %v until %v (baskerville: %v)",
-		bannedEntry.IpOrSessionId,
+	key := bannedEntry.IpOrSessionId
+	if bannedEntry.Type == "ua" {
+		key = bannedEntry.UA
+	}
+	return fmt.Sprintf("%v %v: %v until %v (baskerville: %v)",
+		bannedEntry.Type,
+		key,
 		bannedEntry.Decision,
 		bannedEntry.Expires.Format("15:04:05"),
 		bannedEntry.FromBaskerville,
@@ -170,18 +191,20 @@ func (bannedEntry BannedEntry) String() string {
 }
 
 type MetricsLogLine struct {
-	Time                          string
-	LenExpiringChallenges         int
-	LenExpiringBlocks             int
-	LenExpiringSitewideChallenges int
-	LenExpiringSitewideBlocks     int
-	LenExpiringUAChallenges       int
-	LenExpiringUABlocks           int
-	LenExpiringSubnetChallenges   int
-	LenExpiringSubnetBlocks       int
-	LenExpiringTooManyRequests    int
-	LenIpToRegexStates            int
-	LenFailedChallengeStates      int
+	Time                           string
+	LenExpiringChallenges          int
+	LenExpiringBlocks              int
+	LenExpiringSitewideChallenges  int
+	LenExpiringSitewideBlocks      int
+	LenExpiringUAChallenges        int
+	LenExpiringUABlocks            int
+	LenExpiringSubnetChallenges    int
+	LenExpiringSubnetBlocks        int
+	LenExpiringTooManyRequests     int
+	LenExpiringAltChaChallenges    int
+	LenIpToRegexStates             int
+	LenFailedChallengeStates       int
+	LenAltChaFailedChallengeStates int
 }
 
 func WriteMetricsToEncoder(
@@ -189,25 +212,30 @@ func WriteMetricsToEncoder(
 	decisionLists *DynamicDecisionLists,
 	regexStates *RegexRateLimitStates,
 	failedChallengeStates *FailedChallengeRateLimitStates,
+	altchaFailedChallengeStates *FailedChallengeRateLimitStates,
 ) {
 	lenExpiringChallenges, lenExpiringBlocks, lenExpiringSitewideChallenges, lenExpiringSitewideBlocks, lenExpiringUAChallenges, lenExpiringUABlocks, lenExpiringSubnetChallenges, lenExpiringSubnetBlocks := decisionLists.Metrics()
 	lenExpiringTooManyRequests := decisionLists.MetricsTooManyRequests()
 	lenRegexStates := regexStates.Len()
 	lenFailedChallengeStates := failedChallengeStates.Len()
+	lenExpiringAltChaChallenges := decisionLists.MetricsAltChaChallenges()
+	lenAltChaFailedChallengeStates := altchaFailedChallengeStates.Len()
 
 	metricsLogLine := MetricsLogLine{
-		Time:                          time.Now().Format(time.RFC1123),
-		LenExpiringChallenges:         lenExpiringChallenges,
-		LenExpiringBlocks:             lenExpiringBlocks,
-		LenExpiringSitewideChallenges: lenExpiringSitewideChallenges,
-		LenExpiringSitewideBlocks:     lenExpiringSitewideBlocks,
-		LenExpiringUAChallenges:       lenExpiringUAChallenges,
-		LenExpiringUABlocks:           lenExpiringUABlocks,
-		LenExpiringSubnetChallenges:   lenExpiringSubnetChallenges,
-		LenExpiringSubnetBlocks:       lenExpiringSubnetBlocks,
-		LenExpiringTooManyRequests:    lenExpiringTooManyRequests,
-		LenIpToRegexStates:            lenRegexStates,
-		LenFailedChallengeStates:      lenFailedChallengeStates,
+		Time:                           time.Now().Format(time.RFC1123),
+		LenExpiringChallenges:          lenExpiringChallenges,
+		LenExpiringBlocks:              lenExpiringBlocks,
+		LenExpiringSitewideChallenges:  lenExpiringSitewideChallenges,
+		LenExpiringSitewideBlocks:      lenExpiringSitewideBlocks,
+		LenExpiringUAChallenges:        lenExpiringUAChallenges,
+		LenExpiringUABlocks:            lenExpiringUABlocks,
+		LenExpiringSubnetChallenges:    lenExpiringSubnetChallenges,
+		LenExpiringSubnetBlocks:        lenExpiringSubnetBlocks,
+		LenExpiringTooManyRequests:     lenExpiringTooManyRequests,
+		LenExpiringAltChaChallenges:    lenExpiringAltChaChallenges,
+		LenIpToRegexStates:             lenRegexStates,
+		LenFailedChallengeStates:       lenFailedChallengeStates,
+		LenAltChaFailedChallengeStates: lenAltChaFailedChallengeStates,
 	}
 
 	err := metricsLogEncoder.Encode(metricsLogLine)

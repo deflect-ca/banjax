@@ -83,16 +83,16 @@ func TestRegexWithRate(t *testing.T) {
 func TestWriteMetricsToEncoder_IncludesSitewideAndUACounts(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()
-	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.Update(config, "5.6.7.8", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByHost(config, "other-challenged.com", time.Now().Add(time.Minute), Challenge, true)
-	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true, "example.com")
-	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
-	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com")
+	decisionLists.Update(config, "1.2.3.4", time.Now().Add(time.Minute), Challenge, true, "example.com", AltChaOptions{})
+	decisionLists.Update(config, "5.6.7.8", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByHost(config, "challenged.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+	decisionLists.UpdateByHost(config, "other-challenged.com", time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+	decisionLists.UpdateByUA(config, "challenged-agent", time.Now().Add(time.Minute), Challenge, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByUA(config, "blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateByUA(config, "other-blocked-agent", time.Now().Add(time.Minute), NginxBlock, true, "example.com", AltChaOptions{})
 
 	var buf bytes.Buffer
-	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates())
+	WriteMetricsToEncoder(json.NewEncoder(&buf), decisionLists, NewRegexRateLimitStates(), NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates())
 
 	var metricsLogLine MetricsLogLine
 	err := json.Unmarshal(buf.Bytes(), &metricsLogLine)

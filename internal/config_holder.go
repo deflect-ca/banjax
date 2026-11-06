@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -19,6 +21,9 @@ import (
 
 //go:embed sha-inverse-challenge.html
 var shaInvChallengeEmbed []byte
+
+//go:embed altcha-challenge.html
+var altchaChallengeEmbed []byte
 
 //go:embed password-protected-path.html
 var passProtPathEmbed []byte
@@ -95,9 +100,25 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// boolean default = false
-	if config.Debug {
-		log.Printf("read config %v\n", *config)
+	// KAFKA_BROKERS / KAFKA_COMMAND_TOPIC / DISABLE_KAFKA from the untracked
+	// .env file (loaded via docker-compose env_file) override the yaml values when set.
+	if v, ok := os.LookupEnv("KAFKA_BROKERS"); ok && v != "" {
+		config.KafkaBrokers = nil
+		for _, broker := range strings.Split(v, ",") {
+			if broker = strings.TrimSpace(broker); broker != "" {
+				config.KafkaBrokers = append(config.KafkaBrokers, broker)
+			}
+		}
+	}
+	if v, ok := os.LookupEnv("KAFKA_COMMAND_TOPIC"); ok && v != "" {
+		config.KafkaCommandTopic = v
+	}
+	if v, ok := os.LookupEnv("DISABLE_KAFKA"); ok && v != "" {
+		disableKafka, err := strconv.ParseBool(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid DISABLE_KAFKA %q: %w", v, err)
+		}
+		config.DisableKafka = disableKafka
 	}
 
 	if config.ShaInvChallengeHTML != "" {
@@ -110,6 +131,37 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	} else {
 		log.Printf("INIT: Reading SHA-inverse challenge HTML from embed")
 		config.ChallengerBytes = shaInvChallengeEmbed
+	}
+
+	if config.AltChaChallengeHTML != "" {
+		log.Printf("INIT: Reading AltCha challenge HTML from %s", config.AltChaChallengeHTML)
+		altchaBytes, err := os.ReadFile(config.AltChaChallengeHTML)
+		if err != nil {
+			return nil, fmt.Errorf("couldn't read altcha-challenge.html: %w", err)
+		}
+		config.AltChaChallengerBytes = altchaBytes
+	} else {
+		log.Printf("INIT: Reading AltCha challenge HTML from embed")
+		config.AltChaChallengerBytes = altchaChallengeEmbed
+	}
+
+	// A zero/unset altcha_cookie_ttl_seconds mints instantly-expired challenges and a
+	// max-age=0 cookie: the client could never present a valid cookie and would loop until
+	// banned by the failed challenge threshold, so default it rather than trust the zero value.
+	if config.AltChaCookieTtlSeconds <= 0 {
+		config.AltChaCookieTtlSeconds = 14400
+	}
+	if config.AltChaMaxNumber <= 0 {
+		config.AltChaMaxNumber = AltChaDefaultMaxNumber
+	}
+	if config.AltChaCost <= 0 {
+		config.AltChaCost = AltChaDefaultCost
+	}
+	if config.AltChaTooManyFailedChallengesIntervalSeconds <= 0 {
+		config.AltChaTooManyFailedChallengesIntervalSeconds = AltChaDefaultTooManyFailedChallengesIntervalSeconds
+	}
+	if config.AltChaTooManyFailedChallengesThreshold <= 0 {
+		config.AltChaTooManyFailedChallengesThreshold = AltChaDefaultTooManyFailedChallengesThreshold
 	}
 
 	if config.PasswordProtectedPathHTML != "" {
@@ -143,6 +195,9 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	if config.Debug {
 		for site, failAction := range config.SitewideShaInvList {
 			log.Printf("load_config: sitewide site: %s, failAction: %s\n", site, failAction)
+		}
+		for site, failAction := range config.SitewideAltChaList {
+			log.Printf("load_config: sitewide altcha site: %s, failAction: %s\n", site, failAction)
 		}
 	}
 
