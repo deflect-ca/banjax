@@ -171,6 +171,9 @@ func RunHttpServer(
 		})
 	}
 
+	// 403s served per ip, for too_many_403_ban_to_iptables_ban
+	tooMany403States := NewFailedChallengeRateLimitStates()
+
 	r.Any("/auth_request",
 		decisionForNginx(
 			configHolder,
@@ -179,6 +182,7 @@ func RunHttpServer(
 			passwordProtectedPaths,
 			failedChallengeStates,
 			altchaFailedChallengeStates,
+			tooMany403States,
 			banner,
 		),
 	)
@@ -228,10 +232,11 @@ func RunHttpServer(
 	r.GET("/rate_limit_states", func(c *gin.Context) {
 		c.String(
 			200,
-			"regexes:\n%v\nfailed challenges:\n%v\naltcha failed challenges:\n%v\n",
+			"regexes:\n%v\nfailed challenges:\n%v\naltcha failed challenges:\n%v\n403s:\n%v\n",
 			regexStates,
 			failedChallengeStates,
 			altchaFailedChallengeStates,
+			tooMany403States,
 		)
 	})
 
@@ -650,15 +655,19 @@ func tooManyFailedChallenges(
 	result := rateLimitStates.Apply(ip, intervalSeconds, threshold)
 
 	if result.Exceeded {
-		decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip)
-
 		decisionType := IptablesBlock
-		if foundInPerSiteList && decision == Allow {
-			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
+		if config.TwoStepBanEsculation {
+			// step one of two: an nginx block only. too_many_403_ban_to_iptables_ban decides
+			// whether the ip is escalated to iptables if it keeps coming back.
 			decisionType = NginxBlock
+			banner.BlockIpForFailedChallenges(config, ip, host)
+		} else {
+			if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
+				log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
+				decisionType = NginxBlock
+			}
+			banner.BanOrChallengeIp(config, ip, decisionType, host)
 		}
-		// log.Println("IP has failed too many challenges; blocking them")
-		banner.BanOrChallengeIp(config, ip, decisionType, host)
 		banner.LogFailedChallengeBan(
 			config,
 			ip,
@@ -672,6 +681,57 @@ func tooManyFailedChallenges(
 		)
 	}
 
+	return result
+}
+
+// defaults when the config leaves too_many_403_ban_* unset. Zero is never used: a zero
+// threshold would iptables ban an ip on its first 403.
+const (
+	TooMany403BanDefaultIntervalSeconds = 10
+	TooMany403BanDefaultThreshold       = 10
+)
+
+// tooMany403s is the second step of the ban escalation (see too_many_403_ban_to_iptables_ban):
+// it counts one 403 that banjax served to ip, and bans the ip with iptables once it has had
+// more than too_many_403_ban_threshold 403s within too_many_403_ban_interval_seconds.
+func tooMany403s(
+	config *Config,
+	ip string,
+	userAgent string,
+	host string,
+	path string,
+	method string,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	decisionLists *StaticDecisionLists,
+) RateLimitResult {
+	if !config.TooMany403BanToIptablesBan || config.IsProtectedIP(ip) {
+		return RateLimitResult{}
+	}
+	// same exemption as for failed challenges: an ip allowlisted on this host never gets an
+	// iptables ban from it
+	if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
+		return RateLimitResult{}
+	}
+
+	result := rateLimitStates.Apply(ip, config.TooMany403BanIntervalSeconds, config.TooMany403BanThreshold)
+	if result.Exceeded {
+		log.Printf("IP %s got more than %d 403s within %ds on host %s, iptables ban",
+			ip, config.TooMany403BanThreshold, config.TooMany403BanIntervalSeconds, host)
+		banner.BanOrChallengeIp(config, ip, IptablesBlock, host)
+		banner.LogFailedChallengeBan(
+			config,
+			ip,
+			"too_many_403",
+			host,
+			path,
+			config.TooMany403BanThreshold,
+			userAgent,
+			IptablesBlock,
+			method,
+		)
+		ReportPassedFailedBannedMessage(config, "ip_banned", ip, host)
+	}
 	return result
 }
 
@@ -949,6 +1009,7 @@ const (
 	SiteWideAltChaChallenge
 	SiteWideAltChaChallengeException
 	ProtectedIPException // a protected_ips block or rate limit was skipped and access granted
+	FailedChallengeBlock // blocked for too many failed challenges, under two_step_ban_esculation
 	NoMention
 	NotSet
 )
@@ -993,6 +1054,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	SiteWideAltChaChallenge:          "SiteWideAltChaChallenge",
 	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
 	ProtectedIPException:             "ProtectedIPException",
+	FailedChallengeBlock:             "FailedChallengeBlock",
 	NoMention:                        "NoMention",
 	NotSet:                           "NotSet",
 }
@@ -1021,7 +1083,35 @@ type DecisionForNginxResult struct {
 	AltChaChallengeResult         *AltChaChallengeResult
 	AltChaOptions                 *AltChaOptions // difficulty and click mode of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
+	TooMany403Result              *RateLimitResult // nil unless the response was a 403 counted by too_many_403_ban_to_iptables_ban
 	ClientUserAgent			      string
+}
+
+// countTooMany403s runs after decisionForNginx2 has answered the request: a 403 answer counts
+// toward too_many_403_ban_to_iptables_ban.
+func countTooMany403s(
+	c *gin.Context,
+	config *Config,
+	decisionForNginxResult *DecisionForNginxResult,
+	tooMany403States *FailedChallengeRateLimitStates,
+	staticDecisionLists *StaticDecisionLists,
+	banner BannerInterface,
+) {
+	if !config.TooMany403BanToIptablesBan || c.Writer.Status() != http.StatusForbidden {
+		return
+	}
+	result := tooMany403s(
+		config,
+		decisionForNginxResult.ClientIp,
+		decisionForNginxResult.ClientUserAgent,
+		decisionForNginxResult.RequestedHost,
+		decisionForNginxResult.RequestedPath,
+		c.Request.Method,
+		banner,
+		tooMany403States,
+		staticDecisionLists,
+	)
+	decisionForNginxResult.TooMany403Result = &result
 }
 
 func decisionForNginx(
@@ -1031,6 +1121,7 @@ func decisionForNginx(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	altchaFailedChallengeStates *FailedChallengeRateLimitStates,
+	tooMany403States *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1045,6 +1136,7 @@ func decisionForNginx(
 			altchaFailedChallengeStates,
 			banner,
 		)
+		countTooMany403s(c, config, &decisionForNginxResult, tooMany403States, staticDecisionLists, banner)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
 			if err == nil {
@@ -1123,6 +1215,21 @@ func decisionForNginx2(
 		if grantPriorityPass {
 			decisionForNginxResult.DecisionListResult = PasswordProtectedPriorityPass
 			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPriorityPass], -1.0, "", IntegrityCheckPayloadWrapper{})
+			return
+		}
+	}
+
+	// An ip blocked for too many failed challenges under two_step_ban_esculation is blocked
+	// here, ahead of every challenge source (password paths, static and expiring challenges),
+	// which would otherwise keep serving it challenges while the block is active. It stands in
+	// for the iptables ban, which blocks everything. Ordinary expiring blocks keep their place
+	// below. Exempt: protected ips, ips allowlisted on this host (as the iptables ban is), and a
+	// valid password cookie (above).
+	if failedChallengeBan, ok := dynamicDecisionLists.Check("", clientIp); ok && failedChallengeBan.IsFailedChallengeBan() {
+		perSiteDecision, foundInPerSiteList := staticDecisionLists.CheckPerSite(config, requestedHost, clientIp)
+		if !(foundInPerSiteList && perSiteDecision == Allow) && !skipDenial("failed_challenge_ban", failedChallengeBan.Decision) {
+			accessDenied(c, config, DecisionListResultToString[FailedChallengeBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = FailedChallengeBlock
 			return
 		}
 	}
@@ -1590,13 +1697,23 @@ func decisionForNginx2(
 	// a block_subnet/challenge_subnet applies as if it were sent for every ip in the subnet,
 	// so like Update it only takes over from the ip's own decision when it is more serious
 	expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringAltChaChallenge, ExpiringBlock
-	if subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp); subnetOk &&
-		(!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
-		// for a protected ip a subnet block is skipped here, so it can't hide the ip's own challenge
-		if !(subnetExpiringDecision.Decision.IsDenial() && skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)) {
-			ipExpiringDecision, ipOk = subnetExpiringDecision, true
-			expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
+	subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp)
+	if protectedIp {
+		// Blocks never apply to a protected ip, so they are dropped before the ip and subnet
+		// decisions are ranked: a block (the ip's own, stored before it was protected, or one
+		// on any covering subnet) can't hide a challenge from another of them.
+		if ipOk && ipExpiringDecision.Decision.IsDenial() {
+			skipDenial("expiring_ip_list", ipExpiringDecision.Decision)
+			ipOk = false
 		}
+		if subnetOk && subnetExpiringDecision.Decision.IsDenial() {
+			skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)
+			subnetExpiringDecision, subnetOk = dynamicDecisionLists.CheckBySubnetNonDenial(clientIp)
+		}
+	}
+	if subnetOk && (!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
+		ipExpiringDecision, ipOk = subnetExpiringDecision, true
+		expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
 	}
 	if !ipOk {
 		// log.Println("no mention in expiring lists")

@@ -39,6 +39,11 @@ func (mb *MockBanner) BanOrChallengeIp(config *Config, ip string, decision Decis
 	mb.bannedDecision = decision
 }
 
+func (mb *MockBanner) BlockIpForFailedChallenges(config *Config, ip string, domain string) {
+	mb.bannedIp = ip
+	mb.bannedDecision = NginxBlock
+}
+
 func (mb *MockBanner) TooManyRequestsIpOnHost(config *Config, ip string, host string) {
 	mb.tooManyRequestsIp = ip
 	mb.tooManyRequestsHost = host
