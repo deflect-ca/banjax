@@ -539,6 +539,7 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 		expiringDecisionListsUA:        make(uaToExpiringDecision),
 		expiringDecisionListsSubnet:    make(subnetToExpiringDecision),
 		expiringDecisionListsIpHost:    make(ipHostToExpiringDecision),
+		expiringDecisionListsUnified:   make(hostToUnifiedRules),
 	}
 
 	lists := &DynamicDecisionLists{
@@ -1045,6 +1046,10 @@ func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 			add("ua", "", key.ua, expiringDecision)
 		}
 	}
+	// unified_*: the ip column holds the rule's fields, e.g. `ip=1.2.3.4 ua="curl/8.0"`
+	for key, expiringDecision := range h.value.expiringDecisionListsUnified[domain] {
+		add("unified", key.String(), key.ua, expiringDecision)
+	}
 	return bannedEntries
 }
 
@@ -1109,6 +1114,7 @@ func (h *DynamicDecisionLists) Clear() {
 	clear(h.value.expiringDecisionListsUA)
 	clear(h.value.expiringDecisionListsSubnet)
 	clear(h.value.expiringDecisionListsIpHost)
+	clear(h.value.expiringDecisionListsUnified)
 }
 
 func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int, lenExpiringSubnetChallenges int, lenExpiringSubnetBlocks int) {
@@ -1191,6 +1197,17 @@ func (h *DynamicDecisionLists) removeExpired() {
 	for key, expiringDecision := range h.value.expiringDecisionListsIpHost {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete(h.value.expiringDecisionListsIpHost, key)
+		}
+	}
+
+	for host, rules := range h.value.expiringDecisionListsUnified {
+		for key, expiringDecision := range rules {
+			if time.Now().Sub(expiringDecision.Expires) > 0 {
+				delete(rules, key)
+			}
+		}
+		if len(rules) == 0 {
+			delete(h.value.expiringDecisionListsUnified, host)
 		}
 	}
 }
@@ -1359,6 +1376,7 @@ type dynamicDecisionLists struct {
 	expiringDecisionListsUA        uaToExpiringDecision
 	expiringDecisionListsSubnet    subnetToExpiringDecision
 	expiringDecisionListsIpHost    ipHostToExpiringDecision
+	expiringDecisionListsUnified   hostToUnifiedRules // unified_* commands, see unified_decision.go
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
@@ -1367,7 +1385,7 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v\n\nexpiring_ip_host:\n%v",
+	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v\n\nexpiring_ip_host:\n%v\n\nexpiring_unified:\n%v",
 		sc.perSiteDecisionLists,
 		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
@@ -1375,5 +1393,6 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 		d.value.expiringDecisionListsUA,
 		d.value.expiringDecisionListsSubnet,
 		d.value.expiringDecisionListsIpHost,
+		d.value.expiringDecisionListsUnified,
 	)
 }

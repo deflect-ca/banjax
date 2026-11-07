@@ -181,6 +181,10 @@ Messages sent on `kafka_command_topic` (from Baskerville to banjax-go):
 * `{"name": "altcha_challenge_ip", "value": "1.2.3.4"}`
   * Same, with the AltCha challenge. `altcha_challenge_subnet`, `altcha_challenge_session`,
     `altcha_challenge_ua` and `altcha_challenge_all` mirror their `challenge_*` counterparts.
+* `{"name": "unified_block", "host": "example.com", "value": "1.2.3.4", "ua": "curl/8.0"}`
+  * Host-scoped decisions: `unified_challenge`, `unified_altcha_challenge` and `unified_block`
+    apply only on `host`, to requests matching every given `value` (IP or subnet), `session_id`
+    and `ua`. `unified_clear` removes them.
   See [PSEUDOCODE_DESCRIPTION.md](PSEUDOCODE_DESCRIPTION.md) for the full command list.
 
 Messages sent on `kafka_report_topic` (from banjax-go to Baskerville):

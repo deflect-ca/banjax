@@ -41,12 +41,31 @@ if decision == Allow and sites_to_rate_limit_global_allowlist[requested_host]:
 decision = global_user_agent_decision_lists[client_user_agent]
 # [...] same as above
 
-# The expiring decision lists are checked narrowest scope first: session id,
-# then User-Agent, then host, then IP (or a subnet covering it). Note that a
-# "baskerville is disabled for this site" skip does not return; it falls through
-# to the next check below.
+# The expiring decision lists are checked narrowest scope first: host-scoped unified
+# rules, then session id, then User-Agent, then host, then IP (or a subnet covering it).
+# Note that a "baskerville is disabled for this site" skip does not return; it falls
+# through to the next check below.
 # Wherever Challenge is handled below, AltChaChallenge is handled the same way, with
 # send_or_validate_altcha_challenge() in place of send_or_validate_challenge().
+
+# unified_* rules only exist for one host, and each one matches when every field it has
+# (ip or subnet, session id, User-Agent) matches the request. Of the matching rules the
+# most specific wins: the most fields, then (between two rules with an ip) the narrowest
+# prefix, then the most severe decision.
+decision = most_specific(expiring_unified_rules[requested_host] matching
+                         client_ip, client_session_id, client_user_agent)
+if decision == Challenge:
+    if per_site_sha_inv_path_exceptions[requested_host][requested_path]:
+        return access_granted()
+    if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
+        pass  # skip challenge, fall through to the session id check below
+    else:
+        return send_or_validate_challenge()  # too many failures: iptables ban, as for any challenge
+if decision == NginxBlock:
+    if sites_to_disable_baskerville[requested_host] and decision.from_baskerville:
+        pass  # skip block, fall through to the session id check below
+    else:
+        return access_denied()
 
 decision = expiring_decision_lists_session_id[client_session_id]
 if decision == Allow:
@@ -221,6 +240,10 @@ checked above:
 | `altcha_challenge_ua` | `ua` + `host` | AltChaChallenge | User-Agent |
 | `altcha_challenge_all` | `host` | AltChaChallenge | host |
 | `clear_rules` | any of `host`, `value`, `session_id`, `ua` | — | removes entries |
+| `unified_challenge` | `host` + any of `value` (IP or IPv4 CIDR), `session_id`, `ua` | Challenge | unified (per host) |
+| `unified_altcha_challenge` | same | AltChaChallenge | unified (per host) |
+| `unified_block` | `host` + at least one of `value`, `session_id`, `ua` | NginxBlock | unified (per host) |
+| `unified_clear` | `host` + any of `value`, `session_id`, `ua` | none | removes unified rules |
 
 The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
 challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
@@ -258,6 +281,32 @@ the same thing for a single `ip`, `host`, `ua` (optionally scoped by `host`), or
 Clearing an IP does not clear a subnet covering it, and vice versa.
 
 `challenge_ua` / `block_ua` without a `host` are dropped.
+
+The `unified_*` commands narrow the blast radius of a decision. The `ip`, `subnet` and `session`
+commands above apply on every host of the edge, whatever `host` they carry; a unified rule only
+applies to its `host`, and only to requests matching every other field it was sent with. So
+`host` + `value` challenges one IP on one site, and `host` + `value` + `ua` only that IP's requests
+with that User-Agent. A command without a `host` is dropped, and so is a `unified_block` with only a
+`host` (it would take the site offline); a `unified_challenge` / `unified_altcha_challenge` with
+only a `host` challenges the whole site, like `challenge_all`. `value` is a single IP (IPv4 or IPv6)
+or an IPv4 subnet with the same rules as `block_subnet`; `session_id` may be URL-encoded; `ua` is
+matched exactly. `unified_block` is always an nginx block, never iptables, since an iptables ban
+would apply on every host. Failing a unified challenge too often still leads to the usual iptables
+ban of the IP. Unified rules are checked before the other expiring lists (so a unified challenge on
+one host takes over from a `block_ip` there), and when several match a request the most specific
+one wins: the most fields, then between two rules with an IP the narrowest prefix (a single IP
+before its subnet), then the most severe decision. So a `host` + `value` + `ua` challenge can let a
+known client through a broader `host` + `value` block. A command for the same fields as an existing
+rule replaces it only if it is more severe (or changes AltCha settings), as for the other lists.
+Matches are reported as `ExpiringUnifiedChallenge` / `ExpiringUnifiedAltChaChallenge` /
+`ExpiringUnifiedBlock`, and listed by `/banned?domain=` with type `unified`. TTLs are those of the
+`*_ip` commands: `expiring_decision_ttl_seconds` for the challenges and the `block_ip` ones for
+`unified_block`, overridden by `ttl`.
+
+`unified_clear` removes every unified rule on `host` that has all the fields it is given, each
+compared exactly: `host` alone removes all of the host's unified rules, `host` + `value` removes
+the rules for that IP (or that exact subnet) with or without a `session_id` or `ua`. Neither
+`clear_rules` nor the `/unban` HTTP API touches unified rules.
 
 Each command's lifetime comes from the config (`expiring_decision_ttl_seconds` for challenges,
 `block_ip_ttl_seconds` / `block_session_ttl_seconds`, optionally overridden per site by
