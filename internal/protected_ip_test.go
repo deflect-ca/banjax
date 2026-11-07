@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -411,4 +412,119 @@ global_decision_lists:
 	result, header = decide("10.0.0.3")
 	assert.Equal(t, NoMention, result)
 	assert.Equal(t, "NoMention", header)
+}
+
+// Blocks never apply to a protected ip, so they must not hide a challenge: neither a block on
+// another subnet covering it (whichever is more specific) nor a block on the ip itself that was
+// stored before the ip was protected. An unprotected ip in the same subnets is still blocked.
+func TestProtectedIPOverlappingSubnetsKeepChallenge(t *testing.T) {
+	const protectedIp = "10.0.0.1"
+	const otherIp = "10.0.0.2"
+	narrow, wide := netip.MustParsePrefix("10.0.0.0/24"), netip.MustParsePrefix("10.0.0.0/16")
+	expires := time.Now().Add(time.Minute)
+
+	for _, tc := range []struct {
+		name            string
+		challengeSubnet netip.Prefix
+		blockSubnet     netip.Prefix
+		blockDecision   Decision
+		challenge       Decision
+		expected        DecisionListResult
+	}{
+		{"sha-inv on /24, nginx block on /16", narrow, wide, NginxBlock, Challenge, ExpiringSubnetChallenge},
+		{"sha-inv on /16, nginx block on /24", wide, narrow, NginxBlock, Challenge, ExpiringSubnetChallenge},
+		{"altcha on /24, iptables block on /16", narrow, wide, IptablesBlock, AltChaChallenge, ExpiringSubnetAltChaChallenge},
+		{"altcha on /16, iptables block on /24", wide, narrow, IptablesBlock, AltChaChallenge, ExpiringSubnetAltChaChallenge},
+		{"altcha on /24, rate limit on /16", narrow, wide, TooManyRequests, AltChaChallenge, ExpiringSubnetAltChaChallenge},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := withProtectedIPs(t, &Config{TooManyFailedChallengesThreshold: 10, AltChaTooManyFailedChallengesThreshold: 10}, protectedIp)
+			staticDecisionLists, err := NewStaticDecisionLists(config)
+			assert.Nil(t, err)
+			passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+			assert.Nil(t, err)
+			lists := NewDynamicDecisionLists()
+			lists.UpdateBySubnet(config, tc.challengeSubnet, expires, tc.challenge, false, "example.com", AltChaOptions{})
+			lists.UpdateBySubnet(config, tc.blockSubnet, expires, tc.blockDecision, false, "example.com", AltChaOptions{})
+
+			run := func(ip string) DecisionListResult {
+				c := buildDecisionForNginxTestContext(ip, "example.com", "/", "ua", "")
+				return decisionForNginx2(c, config, staticDecisionLists, lists, passwordProtectedPaths,
+					NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{}).DecisionListResult
+			}
+
+			assert.Equal(t, tc.expected, run(protectedIp))
+			if tc.blockDecision == TooManyRequests {
+				assert.Equal(t, ExpiringTooManyRequests, run(otherIp))
+			} else {
+				assert.Equal(t, ExpiringSubnetBlock, run(otherIp))
+			}
+		})
+	}
+
+	t.Run("a block on the ip itself, stored before it was protected", func(t *testing.T) {
+		unprotected := &Config{TooManyFailedChallengesThreshold: 10}
+		lists := NewDynamicDecisionLists()
+		lists.Update(unprotected, protectedIp, expires, NginxBlock, false, "example.com", AltChaOptions{})
+		config := withProtectedIPs(t, &Config{TooManyFailedChallengesThreshold: 10}, protectedIp)
+		lists.UpdateBySubnet(config, narrow, expires, Challenge, false, "example.com", AltChaOptions{})
+		staticDecisionLists, err := NewStaticDecisionLists(config)
+		assert.Nil(t, err)
+		passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+		assert.Nil(t, err)
+
+		c := buildDecisionForNginxTestContext(protectedIp, "example.com", "/", "ua", "")
+		result := decisionForNginx2(c, config, staticDecisionLists, lists, passwordProtectedPaths,
+			NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		assert.Equal(t, ExpiringSubnetChallenge, result.DecisionListResult)
+	})
+
+	t.Run("only a subnet block: access granted as ProtectedIPException", func(t *testing.T) {
+		config := withProtectedIPs(t, &Config{}, protectedIp)
+		lists := NewDynamicDecisionLists()
+		lists.UpdateBySubnet(config, wide, expires, NginxBlock, false, "example.com", AltChaOptions{})
+		staticDecisionLists, err := NewStaticDecisionLists(config)
+		assert.Nil(t, err)
+		passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+		assert.Nil(t, err)
+
+		c := buildDecisionForNginxTestContext(protectedIp, "example.com", "/", "ua", "")
+		result := decisionForNginx2(c, config, staticDecisionLists, lists, passwordProtectedPaths,
+			NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		assert.Equal(t, ProtectedIPException, result.DecisionListResult)
+		assert.Equal(t, 200, c.Writer.Status())
+	})
+}
+
+// protected_ips entries written as IPv4-mapped IPv6 are matched as their IPv4 equivalents,
+// since IsProtectedIP checks the unmapped form of each address.
+func TestProtectedIPMappedPrefixes(t *testing.T) {
+	for _, tc := range []struct {
+		entry     string
+		protected []string
+		notProt   []string
+	}{
+		{"::ffff:192.0.2.0/120", []string{"192.0.2.1", "::ffff:192.0.2.255"}, []string{"192.0.3.1", "::ffff:192.0.3.1"}},
+		{"192.0.2.0/24", []string{"192.0.2.1", "::ffff:192.0.2.255"}, []string{"192.0.3.1"}},
+		{"::ffff:192.0.2.7/128", []string{"192.0.2.7", "::ffff:192.0.2.7"}, []string{"192.0.2.8"}},
+		{"192.0.2.7/32", []string{"192.0.2.7", "::ffff:192.0.2.7"}, []string{"192.0.2.8"}},
+		{"::ffff:0:0/96", []string{"1.2.3.4", "::ffff:8.8.8.8"}, []string{"2001:db8::1"}},
+		{"2001:db8::/32", []string{"2001:db8::1", "2001:db8:ffff::1"}, []string{"2001:db9::1", "192.0.2.1"}},
+	} {
+		t.Run(tc.entry, func(t *testing.T) {
+			config := withProtectedIPs(t, &Config{}, tc.entry)
+			for _, ip := range tc.protected {
+				assert.True(t, config.IsProtectedIP(ip), ip)
+			}
+			for _, ip := range tc.notProt {
+				assert.False(t, config.IsProtectedIP(ip), ip)
+			}
+		})
+	}
+
+	// wider than /96 and covering the mapped range: no IPv4 equivalent, so rejected
+	for _, entry := range []string{"::ffff:0:0/95", "::/64", "::/0"} {
+		_, err := parseProtectedIPs([]string{entry})
+		assert.NotNil(t, err, entry)
+	}
 }

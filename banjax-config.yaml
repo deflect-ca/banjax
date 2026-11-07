@@ -118,7 +118,8 @@ banning_log_file: /etc/banjax/ban_ip_list.log
 too_many_failed_challenges_interval_seconds: 20
 too_many_failed_challenges_threshold: 3
 # Two step ban escalation. false (default): failing too many challenges (sha-inv, password or
-# AltCha) gets the ip iptables banned. true: it only gets an nginx block (403).
+# AltCha) gets the ip iptables banned. true: it only gets an nginx block (403), on every host,
+# checked before the static lists and challenges (X-Banjax-Decision: FailedChallengeBlock).
 two_step_ban_esculation: true
 # When true, an ip answered with more than too_many_403_ban_threshold 403s within
 # too_many_403_ban_interval_seconds gets iptables banned, whatever caused the 403s.
@@ -181,6 +182,7 @@ sites_to_disable_baskerville:
 #  - 172.19.0.1
 #  - 10.0.0.1
 #  - 192.168.100.0/24
+#  - ::ffff:192.168.101.0/120   # IPv4-mapped, same as 192.168.101.0/24
 # too_many_requests_html: /etc/banjax/too-many-requests.html
 use_user_agent_in_cookie:
   localhost: true

@@ -116,6 +116,8 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 
 type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision, domain string)
+	// nginx block for an ip that failed too many challenges, under two_step_ban_esculation
+	BlockIpForFailedChallenges(config *Config, ip string, domain string)
 	TooManyRequestsIpOnHost(config *Config, ip string, host string)
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
@@ -370,6 +372,15 @@ func (b Banner) BanOrChallengeIp(
 	if decision == IptablesBlock {
 		banIp(config, ip, b)
 	}
+}
+
+// BlockIpForFailedChallenges is step one of two_step_ban_esculation: an nginx block, never
+// iptables, which decisionForNginx2 applies ahead of the static lists and challenges.
+func (b Banner) BlockIpForFailedChallenges(config *Config, ip string, domain string) {
+	log.Println("BlockIpForFailedChallenges", ip, domain)
+
+	expires := time.Now().Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
+	b.DecisionLists.UpdateFailedChallengeBan(config, ip, expires, domain)
 }
 
 // TooManyRequestsIpOnHost rate limits an ip on one host only. It never touches iptables,

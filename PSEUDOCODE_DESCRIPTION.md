@@ -297,7 +297,11 @@ If a client fails too many challenges (exceeding `too_many_failed_challenges_thr
 blocked at the iptables level (or nginx level if the IP is in a per-site allowlist). This rate-limiting
 applies to both SHA-inverse and password challenges.
 
-With `two_step_ban_esculation: true` the failed-challenge ban is only an nginx-level block. With
+With `two_step_ban_esculation: true` the failed-challenge ban is only an nginx-level block
+(`FailedChallengeBlock`). It is checked right after a valid password cookie and before the
+password paths, the static lists and the expiring lists, so the IP is not served challenges while
+it is blocked; protected IPs and IPs allowlisted on the requested host are exempt. Other expiring
+blocks keep their usual place. With
 `too_many_403_ban_to_iptables_ban: true`, any IP that banjax answers with more than
 `too_many_403_ban_threshold` 403s within `too_many_403_ban_interval_seconds` is escalated to an
 iptables ban (never for protected IPs or IPs in the per-site allowlist for the requested host).

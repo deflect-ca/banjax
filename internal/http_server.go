@@ -660,12 +660,14 @@ func tooManyFailedChallenges(
 			// step one of two: an nginx block only. too_many_403_ban_to_iptables_ban decides
 			// whether the ip is escalated to iptables if it keeps coming back.
 			decisionType = NginxBlock
-		} else if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
-			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
-			decisionType = NginxBlock
+			banner.BlockIpForFailedChallenges(config, ip, host)
+		} else {
+			if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
+				log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
+				decisionType = NginxBlock
+			}
+			banner.BanOrChallengeIp(config, ip, decisionType, host)
 		}
-		// log.Println("IP has failed too many challenges; blocking them")
-		banner.BanOrChallengeIp(config, ip, decisionType, host)
 		banner.LogFailedChallengeBan(
 			config,
 			ip,
@@ -1007,6 +1009,7 @@ const (
 	SiteWideAltChaChallenge
 	SiteWideAltChaChallengeException
 	ProtectedIPException // a protected_ips block or rate limit was skipped and access granted
+	FailedChallengeBlock // blocked for too many failed challenges, under two_step_ban_esculation
 	NoMention
 	NotSet
 )
@@ -1051,6 +1054,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	SiteWideAltChaChallenge:          "SiteWideAltChaChallenge",
 	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
 	ProtectedIPException:             "ProtectedIPException",
+	FailedChallengeBlock:             "FailedChallengeBlock",
 	NoMention:                        "NoMention",
 	NotSet:                           "NotSet",
 }
@@ -1211,6 +1215,21 @@ func decisionForNginx2(
 		if grantPriorityPass {
 			decisionForNginxResult.DecisionListResult = PasswordProtectedPriorityPass
 			accessGranted(c, config, DecisionListResultToString[PasswordProtectedPriorityPass], -1.0, "", IntegrityCheckPayloadWrapper{})
+			return
+		}
+	}
+
+	// An ip blocked for too many failed challenges under two_step_ban_esculation is blocked
+	// here, ahead of every challenge source (password paths, static and expiring challenges),
+	// which would otherwise keep serving it challenges while the block is active. It stands in
+	// for the iptables ban, which blocks everything. Ordinary expiring blocks keep their place
+	// below. Exempt: protected ips, ips allowlisted on this host (as the iptables ban is), and a
+	// valid password cookie (above).
+	if failedChallengeBan, ok := dynamicDecisionLists.Check("", clientIp); ok && failedChallengeBan.IsFailedChallengeBan() {
+		perSiteDecision, foundInPerSiteList := staticDecisionLists.CheckPerSite(config, requestedHost, clientIp)
+		if !(foundInPerSiteList && perSiteDecision == Allow) && !skipDenial("failed_challenge_ban", failedChallengeBan.Decision) {
+			accessDenied(c, config, DecisionListResultToString[FailedChallengeBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = FailedChallengeBlock
 			return
 		}
 	}
@@ -1678,13 +1697,23 @@ func decisionForNginx2(
 	// a block_subnet/challenge_subnet applies as if it were sent for every ip in the subnet,
 	// so like Update it only takes over from the ip's own decision when it is more serious
 	expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringAltChaChallenge, ExpiringBlock
-	if subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp); subnetOk &&
-		(!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
-		// for a protected ip a subnet block is skipped here, so it can't hide the ip's own challenge
-		if !(subnetExpiringDecision.Decision.IsDenial() && skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)) {
-			ipExpiringDecision, ipOk = subnetExpiringDecision, true
-			expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
+	subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp)
+	if protectedIp {
+		// Blocks never apply to a protected ip, so they are dropped before the ip and subnet
+		// decisions are ranked: a block (the ip's own, stored before it was protected, or one
+		// on any covering subnet) can't hide a challenge from another of them.
+		if ipOk && ipExpiringDecision.Decision.IsDenial() {
+			skipDenial("expiring_ip_list", ipExpiringDecision.Decision)
+			ipOk = false
 		}
+		if subnetOk && subnetExpiringDecision.Decision.IsDenial() {
+			skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)
+			subnetExpiringDecision, subnetOk = dynamicDecisionLists.CheckBySubnetNonDenial(clientIp)
+		}
+	}
+	if subnetOk && (!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
+		ipExpiringDecision, ipOk = subnetExpiringDecision, true
+		expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
 	}
 	if !ipOk {
 		// log.Println("no mention in expiring lists")
