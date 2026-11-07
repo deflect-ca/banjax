@@ -1010,6 +1010,9 @@ const (
 	SiteWideAltChaChallengeException
 	ProtectedIPException // a protected_ips block or rate limit was skipped and access granted
 	FailedChallengeBlock // blocked for too many failed challenges, under two_step_ban_esculation
+	ExpiringUnifiedChallenge
+	ExpiringUnifiedAltChaChallenge
+	ExpiringUnifiedBlock
 	NoMention
 	NotSet
 )
@@ -1055,6 +1058,9 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
 	ProtectedIPException:             "ProtectedIPException",
 	FailedChallengeBlock:             "FailedChallengeBlock",
+	ExpiringUnifiedChallenge:         "ExpiringUnifiedChallenge",
+	ExpiringUnifiedAltChaChallenge:   "ExpiringUnifiedAltChaChallenge",
+	ExpiringUnifiedBlock:             "ExpiringUnifiedBlock",
 	NoMention:                        "NoMention",
 	NotSet:                           "NotSet",
 }
@@ -1477,11 +1483,70 @@ func decisionForNginx2(
 	// Check if domain disabled baskerville
 	_, disabled := config.SitesToDisableBaskerville[requestedHost]
 
-	// The expiring decision list is applied narrowest-scope first: session id, then user
-	// agent, then a challenge_all-triggered host-wide challenge, then ip (or a subnet covering it).
+	// The expiring decision list is applied narrowest-scope first: host-scoped unified rules,
+	// then session id, then user agent, then a challenge_all-triggered host-wide challenge, then
+	// ip (or a subnet covering it).
+	sessionId, _ := c.Cookie(SessionCookieName)
+
+	// 0. unified_* rules for this host: the most specific one matching ip, session id and ua.
+	// For a protected ip a block rule is skipped, so a less specific challenge can still apply.
+	unifiedDecision, unifiedOk := dynamicDecisionLists.CheckUnified(requestedHost, clientIp, sessionId, clientUserAgent, false)
+	if unifiedOk && unifiedDecision.Decision.IsDenial() && skipDenial("expiring_unified_list", unifiedDecision.Decision) {
+		unifiedDecision, unifiedOk = dynamicDecisionLists.CheckUnified(requestedHost, clientIp, sessionId, clientUserAgent, true)
+	}
+	if unifiedOk && unifiedDecision.fromBaskerville && disabled {
+		log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring unified %s for %s", requestedHost, unifiedDecision.Decision, clientIp)
+	} else if unifiedOk {
+		switch unifiedDecision.Decision {
+		case Challenge:
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
+			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
+				config,
+				c,
+				banner,
+				failedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+				ExpiringUnifiedChallenge,
+			)
+			decisionForNginxResult.DecisionListResult = ExpiringUnifiedChallenge
+			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
+			return
+		case AltChaChallenge:
+			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
+				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
+				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
+				return
+			}
+			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
+				config,
+				c,
+				banner,
+				altchaFailedChallengeStates,
+				Block, // FailAction
+				staticDecisionLists,
+				unifiedDecision.altcha,
+				ExpiringUnifiedAltChaChallenge,
+			)
+			decisionForNginxResult.DecisionListResult = ExpiringUnifiedAltChaChallenge
+			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
+			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
+			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
+			return
+		case NginxBlock, IptablesBlock:
+			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "expiring_unified_list", unifiedDecision.Decision)
+			accessDenied(c, config, DecisionListResultToString[ExpiringUnifiedBlock], -1.0, "", IntegrityCheckPayloadWrapper{})
+			decisionForNginxResult.DecisionListResult = ExpiringUnifiedBlock
+			return
+		}
+	}
 
 	// 1. session id
-	sessionId, _ := c.Cookie(SessionCookieName)
 	if sessionId != "" {
 		if sessionExpiringDecision, sessionOk := dynamicDecisionLists.Check(sessionId, ""); sessionOk {
 			switch sessionExpiringDecision.Decision {

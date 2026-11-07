@@ -71,6 +71,19 @@ var commandSpecs = map[string]commandSpec{
 	// clears independently), so it can't be expressed with requireX above;
 	// see the at-least-one check below instead.
 	"clear_rules": {},
+	// unified_* are always scoped to -host, and narrowed by any combination of
+	// -value (ip or subnet), -session-id and -ua: a request must match all of them.
+	// unified_block needs at least one of those besides -host (checked below).
+	// unified_clear removes the host's unified rules that have every field given.
+	"unified_challenge":        {requireHost: true},
+	"unified_altcha_challenge": {requireHost: true},
+	"unified_block":            {requireHost: true},
+	"unified_clear":            {requireHost: true},
+}
+
+// takesAltChaOptions is whether the -altcha-* flags apply to the command.
+func takesAltChaOptions(name string) bool {
+	return strings.HasPrefix(name, "altcha_challenge_") || name == "unified_altcha_challenge"
 }
 
 func supportedCommandNames() []string {
@@ -90,14 +103,14 @@ func envOr(key, fallback string) string {
 
 func main() {
 	cmdName := flag.String("cmd", "", "command name, one of: "+strings.Join(supportedCommandNames(), ", "))
-	host := flag.String("host", "", "host (site), required for *_all and *_ua commands, optional for clear_rules")
-	value := flag.String("value", "", "IP address (IPv4 CIDR for *_subnet), required for *_ip, *_subnet and *_session commands, optional for clear_rules")
-	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
-	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules")
+	host := flag.String("host", "", "host (site), required for *_all, *_ua and unified_* commands, optional for clear_rules")
+	value := flag.String("value", "", "IP address (IPv4 CIDR for *_subnet), required for *_ip, *_subnet and *_session commands, optional for clear_rules and unified_* (ip or IPv4 CIDR)")
+	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules and unified_*")
+	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules and unified_*")
 	ttl := flag.Int("ttl", 0, "TTL override in seconds (0 omits the field, banjax uses its own default)")
-	altchaClick := flag.Bool("altcha-click", false, "altcha_challenge_* only: serve the one-click checkbox challenge instead of the default one that solves on page load")
-	altchaForceNew := flag.Bool("altcha-force-new", false, "altcha_challenge_* only: reject altcha cookies minted before this command, so clients that already passed must solve a new challenge")
-	altchaMaxNumber := flag.Int64("altcha-max-number", 0, "altcha_challenge_* difficulty, clamped by banjax to 1000..20000 (omitted unless given, banjax then uses altcha_max_number from its config)")
+	altchaClick := flag.Bool("altcha-click", false, "altcha_challenge_* and unified_altcha_challenge only: serve the one-click checkbox challenge instead of the default one that solves on page load")
+	altchaForceNew := flag.Bool("altcha-force-new", false, "altcha_challenge_* and unified_altcha_challenge only: reject altcha cookies minted before this command, so clients that already passed must solve a new challenge")
+	altchaMaxNumber := flag.Int64("altcha-max-number", 0, "altcha_challenge_* and unified_altcha_challenge difficulty, clamped by banjax to 1000..20000 (omitted unless given, banjax then uses altcha_max_number from its config)")
 	source := flag.String("source", "kafka-cmd-tester", "value for the command's source field")
 	printLog := flag.Bool("print-log", true, "set print_log on the command, so banjax logs it even without debug mode")
 
@@ -149,12 +162,16 @@ func main() {
 			altchaMaxNumberSet = true
 		}
 	})
-	if altchaMaxNumberSet && !strings.HasPrefix(*cmdName, "altcha_challenge_") {
-		fmt.Fprintf(os.Stderr, "error: -altcha-max-number only applies to altcha_challenge_* commands, not %s\n", *cmdName)
+	if altchaMaxNumberSet && !takesAltChaOptions(*cmdName) {
+		fmt.Fprintf(os.Stderr, "error: -altcha-max-number only applies to altcha_challenge_* and unified_altcha_challenge, not %s\n", *cmdName)
 		os.Exit(2)
 	}
-	if *altchaClick && !strings.HasPrefix(*cmdName, "altcha_challenge_") {
-		fmt.Fprintf(os.Stderr, "error: -altcha-click only applies to altcha_challenge_* commands, not %s\n", *cmdName)
+	if *altchaClick && !takesAltChaOptions(*cmdName) {
+		fmt.Fprintf(os.Stderr, "error: -altcha-click only applies to altcha_challenge_* and unified_altcha_challenge, not %s\n", *cmdName)
+		os.Exit(2)
+	}
+	if *cmdName == "unified_block" && *value == "" && *sessionId == "" && *ua == "" {
+		fmt.Fprintln(os.Stderr, "error: unified_block requires at least one of -value, -session-id, or -ua besides -host (banjax drops a host-only block)")
 		os.Exit(2)
 	}
 	if *cmdName == "clear_rules" && *host == "" && *value == "" && *sessionId == "" && *ua == "" {
@@ -172,8 +189,8 @@ func main() {
 		TTL:       *ttl,
 		UA:        *ua,
 	}
-	if *altchaForceNew && !strings.HasPrefix(*cmdName, "altcha_challenge_") {
-		fmt.Fprintf(os.Stderr, "error: -altcha-force-new only applies to altcha_challenge_* commands, not %s\n", *cmdName)
+	if *altchaForceNew && !takesAltChaOptions(*cmdName) {
+		fmt.Fprintf(os.Stderr, "error: -altcha-force-new only applies to altcha_challenge_* and unified_altcha_challenge, not %s\n", *cmdName)
 		os.Exit(2)
 	}
 	if altchaMaxNumberSet {

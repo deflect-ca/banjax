@@ -267,6 +267,15 @@ func handleCommand(
 	case "clear_rules":
 		handleClearRulesCommand(config, command, decisionLists)
 		break
+	case "unified_challenge":
+		handleUnifiedCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+	case "unified_altcha_challenge":
+		handleUnifiedCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+	case "unified_block":
+		// always an nginx block: an iptables ban would apply to every host on the edge
+		handleUnifiedCommand(config, command, decisionLists, NginxBlock, getBlockIpTtl(config, command.Host))
+	case "unified_clear":
+		handleUnifiedClearCommand(config, command, decisionLists)
 	default:
 		if config.Debug {
 			log.Printf("KAFKA: unrecognized command name: %s\n", command.Name)
@@ -523,6 +532,71 @@ func handleClearRulesCommand(
 
 	if !cleared {
 		log.Printf("KAFKA: clear_rules command has no host, value (ip or subnet), session_id, or ua, nothing to clear\n")
+	}
+}
+
+// handleUnifiedCommand stores a unified_* rule: host is required, and Value (ip or subnet),
+// session_id and ua narrow it down further. See unified_decision.go.
+func handleUnifiedCommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+	decision Decision,
+	expireDuration int,
+) {
+	if command.Host == "" {
+		log.Printf("KAFKA: command host is empty, skip %s\n", command.Name)
+		return
+	}
+	key, err := parseUnifiedRuleKey(command.Value, command.SessionId, command.UA)
+	if err != nil {
+		log.Printf("KAFKA: skip %s for %s: %v\n", command.Name, command.Host, err)
+		return
+	}
+
+	ttl := expireDuration
+	if command.TTL > 0 {
+		ttl = command.TTL
+	}
+
+	if config.Debug {
+		log.Printf("KAFKA: handleUnifiedCommand %s %s %s %d\n", command.Host, key, decision, ttl)
+	}
+
+	err = decisionLists.UpdateUnified(
+		config,
+		command.Host,
+		key,
+		time.Now().Add(time.Duration(ttl)*time.Second),
+		decision,
+		true, // from baskerville, provide to http_server to distinguish from regex
+		altchaOptionsFor(command, decision),
+	)
+	if err != nil {
+		log.Printf("KAFKA: skip %s for %s: %v\n", command.Name, command.Host, err)
+	}
+}
+
+// handleUnifiedClearCommand removes the unified rules on host that have every field given in
+// the command (host alone removes all of them).
+func handleUnifiedClearCommand(
+	config *Config,
+	command commandMessage,
+	decisionLists *DynamicDecisionLists,
+) {
+	if command.Host == "" {
+		log.Printf("KAFKA: command host is empty, skip %s\n", command.Name)
+		return
+	}
+	filter, err := parseUnifiedRuleKey(command.Value, command.SessionId, command.UA)
+	if err != nil {
+		log.Printf("KAFKA: skip %s for %s: %v\n", command.Name, command.Host, err)
+		return
+	}
+
+	removed := decisionLists.RemoveUnified(command.Host, filter)
+	if config.Debug || command.PrintLog {
+		log.Printf("KAFKA: unified_clear %s %s removed %d rules\n", command.Host, filter, removed)
 	}
 }
 

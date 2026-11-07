@@ -6,7 +6,8 @@ without needing baskerville running. Useful for exercising
 `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`,
 `challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`,
 `altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`,
-`altcha_challenge_ua`, `clear_rules`.
+`altcha_challenge_ua`, `clear_rules`, `unified_challenge`,
+`unified_altcha_challenge`, `unified_block`, `unified_clear`.
 
 The message JSON matches the `commandMessage` struct banjax's kafka reader
 unmarshals, so what you send here is exactly what banjax would receive from
@@ -40,6 +41,10 @@ docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.1 -s
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0'
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0' -host localhost
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.0/24
+docker compose run --rm kafka-cmd-tester -cmd unified_challenge -host localhost -value 192.168.65.1
+docker compose run --rm kafka-cmd-tester -cmd unified_block -host localhost -value 192.168.65.0/24 -ua 'curl/7.68.0'
+docker compose run --rm kafka-cmd-tester -cmd unified_altcha_challenge -host localhost -session-id 'Qe5jhD1T6K8AAAAAapmM0w==' -altcha-click
+docker compose run --rm kafka-cmd-tester -cmd unified_clear -host localhost -value 192.168.65.1
 ```
 
 `block_subnet`/`challenge_subnet` work like `block_ip`/`challenge_ip` (same
@@ -83,6 +88,17 @@ decision list (at least one is required). The exception is `-ua` together
 with `-host`: that clears the UA only on that host (and still clears the
 host's sitewide challenge). `-ua` alone clears the UA on every host.
 
+The `unified_*` commands always need `-host` and only act on that host. Any of
+`-value` (IP or IPv4 subnet), `-session-id` and `-ua` narrow them down: a
+request must match every one given. `unified_block` needs at least one of
+them (a host-only block is refused here and dropped by banjax), while a
+host-only `unified_challenge` challenges the whole site. When several unified
+rules match, the one with the most fields wins. `unified_clear` removes the
+host's unified rules that have every field given (`-host` alone removes all of
+them); `clear_rules` does not touch unified rules. The `-altcha-*` flags also
+apply to `unified_altcha_challenge`. See `PSEUDOCODE_DESCRIPTION.md` for the
+details.
+
 Preview the JSON without sending anything with `-dry-run`:
 
 ```sh
@@ -108,15 +124,15 @@ kafka.
 
 | Flag | Purpose |
 | --- | --- |
-| `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`, `altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`, `altcha_challenge_ua`, or `clear_rules` |
-| `-host` | site; required for `*_all` and `*_ua` commands, optional for `clear_rules` |
-| `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands (including the `altcha_challenge_*` ones), optional for `clear_rules` |
-| `-session-id` | required for `*_session` commands, optional for `clear_rules` |
-| `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |
+| `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`, `altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`, `altcha_challenge_ua`, `clear_rules`, `unified_challenge`, `unified_altcha_challenge`, `unified_block`, or `unified_clear` |
+| `-host` | site; required for `*_all`, `*_ua` and `unified_*` commands, optional for `clear_rules` |
+| `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands (including the `altcha_challenge_*` ones), optional for `clear_rules` and `unified_*` (IP or IPv4 CIDR) |
+| `-session-id` | required for `*_session` commands, optional for `clear_rules` and `unified_*` |
+| `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` and `unified_*` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required for `clear_rules`) |
 | `-ttl` | TTL override in seconds (omitted by default, banjax falls back to its own config) |
-| `-altcha-click` | `altcha_challenge_*` only: serve the one-click checkbox challenge instead of the default one that solves on page load (sends `"altcha_click": true`) |
-| `-altcha-force-new` | `altcha_challenge_*` only: reject Altcha cookies minted before this command, forcing clients to solve a new challenge (sends `"altcha_force_new": true`) |
-| `-altcha-max-number` | `altcha_challenge_*` only: challenge difficulty, clamped by banjax to 1000..20000 (omitted by default, banjax falls back to `altcha_max_number`) |
+| `-altcha-click` | `altcha_challenge_*` and `unified_altcha_challenge` only: serve the one-click checkbox challenge instead of the default one that solves on page load (sends `"altcha_click": true`) |
+| `-altcha-force-new` | `altcha_challenge_*` and `unified_altcha_challenge` only: reject Altcha cookies minted before this command, forcing clients to solve a new challenge (sends `"altcha_force_new": true`) |
+| `-altcha-max-number` | `altcha_challenge_*` and `unified_altcha_challenge` only: challenge difficulty, clamped by banjax to 1000..20000 (omitted by default, banjax falls back to `altcha_max_number`) |
 | `-source` | tags the command's `source` field (default `kafka-cmd-tester`) |
 | `-print-log` | set `print_log` so banjax logs the command even outside debug mode (default `true`) |
 | `-count`, `-interval` | send the message more than once, with a delay between sends |
