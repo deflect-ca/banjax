@@ -193,12 +193,12 @@ func (h *DynamicDecisionLists) UpdateUnified(
 		ipAddress = key.prefix.String()
 	}
 	rules[key] = ExpiringDecision{
-		newDecision,
-		expires,
-		ipAddress,
-		fromBaskerville,
-		host,
-		altcha,
+		Decision:        newDecision,
+		Expires:         expires,
+		IpAddress:       ipAddress,
+		fromBaskerville: fromBaskerville,
+		domain:          host,
+		altcha:          altcha,
 	}
 	return nil
 }
