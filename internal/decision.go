@@ -60,6 +60,12 @@ func ParseStaticListDecision(s string) (Decision, error) {
 	return decision, nil
 }
 
+// IsBlock reports whether d denies access (nginx 403 or iptables), which is never applied
+// to an ip in protected_ips.
+func (d Decision) IsBlock() bool {
+	return d == NginxBlock || d == IptablesBlock
+}
+
 func (d Decision) String() string {
 	switch d {
 	case Allow:
@@ -549,6 +555,11 @@ func (h *DynamicDecisionLists) Update(
 	domain string,
 	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
+	if newDecision.IsBlock() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionLists: not blocking protected ip", newDecision, ip, domain)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -589,6 +600,13 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 	domain string,
 	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
+	// ip is the session's ip as reported by baskerville; the session cookie can also turn up
+	// from another ip, which decisionForNginx checks on each request
+	if newDecision.IsBlock() && config.IsProtectedIP(ip) {
+		log.Printf("updateExpiringDecisionListsSessionId: not blocking session %s of protected ip %s\n", sessionId, ip)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 

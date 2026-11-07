@@ -227,6 +227,15 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
 
+	protectedIPs, err := parseProtectedIPs(config.ProtectedIPs)
+	if err != nil {
+		return nil, err
+	}
+	config.protectedIPs = protectedIPs
+	if len(config.ProtectedIPs) > 0 {
+		log.Println("INIT: protected ips (never blocked): ", config.ProtectedIPs)
+	}
+
 	if config.DecisionLogThrottleEnabled && config.DecisionLogThrottleIntervalSeconds <= 0 {
 		config.DecisionLogThrottleIntervalSeconds = 60
 	}

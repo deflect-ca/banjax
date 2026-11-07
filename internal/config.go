@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/netip"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -115,6 +117,61 @@ type Config struct {
 	AltChaCost                                   int    `yaml:"altcha_cost"`       // PBKDF2 iterations per attempt; 0 means AltChaDefaultCost
 	AltChaChallengeHTML                          string `yaml:"altcha_challenge_html"`
 	AltChaChallengerBytes                        []byte
+	// IPs (or CIDR ranges) that banjax never blocks, by nginx (403) or by iptables, whatever
+	// decided the block: kafka commands, regex rules, failed challenges, or the static ip and
+	// user agent lists. Challenges and rate limits still apply to them.
+	ProtectedIPs []string `yaml:"protected_ips"`
+	// ProtectedIPs parsed by load()
+	protectedIPs protectedIPSet
+}
+
+// protectedIPSet is the parsed form of Config.ProtectedIPs.
+type protectedIPSet struct {
+	addrs    map[netip.Addr]bool
+	prefixes []netip.Prefix
+}
+
+// parseProtectedIPs parses each entry as an ip or a CIDR range.
+func parseProtectedIPs(entries []string) (protectedIPSet, error) {
+	set := protectedIPSet{addrs: make(map[netip.Addr]bool)}
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if strings.Contains(entry, "/") {
+			prefix, err := netip.ParsePrefix(entry)
+			if err != nil {
+				return protectedIPSet{}, fmt.Errorf("protected_ips: %q is not a valid ip or CIDR: %w", entry, err)
+			}
+			set.prefixes = append(set.prefixes, prefix.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return protectedIPSet{}, fmt.Errorf("protected_ips: %q is not a valid ip or CIDR: %w", entry, err)
+		}
+		set.addrs[addr.Unmap()] = true
+	}
+	return set, nil
+}
+
+// IsProtectedIP reports whether ip is listed in protected_ips, so must never be blocked.
+func (c *Config) IsProtectedIP(ip string) bool {
+	if len(c.protectedIPs.addrs) == 0 && len(c.protectedIPs.prefixes) == 0 {
+		return false
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if c.protectedIPs.addrs[addr] {
+		return true
+	}
+	for _, prefix := range c.protectedIPs.prefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 type RegexWithRate struct {

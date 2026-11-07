@@ -398,10 +398,39 @@ func (b Banner) IPSetDel(ip string) error {
 	return b.IPSetInstance.Del(ip)
 }
 
+// UnbanProtectedIPs removes protected ips from the iptables ipset, for ips that were banned
+// before they were added to protected_ips.
+func UnbanProtectedIPs(config *Config, banner BannerInterface) {
+	if len(config.ProtectedIPs) == 0 || config.StandaloneTesting {
+		return
+	}
+	info, err := banner.IPSetList()
+	if err != nil {
+		log.Printf("UnbanProtectedIPs: ipset list failed: %v", err)
+		return
+	}
+	for _, entry := range info.Entries {
+		// entries look like "1.2.3.4 timeout 298"
+		fields := strings.Fields(entry)
+		if len(fields) == 0 || !config.IsProtectedIP(fields[0]) {
+			continue
+		}
+		if err := banner.IPSetDel(fields[0]); err != nil {
+			log.Printf("UnbanProtectedIPs: ipset del %s failed: %v", fields[0], err)
+			continue
+		}
+		log.Println("UnbanProtectedIPs: removed protected ip from ipset", fields[0])
+	}
+}
+
 func banIp(config *Config, ip string, banner BannerInterface) {
 	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
 		log.Println("banIp: Not going to block localhost")
+		return
+	}
+	if config.IsProtectedIP(ip) {
+		log.Println("banIp: Not going to block protected ip", ip)
 		return
 	}
 	if config.StandaloneTesting {

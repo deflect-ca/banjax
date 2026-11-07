@@ -162,6 +162,13 @@ sites_to_disable_baskerville:
 # keep exempting allowlisted ips. Per-site allow lists always stay exempt.
 #sites_to_rate_limit_global_allowlist:
 #  localhost: true
+# IPs or CIDR ranges that are never blocked (nginx 403 or iptables), whatever decided the block:
+# kafka commands, regex rules, failed challenges, or the static ip and user agent lists. A block
+# is skipped and the request goes on to the next check, so challenges and rate limits still
+# apply. Protected ips already in the iptables ipset are removed at startup and on reload.
+#protected_ips:
+#  - 10.0.0.1
+#  - 192.168.100.0/24
 # too_many_requests_html: /etc/banjax/too-many-requests.html
 use_user_agent_in_cookie:
   localhost: true
