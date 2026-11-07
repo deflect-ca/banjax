@@ -948,6 +948,7 @@ const (
 	ExpiringSubnetAltChaChallenge
 	SiteWideAltChaChallenge
 	SiteWideAltChaChallengeException
+	ProtectedIPException // a protected_ips block or rate limit was skipped and access granted
 	NoMention
 	NotSet
 )
@@ -991,6 +992,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	ExpiringSubnetAltChaChallenge:    "ExpiringSubnetAltChaChallenge",
 	SiteWideAltChaChallenge:          "SiteWideAltChaChallenge",
 	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
+	ProtectedIPException:             "ProtectedIPException",
 	NoMention:                        "NoMention",
 	NotSet:                           "NotSet",
 }
@@ -1085,7 +1087,8 @@ func decisionForNginx2(
 
 	// protected_ips are never blocked or rate limited: each block or rate limit decision below
 	// is skipped for them (with break, out of its switch) and the request falls through to the
-	// next check
+	// next check. If nothing later decides otherwise, access is granted as ProtectedIPException
+	// instead of NoMention, so the exemption shows in X-Banjax-Decision.
 	protectedIp := config.IsProtectedIP(clientIp)
 	skipDenial := func(trigger string, decision Decision) bool {
 		if !protectedIp {
@@ -1093,6 +1096,9 @@ func decisionForNginx2(
 		}
 		if config.Debug {
 			log.Printf("PROTECTED-IP: skip %s %s for %s on %s", trigger, decision, clientIp, requestedHost)
+		}
+		if decisionForNginxResult.DecisionListResult == NotSet {
+			decisionForNginxResult.DecisionListResult = ProtectedIPException
 		}
 		return true
 	}
@@ -1253,9 +1259,14 @@ func decisionForNginx2(
 		switch decision {
 		case Allow:
 			// a site may opt in to rate limiting globally allowlisted ips (verified bots)
-			if config.SitesToRateLimitGlobalAllowlist[requestedHost] && !protectedIp {
+			if config.SitesToRateLimitGlobalAllowlist[requestedHost] {
 				ipHostDecision, ipHostOk := dynamicDecisionLists.CheckByIpHost(clientIp, requestedHost)
 				if ipHostOk && ipHostDecision.Decision == TooManyRequests {
+					if skipDenial("global_allowlist_rate_limit", ipHostDecision.Decision) {
+						accessGranted(c, config, DecisionListResultToString[ProtectedIPException], -1.0, "", IntegrityCheckPayloadWrapper{})
+						decisionForNginxResult.DecisionListResult = ProtectedIPException
+						return
+					}
 					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], ipHostDecision.Expires)
 					decisionForNginxResult.DecisionListResult = GlobalAllowlistTooManyRequests
 					return
@@ -1579,12 +1590,13 @@ func decisionForNginx2(
 	// a block_subnet/challenge_subnet applies as if it were sent for every ip in the subnet,
 	// so like Update it only takes over from the ip's own decision when it is more serious
 	expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringAltChaChallenge, ExpiringBlock
-	// (for a protected ip a subnet block is ignored, so it can't hide the ip's own challenge)
 	if subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp); subnetOk &&
-		!(protectedIp && subnetExpiringDecision.Decision.IsDenial()) &&
 		(!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
-		ipExpiringDecision, ipOk = subnetExpiringDecision, true
-		expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
+		// for a protected ip a subnet block is skipped here, so it can't hide the ip's own challenge
+		if !(subnetExpiringDecision.Decision.IsDenial() && skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)) {
+			ipExpiringDecision, ipOk = subnetExpiringDecision, true
+			expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
+		}
 	}
 	if !ipOk {
 		// log.Println("no mention in expiring lists")

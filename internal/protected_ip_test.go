@@ -223,7 +223,7 @@ per_site_user_agent_decision_lists:
 	t.Run("static ip and ua lists", func(t *testing.T) {
 		config := staticConfig()
 		assert.Equal(t, PerSiteBlock, run(t, config, NewDynamicDecisionLists(), otherIp, blockedUA, ""))
-		assert.Equal(t, NoMention, run(t, config, NewDynamicDecisionLists(), protectedIp, blockedUA, ""))
+		assert.Equal(t, ProtectedIPException, run(t, config, NewDynamicDecisionLists(), protectedIp, blockedUA, ""))
 	})
 
 	t.Run("a skipped block falls through to the next check", func(t *testing.T) {
@@ -242,7 +242,7 @@ global_user_agent_decision_lists:
 		lists := NewDynamicDecisionLists()
 		lists.UpdateByUA(config, blockedUA, expires, NginxBlock, true, host, AltChaOptions{})
 		assert.Equal(t, ExpiringUABlock, run(t, config, lists, otherIp, blockedUA, ""))
-		assert.Equal(t, NoMention, run(t, config, lists, protectedIp, blockedUA, ""))
+		assert.Equal(t, ProtectedIPException, run(t, config, lists, protectedIp, blockedUA, ""))
 	})
 
 	t.Run("expiring session block from another ip", func(t *testing.T) {
@@ -250,7 +250,7 @@ global_user_agent_decision_lists:
 		lists := NewDynamicDecisionLists()
 		lists.UpdateBySessionId(config, otherIp, "session-a", expires, NginxBlock, true, host, AltChaOptions{})
 		assert.Equal(t, ExpiringBlock, run(t, config, lists, otherIp, "ua", "session-a"))
-		assert.Equal(t, NoMention, run(t, config, lists, protectedIp, "ua", "session-a"))
+		assert.Equal(t, ProtectedIPException, run(t, config, lists, protectedIp, "ua", "session-a"))
 	})
 
 	t.Run("expiring subnet block", func(t *testing.T) {
@@ -260,7 +260,7 @@ global_user_agent_decision_lists:
 		assert.Nil(t, err)
 		lists.UpdateBySubnet(config, subnet, expires, NginxBlock, true, host, AltChaOptions{})
 		assert.Equal(t, ExpiringSubnetBlock, run(t, config, lists, otherIp, "ua", ""))
-		assert.Equal(t, NoMention, run(t, config, lists, protectedIp, "ua", ""))
+		assert.Equal(t, ProtectedIPException, run(t, config, lists, protectedIp, "ua", ""))
 
 		// the subnet block does not hide the protected ip's own challenge
 		lists.Update(config, protectedIp, expires, Challenge, true, host, AltChaOptions{})
@@ -370,7 +370,7 @@ func TestDecisionForNginx2SkipsRateLimitsForProtectedIP(t *testing.T) {
 		lists := NewDynamicDecisionLists()
 		lists.Update(unprotected, "10.0.0.1", expires, TooManyRequests, false, host, AltChaOptions{})
 		assert.Equal(t, ExpiringTooManyRequests, run(t, &Config{}, lists, "10.0.0.1"))
-		assert.Equal(t, NoMention, run(t, withProtectedIPs(t, &Config{}, "10.0.0.1"), lists, "10.0.0.1"))
+		assert.Equal(t, ProtectedIPException, run(t, withProtectedIPs(t, &Config{}, "10.0.0.1"), lists, "10.0.0.1"))
 	})
 
 	t.Run("global allowlist rate limit", func(t *testing.T) {
@@ -380,6 +380,35 @@ func TestDecisionForNginx2SkipsRateLimitsForProtectedIP(t *testing.T) {
 		assert.Equal(t, GlobalAllowlistTooManyRequests, run(t, config, lists, "1.2.3.4"))
 
 		config = withProtectedIPs(t, config, "1.2.3.4")
-		assert.Equal(t, GlobalAccessGranted, run(t, config, lists, "1.2.3.4"))
+		assert.Equal(t, ProtectedIPException, run(t, config, lists, "1.2.3.4"))
 	})
+}
+
+func TestProtectedIPExceptionInBanjaxDecisionHeader(t *testing.T) {
+	config := loadConfigString(`
+global_decision_lists:
+  nginx_block: [10.0.0.1]
+`)
+	config = withProtectedIPs(t, config, "10.0.0.1", "10.0.0.3")
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+
+	decide := func(ip string) (DecisionListResult, string) {
+		c := buildDecisionForNginxTestContext(ip, "example.com", "/", "ua", "")
+		result := decisionForNginx2(c, config, staticDecisionLists, NewDynamicDecisionLists(), passwordProtectedPaths,
+			NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		return result.DecisionListResult, c.Writer.Header().Get("X-Banjax-Decision")
+	}
+
+	// a block was skipped: nginx logs it as banjax_decision ProtectedIPException
+	result, header := decide("10.0.0.1")
+	assert.Equal(t, ProtectedIPException, result)
+	assert.Equal(t, "ProtectedIPException", header)
+
+	// a protected ip with nothing to skip is not an exception
+	result, header = decide("10.0.0.3")
+	assert.Equal(t, NoMention, result)
+	assert.Equal(t, "NoMention", header)
 }

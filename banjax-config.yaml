@@ -165,9 +165,11 @@ sites_to_disable_baskerville:
 # IPs or CIDR ranges that are never blocked (nginx 403 or iptables) or rate limited (429),
 # whatever decided it: kafka commands, regex rules (including sites_to_rate_limit_global_allowlist),
 # failed challenges, or the static ip and user agent lists. A block or rate limit is skipped and
-# the request goes on to the next check, so challenges still apply. Protected ips already in the
-# iptables ipset are removed at startup and on reload.
-#protected_ips:
+# the request goes on to the next check, so challenges still apply. When the request is then let
+# through, banjax_decision (X-Banjax-Decision) is ProtectedIPException. Protected ips already in
+# the iptables ipset are removed at startup and on reload.
+protected_ips:
+  - 172.19.0.1
 #  - 10.0.0.1
 #  - 192.168.100.0/24
 # too_many_requests_html: /etc/banjax/too-many-requests.html
