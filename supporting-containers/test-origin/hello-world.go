@@ -277,10 +277,10 @@ func handleEcho(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "request": report})
 }
 
-// spaPage is a small single-page app for testing deferred kafka challenges
-// (kafka_challenge_grace_seconds): it polls /spa/api/* with fetch() and XHR
-// and shows, per call, whether banjax let it through, deferred the challenge
-// (X-Banjax-Decision: ShaChallengeDeferred) or challenged it.
+// spaPage is a small single-page app for testing how banjax challenges XHRs:
+// it polls /spa/api/* with fetch() and XHR and shows, per call, whether banjax
+// let it through or refused it with the 403 JSON error
+// {"error": "challenge_required"}, and reloads to show the challenge as a page.
 //
 //go:embed spa.html
 var spaPage []byte
@@ -369,6 +369,7 @@ func main() {
 		page = page + "<style>body{padding: 2em;background-color:rgb(236, 236, 226);}</style></head>"
 		page = page + "<body><img src=\"/assets/deflect_100.png\">"
 		page = page + "<h1>Requested URL: " + c.Request.URL.Path + "</h1>"
+		page = page + "<p><a href=\"/spa\">SPA test page</a>: fetch()/XHR calls, for testing how banjax challenges XHRs</p>"
 		page = page + "Banjax test-origin @ " + time.Now().UTC().Format("15:04:05") + " UTC+0</body>"
 		c.String(404, page)
 	})

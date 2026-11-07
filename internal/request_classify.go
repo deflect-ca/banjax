@@ -42,6 +42,26 @@ func IsNavigation(r *http.Request) bool {
 	return mode == "navigate"
 }
 
+// IsXHR reports whether r is a browser's fetch() or XMLHttpRequest call, which can't
+// display an HTML challenge. Banjax answers a challenged XHR with a 403 JSON error instead,
+// and does not count it toward the failed challenge ban.
+//
+// With Sec-Fetch-Dest, only "empty" is an XHR: browsers send it for fetch(), XHR,
+// EventSource and sendBeacon, and a specific destination for everything else ("document"
+// for navigations, "image", "script" and so on). Without Sec-Fetch-Dest (older browsers, or
+// plain http), only an X-Requested-With: XMLHttpRequest header (sent by jQuery and many
+// frameworks) marks one.
+//
+// Kept strict on purpose: a non-browser client (curl, most bots) sends neither header, so it
+// keeps getting the HTML challenge and keeps counting toward the ban. Both headers can be
+// forged, but a bot has to choose to.
+func IsXHR(r *http.Request) bool {
+	if dest := headerToken(r, "Sec-Fetch-Dest"); dest != "" {
+		return dest == "empty"
+	}
+	return headerToken(r, "X-Requested-With") == "xmlhttprequest"
+}
+
 // IsPreflight reports whether r is a CORS preflight: an OPTIONS request carrying
 // Access-Control-Request-Method. A plain OPTIONS request is not a preflight.
 func IsPreflight(r *http.Request) bool {
@@ -53,7 +73,8 @@ func IsPreflight(r *http.Request) bool {
 }
 
 // IsBrowserLike reports whether r carries the headers a current browser sends for a
-// subresource request made by a page on siteHost (or one of its subdomains):
+// subresource request made by a page on siteHost (or one of its subdomains). Not used by
+// the challenge path at the moment:
 //   - Sec-Fetch-Site, Sec-Fetch-Mode and Sec-Fetch-Dest are all present (non-empty),
 //   - Sec-Fetch-Site is "same-origin" or "same-site",
 //   - Referer is present and its host is siteHost or a subdomain of siteHost.
