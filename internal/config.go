@@ -56,13 +56,26 @@ type Config struct {
 	SitesToBlockSessionTtlSeconds          map[string]int      `yaml:"sites_to_block_session_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
-	PasswordCookieTtlSeconds               int                 `yaml:"password_cookie_ttl_seconds"`
-	ShaInvCookieTtlSeconds                 int                 `yaml:"sha_inv_cookie_ttl_seconds"`
-	ShaInvExpectedZeroBits                 uint32              `yaml:"sha_inv_expected_zero_bits"`
-	RestartTime                            int
-	ReloadTime                             int
-	Hostname                               string
-	HmacSecret                             string `yaml:"hmac_secret"`
+	// Two step ban escalation. When false (the default), an ip that fails too many challenges
+	// (sha-inv, password or AltCha) gets an iptables ban. When true, it only gets an nginx
+	// block (403); too_many_403_ban_to_iptables_ban then decides whether an ip that keeps
+	// coming back while blocked is escalated to an iptables ban.
+	TwoStepBanEsculation bool `yaml:"two_step_ban_esculation"`
+	// When true, an ip that banjax answers with more than too_many_403_ban_threshold 403s
+	// within too_many_403_ban_interval_seconds gets an iptables ban. Every 403 counts, whatever
+	// its trigger: failed challenges, block lists, or expiring blocks from regex rules, kafka
+	// commands or baskerville. Protected ips and ips allowlisted on the requested host are
+	// never counted.
+	TooMany403BanToIptablesBan   bool   `yaml:"too_many_403_ban_to_iptables_ban"`
+	TooMany403BanIntervalSeconds int    `yaml:"too_many_403_ban_interval_seconds"` // 0 means TooMany403BanDefaultIntervalSeconds
+	TooMany403BanThreshold       int    `yaml:"too_many_403_ban_threshold"`        // 0 means TooMany403BanDefaultThreshold
+	PasswordCookieTtlSeconds     int    `yaml:"password_cookie_ttl_seconds"`
+	ShaInvCookieTtlSeconds       int    `yaml:"sha_inv_cookie_ttl_seconds"`
+	ShaInvExpectedZeroBits       uint32 `yaml:"sha_inv_expected_zero_bits"`
+	RestartTime                  int
+	ReloadTime                   int
+	Hostname                     string
+	HmacSecret                   string `yaml:"hmac_secret"`
 	// Path to the file to write gin (http server) log to. Use "-" to log to the stdout or empty
 	// string to disable logging.
 	GinLogFile                    string                         `yaml:"gin_log_file"`

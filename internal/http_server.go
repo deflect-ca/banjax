@@ -171,6 +171,9 @@ func RunHttpServer(
 		})
 	}
 
+	// 403s served per ip, for too_many_403_ban_to_iptables_ban
+	tooMany403States := NewFailedChallengeRateLimitStates()
+
 	r.Any("/auth_request",
 		decisionForNginx(
 			configHolder,
@@ -179,6 +182,7 @@ func RunHttpServer(
 			passwordProtectedPaths,
 			failedChallengeStates,
 			altchaFailedChallengeStates,
+			tooMany403States,
 			banner,
 		),
 	)
@@ -228,10 +232,11 @@ func RunHttpServer(
 	r.GET("/rate_limit_states", func(c *gin.Context) {
 		c.String(
 			200,
-			"regexes:\n%v\nfailed challenges:\n%v\naltcha failed challenges:\n%v\n",
+			"regexes:\n%v\nfailed challenges:\n%v\naltcha failed challenges:\n%v\n403s:\n%v\n",
 			regexStates,
 			failedChallengeStates,
 			altchaFailedChallengeStates,
+			tooMany403States,
 		)
 	})
 
@@ -650,10 +655,12 @@ func tooManyFailedChallenges(
 	result := rateLimitStates.Apply(ip, intervalSeconds, threshold)
 
 	if result.Exceeded {
-		decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip)
-
 		decisionType := IptablesBlock
-		if foundInPerSiteList && decision == Allow {
+		if config.TwoStepBanEsculation {
+			// step one of two: an nginx block only. too_many_403_ban_to_iptables_ban decides
+			// whether the ip is escalated to iptables if it keeps coming back.
+			decisionType = NginxBlock
+		} else if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
 			log.Printf("!! IP %s has failed too many challenges on host %s but in allowlisted, no iptable ban", ip, host)
 			decisionType = NginxBlock
 		}
@@ -672,6 +679,57 @@ func tooManyFailedChallenges(
 		)
 	}
 
+	return result
+}
+
+// defaults when the config leaves too_many_403_ban_* unset. Zero is never used: a zero
+// threshold would iptables ban an ip on its first 403.
+const (
+	TooMany403BanDefaultIntervalSeconds = 10
+	TooMany403BanDefaultThreshold       = 10
+)
+
+// tooMany403s is the second step of the ban escalation (see too_many_403_ban_to_iptables_ban):
+// it counts one 403 that banjax served to ip, and bans the ip with iptables once it has had
+// more than too_many_403_ban_threshold 403s within too_many_403_ban_interval_seconds.
+func tooMany403s(
+	config *Config,
+	ip string,
+	userAgent string,
+	host string,
+	path string,
+	method string,
+	banner BannerInterface,
+	rateLimitStates *FailedChallengeRateLimitStates,
+	decisionLists *StaticDecisionLists,
+) RateLimitResult {
+	if !config.TooMany403BanToIptablesBan || config.IsProtectedIP(ip) {
+		return RateLimitResult{}
+	}
+	// same exemption as for failed challenges: an ip allowlisted on this host never gets an
+	// iptables ban from it
+	if decision, foundInPerSiteList := decisionLists.CheckPerSite(config, host, ip); foundInPerSiteList && decision == Allow {
+		return RateLimitResult{}
+	}
+
+	result := rateLimitStates.Apply(ip, config.TooMany403BanIntervalSeconds, config.TooMany403BanThreshold)
+	if result.Exceeded {
+		log.Printf("IP %s got more than %d 403s within %ds on host %s, iptables ban",
+			ip, config.TooMany403BanThreshold, config.TooMany403BanIntervalSeconds, host)
+		banner.BanOrChallengeIp(config, ip, IptablesBlock, host)
+		banner.LogFailedChallengeBan(
+			config,
+			ip,
+			"too_many_403",
+			host,
+			path,
+			config.TooMany403BanThreshold,
+			userAgent,
+			IptablesBlock,
+			method,
+		)
+		ReportPassedFailedBannedMessage(config, "ip_banned", ip, host)
+	}
 	return result
 }
 
@@ -1021,7 +1079,35 @@ type DecisionForNginxResult struct {
 	AltChaChallengeResult         *AltChaChallengeResult
 	AltChaOptions                 *AltChaOptions // difficulty and click mode of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
+	TooMany403Result              *RateLimitResult // nil unless the response was a 403 counted by too_many_403_ban_to_iptables_ban
 	ClientUserAgent			      string
+}
+
+// countTooMany403s runs after decisionForNginx2 has answered the request: a 403 answer counts
+// toward too_many_403_ban_to_iptables_ban.
+func countTooMany403s(
+	c *gin.Context,
+	config *Config,
+	decisionForNginxResult *DecisionForNginxResult,
+	tooMany403States *FailedChallengeRateLimitStates,
+	staticDecisionLists *StaticDecisionLists,
+	banner BannerInterface,
+) {
+	if !config.TooMany403BanToIptablesBan || c.Writer.Status() != http.StatusForbidden {
+		return
+	}
+	result := tooMany403s(
+		config,
+		decisionForNginxResult.ClientIp,
+		decisionForNginxResult.ClientUserAgent,
+		decisionForNginxResult.RequestedHost,
+		decisionForNginxResult.RequestedPath,
+		c.Request.Method,
+		banner,
+		tooMany403States,
+		staticDecisionLists,
+	)
+	decisionForNginxResult.TooMany403Result = &result
 }
 
 func decisionForNginx(
@@ -1031,6 +1117,7 @@ func decisionForNginx(
 	passwordProtectedPaths *PasswordProtectedPaths,
 	failedChallengeStates *FailedChallengeRateLimitStates,
 	altchaFailedChallengeStates *FailedChallengeRateLimitStates,
+	tooMany403States *FailedChallengeRateLimitStates,
 	banner BannerInterface,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1045,6 +1132,7 @@ func decisionForNginx(
 			altchaFailedChallengeStates,
 			banner,
 		)
+		countTooMany403s(c, config, &decisionForNginxResult, tooMany403States, staticDecisionLists, banner)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
 			if err == nil {

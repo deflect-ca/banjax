@@ -163,6 +163,13 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	if config.AltChaTooManyFailedChallengesThreshold <= 0 {
 		config.AltChaTooManyFailedChallengesThreshold = AltChaDefaultTooManyFailedChallengesThreshold
 	}
+	// a zero threshold would iptables ban an ip on its first 403
+	if config.TooMany403BanIntervalSeconds <= 0 {
+		config.TooMany403BanIntervalSeconds = TooMany403BanDefaultIntervalSeconds
+	}
+	if config.TooMany403BanThreshold <= 0 {
+		config.TooMany403BanThreshold = TooMany403BanDefaultThreshold
+	}
 
 	if config.PasswordProtectedPathHTML != "" {
 		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)

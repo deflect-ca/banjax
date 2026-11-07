@@ -297,6 +297,11 @@ If a client fails too many challenges (exceeding `too_many_failed_challenges_thr
 blocked at the iptables level (or nginx level if the IP is in a per-site allowlist). This rate-limiting
 applies to both SHA-inverse and password challenges.
 
+With `two_step_ban_esculation: true` the failed-challenge ban is only an nginx-level block. With
+`too_many_403_ban_to_iptables_ban: true`, any IP that banjax answers with more than
+`too_many_403_ban_threshold` 403s within `too_many_403_ban_interval_seconds` is escalated to an
+iptables ban (never for protected IPs or IPs in the per-site allowlist for the requested host).
+
 ### Regex-based rate-limits
 
 One of the ways the decision lists are populated is by tailing an Nginx access log and applying regex-based

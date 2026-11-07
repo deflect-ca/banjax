@@ -200,6 +200,20 @@ altcha_too_many_failed_challenges_interval_seconds: 10
 altcha_too_many_failed_challenges_threshold: 3
 ```
 
+Failed challenge bans can be split into two steps:
+```yaml
+# true: too many failed challenges (any kind) only get an nginx block (403), not an iptables ban
+two_step_ban_esculation: true
+# true: an ip answered with more than too_many_403_ban_threshold 403s (for any reason)
+# within too_many_403_ban_interval_seconds gets an iptables ban. Both default to 10.
+too_many_403_ban_to_iptables_ban: true
+too_many_403_ban_interval_seconds: 10
+too_many_403_ban_threshold: 10
+```
+With both on, a client that fails too many challenges is first blocked by nginx, and only gets
+an iptables ban if it keeps sending requests while blocked. Protected ips and ips allowlisted on
+the requested host are never escalated.
+
 The Kafka connection is configured with:
 ```yaml
 kafka_brokers:
