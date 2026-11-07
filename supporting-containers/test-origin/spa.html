@@ -5,15 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Banjax SPA test</title>
 <!--
-  A small single-page app for testing deferred kafka challenges
-  (kafka_challenge_grace_seconds). Everything is inline on purpose: nginx sends
-  *.js / *.json / *.css paths straight to the origin, bypassing banjax, so the
-  API lives under /spa/api/ and the script lives in this page.
+  A small single-page app for testing how banjax challenges XHRs: a challenged
+  fetch()/XMLHttpRequest call gets a 403 JSON error {"error": "challenge_required"}
+  instead of the HTML challenge page, and the app reloads to show the challenge.
+
+  Everything is inline on purpose: nginx sends *.js / *.json / *.css paths
+  straight to the origin, bypassing banjax, so the API lives under /spa/api/ and
+  the script lives in this page.
 -->
 <style>
   :root {
     --bg: #ecece2; --panel: #fff; --text: #222; --muted: #666; --border: #d4d4c8;
-    --ok: #1d7a3a; --pending: #a86400; --challenged: #b3261e; --other: #555;
+    --ok: #1d7a3a; --challenged: #b3261e; --other: #555;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 1.5em; background: var(--bg); color: var(--text);
@@ -27,16 +30,17 @@
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1em; margin-bottom: 1em; }
   button, select { font: inherit; padding: .35em .7em; margin: 0 .3em .4em 0; cursor: pointer; }
+  label { margin-right: 1em; }
   code, pre { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre { background: #f6f6f0; border: 1px solid var(--border); padding: .6em; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: .3em 0 .8em; }
   #state { font-size: 1.1em; font-weight: 600; padding: .6em .8em; border-radius: 4px; background: #f3f3ec; }
-  #state.ok { color: var(--ok); } #state.pending { color: var(--pending); } #state.challenged { color: var(--challenged); }
+  #state.ok { color: var(--ok); } #state.challenged { color: var(--challenged); }
+  #state button { margin: 0 0 0 .8em; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: .3em .5em; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { font-weight: 600; color: var(--muted); }
   td.outcome { font-weight: 600; white-space: nowrap; }
   tr.ok td.outcome { color: var(--ok); }
-  tr.pending td.outcome { color: var(--pending); }
   tr.challenged td.outcome { color: var(--challenged); }
   tr.other td.outcome { color: var(--other); }
   .muted { color: var(--muted); }
@@ -47,7 +51,7 @@
 <header>
   <img src="/assets/deflect_100.png" alt="">
   <div>
-    <h1>Banjax SPA test: deferred kafka challenges</h1>
+    <h1>Banjax SPA test: challenged XHRs</h1>
     <nav>
       <a href="/spa/app/home" data-route="home">Home</a>
       <a href="/spa/app/inbox" data-route="inbox">Inbox</a>
@@ -66,20 +70,23 @@
   <section>
     <h2>How to test</h2>
     <ol>
-      <li>Open this page at <code>http://localhost/spa</code> (localhost or https, otherwise the browser sends no <code>Sec-Fetch-*</code> headers and nothing is deferred).</li>
+      <li>Open this page at <code>http://localhost/spa</code>. Use localhost or https: otherwise the browser
+        sends no <code>Sec-Fetch-*</code> headers, and only the XHR button (which sends
+        <code>X-Requested-With</code>) is recognised as an XHR.</li>
       <li>Leave polling on. Calls should show <b>OK</b>.</li>
       <li>Send a kafka challenge for this site from the repo root:
-        <pre id="cmd-all">docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost</pre>
+        <pre>docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost</pre>
         or for this browser's session only:
         <pre id="cmd-session">(loading session id...)</pre>
       </li>
-      <li>Within the grace period, API calls show <b>PENDING</b>: let through, with
-        <code>X-Banjax-Decision: ShaChallengeDeferred</code>.</li>
-      <li>Once the grace period is over, they show <b>CHALLENGED</b> (the HTML challenge, 429).</li>
-      <li>Click <b>Full page load</b> to meet the challenge as a navigation, solve it, and come back: calls are <b>OK</b> again.</li>
+      <li>API calls now show <b>CHALLENGE REQUIRED</b>: a 403 with
+        <code>{"error": "challenge_required"}</code>. They don't count toward the failed challenge ban,
+        so polling can carry on.</li>
+      <li>Click <b>Reload to verify</b> (or tick auto-reload) to get the challenge as a page, solve it, and
+        come back: calls are <b>OK</b> again.</li>
     </ol>
-    <p class="muted">Also try adding <code>-score 0.95</code> (at or above the max score: no grace), a command for
-      a site in <code>attack_mode</code>, or <b>fetch without Referer</b> below (not browser-like: no grace).</p>
+    <p class="muted">Compare with <code>curl -H 'Accept: application/json' http://localhost/spa/api/feed</code>
+      while challenged: not an XHR, so it gets the HTML challenge (429) and does count toward the ban.</p>
   </section>
 
   <section>
@@ -91,16 +98,16 @@
         <option value="2000" selected>every 2s</option>
         <option value="5000">every 5s</option>
       </select>
+      <label><input type="checkbox" id="auto-reload"> auto-reload on challenge_required</label>
     </div>
     <div>
       <button data-action="feed">fetch() feed</button>
       <button data-action="xhr">XHR notifications</button>
       <button data-action="like">POST like</button>
-      <button data-action="noreferrer">fetch without Referer</button>
       <button data-action="whoami">whoami</button>
     </div>
     <div>
-      <button id="navigate">Full page load</button>
+      <button id="navigate">Reload to verify</button>
       <button id="clear-log">Clear log</button>
     </div>
     <h2 style="margin-top:.8em">Feed</h2>
@@ -120,30 +127,38 @@
 (function () {
   "use strict";
 
-  var DEFERRED = { ShaChallengeDeferred: true, AltChaChallengeDeferred: true };
   var pollTimer = null;
-  var pendingSince = null;   // when the first deferred (pending) response arrived
+  var challengedSince = null;   // when the first challenge_required arrived
   var stateEl = document.getElementById("state");
   var logEl = document.getElementById("log");
+  var autoReload = document.getElementById("auto-reload");
 
   function now() { return new Date().toLocaleTimeString(); }
 
-  // classify a response into ok / pending / challenged / other
-  function classify(status, decision, contentType) {
-    if (DEFERRED[decision]) return { cls: "pending", label: "PENDING (deferred)" };
-    if (status === 429 && contentType.indexOf("text/html") !== -1) return { cls: "challenged", label: "CHALLENGED (HTML)" };
+  // classify a response: ok / challenged (the JSON 403 or an HTML challenge page) / other
+  function classify(status, contentType, body) {
+    if (status === 403 && body && body.error === "challenge_required") {
+      return { cls: "challenged", label: "CHALLENGE REQUIRED (JSON 403, " + body.challenge + ")", challengeRequired: true };
+    }
+    if (status === 429 && contentType.indexOf("text/html") !== -1) return { cls: "challenged", label: "HTML CHALLENGE (429)" };
     if (status === 403) return { cls: "challenged", label: "BLOCKED (403)" };
     if (status >= 200 && status < 300) return { cls: "ok", label: "OK" };
     return { cls: "other", label: "HTTP " + status };
   }
 
-  function setState(cls, text) {
+  function setState(cls, text, withReloadButton) {
     stateEl.className = cls;
     stateEl.textContent = text;
+    if (withReloadButton) {
+      var button = document.createElement("button");
+      button.textContent = "Reload to verify";
+      button.addEventListener("click", function () { location.reload(); });
+      stateEl.appendChild(button);
+    }
   }
 
-  function record(name, status, decision, contentType) {
-    var outcome = classify(status, decision, contentType);
+  function record(name, status, decision, contentType, body) {
+    var outcome = classify(status, contentType, body);
     var row = document.createElement("tr");
     row.className = outcome.cls;
     [now(), name, String(status), decision || "-", outcome.label].forEach(function (text, i) {
@@ -155,15 +170,20 @@
     logEl.insertBefore(row, logEl.firstChild);
     while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
 
-    if (outcome.cls === "pending") {
-      if (!pendingSince) pendingSince = Date.now();
-      var seconds = Math.round((Date.now() - pendingSince) / 1000);
-      setState("pending", "PENDING: a kafka challenge is deferred (" + seconds + "s since the first deferred call). The next navigation will be challenged.");
+    if (outcome.challengeRequired) {
+      if (!challengedSince) challengedSince = Date.now();
+      if (autoReload.checked) {
+        setState("challenged", "CHALLENGE REQUIRED: reloading to show the browser check...");
+        stopPolling();
+        setTimeout(function () { location.reload(); }, 500);
+        return outcome;
+      }
+      var seconds = Math.round((Date.now() - challengedSince) / 1000);
+      setState("challenged", "CHALLENGE REQUIRED: API calls are refused with a 403 JSON error (" + seconds + "s so far, not counted toward a ban).", true);
     } else if (outcome.cls === "challenged") {
-      var extra = pendingSince ? " Deferred for about " + Math.round((Date.now() - pendingSince) / 1000) + "s before this." : "";
-      setState("challenged", "CHALLENGED: API calls get the HTML challenge. Click Full page load to solve it." + extra);
+      setState("challenged", "Challenged: " + outcome.label + ".", true);
     } else if (outcome.cls === "ok") {
-      pendingSince = null;
+      challengedSince = null;
       setState("ok", "OK: API calls reach the origin normally.");
     }
     return outcome;
@@ -174,11 +194,13 @@
     return fetch(url, options || {}).then(function (response) {
       var decision = response.headers.get("X-Banjax-Decision") || "";
       var contentType = response.headers.get("Content-Type") || "";
-      record(name, response.status, decision, contentType);
-      if (contentType.indexOf("application/json") !== -1 && response.ok) return response.json();
-      return null;
+      var parse = contentType.indexOf("application/json") !== -1 ? response.json().catch(function () { return null; }) : Promise.resolve(null);
+      return parse.then(function (body) {
+        record(name, response.status, decision, contentType, body);
+        return response.ok ? body : null;
+      });
     }).catch(function (error) {
-      record(name + " (network error: " + error.message + ")", 0, "", "");
+      record(name + " (network error: " + error.message + ")", 0, "", "", null);
       return null;
     });
   }
@@ -198,15 +220,21 @@
     feed: function () {
       return call("GET /spa/api/feed (fetch)", "/spa/api/feed").then(renderFeed);
     },
+    // sends X-Requested-With like jQuery does, so it is an XHR even without Sec-Fetch headers
     xhr: function () {
       var xhr = new XMLHttpRequest();
       xhr.open("GET", "/spa/api/notifications");
       xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
       xhr.onload = function () {
-        record("GET /spa/api/notifications (XHR)", xhr.status,
-          xhr.getResponseHeader("X-Banjax-Decision") || "", xhr.getResponseHeader("Content-Type") || "");
+        var contentType = xhr.getResponseHeader("Content-Type") || "";
+        var body = null;
+        if (contentType.indexOf("application/json") !== -1) {
+          try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
+        }
+        record("GET /spa/api/notifications (XHR)", xhr.status, xhr.getResponseHeader("X-Banjax-Decision") || "", contentType, body);
       };
-      xhr.onerror = function () { record("GET /spa/api/notifications (XHR, network error)", 0, "", ""); };
+      xhr.onerror = function () { record("GET /spa/api/notifications (XHR, network error)", 0, "", "", null); };
       xhr.send();
     },
     like: function () {
@@ -215,10 +243,6 @@
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify({ item: 1 })
       });
-    },
-    // no Referer header, so banjax does not consider it browser-like and never defers it
-    noreferrer: function () {
-      return call("GET /spa/api/feed (no Referer)", "/spa/api/feed", { referrerPolicy: "no-referrer" });
     },
     whoami: function () {
       return call("GET /spa/api/whoami", "/spa/api/whoami").then(function (data) {
@@ -276,6 +300,12 @@
   });
   document.getElementById("navigate").addEventListener("click", function () { location.reload(); });
   document.getElementById("clear-log").addEventListener("click", function () { logEl.textContent = ""; });
+
+  // remember the auto-reload choice across reloads
+  try { autoReload.checked = localStorage.getItem("spa-auto-reload") === "1"; } catch (e) {}
+  autoReload.addEventListener("change", function () {
+    try { localStorage.setItem("spa-auto-reload", autoReload.checked ? "1" : "0"); } catch (e) {}
+  });
 
   var initialRoute = location.pathname.replace(/^\/spa\/app\/?/, "").replace(/^\/spa\/?$/, "") || "home";
   showRoute(initialRoute);

@@ -385,3 +385,37 @@ func TestIsNavigationSecFetchModeValues(t *testing.T) {
 		})
 	}
 }
+
+func TestIsXHR(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string]string
+		want    bool
+	}{
+		{"same-origin fetch()", map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Accept": "*/*"}, true},
+		{"cross-origin fetch()", map[string]string{"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Origin": "https://www.example.com"}, true},
+		{"XHR with Sec-Fetch headers", map[string]string{"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "X-Requested-With": "XMLHttpRequest"}, true},
+		{"mixed-case Sec-Fetch-Dest", map[string]string{"Sec-Fetch-Dest": "  EMPTY "}, true},
+		{"fetch() asking for html is still an XHR", map[string]string{"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Accept": "text/html"}, true},
+		{"chrome navigation", map[string]string{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Accept": chromeNavigationAccept}, false},
+		{"iframe navigation", map[string]string{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, false},
+		{"<img> load", map[string]string{"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image"}, false},
+		{"<script> load", map[string]string{"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script"}, false},
+		{"Sec-Fetch-Dest wins over X-Requested-With", map[string]string{"Sec-Fetch-Dest": "document", "X-Requested-With": "XMLHttpRequest"}, false},
+		{"old browser jQuery XHR", map[string]string{"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}, true},
+		{"old browser, X-Requested-With lowercase", map[string]string{"X-Requested-With": " xmlhttprequest "}, true},
+		{"old browser fetch() without X-Requested-With", map[string]string{"Accept": "application/json"}, false},
+		{"old browser navigation", map[string]string{"Accept": "text/html,application/xhtml+xml"}, false},
+		{"X-Requested-With from an Android WebView app id", map[string]string{"X-Requested-With": "com.example.app"}, false},
+		{"curl with no headers", map[string]string{}, false},
+		{"curl default Accept", map[string]string{"Accept": "*/*"}, false},
+		{"api client asking for json", map[string]string{"Accept": "application/json", "Content-Type": "application/json"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsXHR(newClassifyRequest(http.MethodGet, tt.headers)); got != tt.want {
+				t.Errorf("IsXHR() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
