@@ -7,6 +7,7 @@
 package main
 
 import (
+	_ "embed"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -276,6 +277,68 @@ func handleEcho(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "request": report})
 }
 
+// spaPage is a small single-page app for testing deferred kafka challenges
+// (kafka_challenge_grace_seconds): it polls /spa/api/* with fetch() and XHR
+// and shows, per call, whether banjax let it through, deferred the challenge
+// (X-Banjax-Decision: ShaChallengeDeferred) or challenged it.
+//
+//go:embed spa.html
+var spaPage []byte
+
+func serveSPA(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", spaPage)
+}
+
+// spaAPI is the JSON the SPA's API calls get. The API lives under /spa/api/
+// with no file extension because nginx sends *.json (and *.js) paths straight
+// to the origin, so they would never reach banjax.
+func spaAPI(c *gin.Context, body gin.H) {
+	c.Header("Cache-Control", "no-store")
+	body["ok"] = true
+	body["server_time"] = time.Now().UTC().Format("15:04:05")
+	c.JSON(http.StatusOK, body)
+}
+
+func handleSPAFeed(c *gin.Context) {
+	t := time.Now().UTC().Format("15:04:05")
+	spaAPI(c, gin.H{"items": []gin.H{
+		{"title": "Latest article", "time": t},
+		{"title": "Comment on your post", "time": t},
+		{"title": "Weekly digest", "time": t},
+	}})
+}
+
+func handleSPANotifications(c *gin.Context) {
+	spaAPI(c, gin.H{"unread": time.Now().Second() % 5})
+}
+
+func handleSPALike(c *gin.Context) {
+	spaAPI(c, gin.H{"liked": true})
+}
+
+func handleSPARoute(c *gin.Context) {
+	spaAPI(c, gin.H{"route": c.Param("route")})
+}
+
+// handleSPAWhoami reports the request headers the origin received, so you can
+// see what nginx passed through, and the deflect_session cookie for sending a
+// challenge_session command (the cookie is not readable from JavaScript).
+func handleSPAWhoami(c *gin.Context) {
+	session, _ := c.Cookie("deflect_session")
+	spaAPI(c, gin.H{
+		"deflect_session": session,
+		"host":            c.Request.Host,
+		"headers": gin.H{
+			"Sec-Fetch-Site": c.GetHeader("Sec-Fetch-Site"),
+			"Sec-Fetch-Mode": c.GetHeader("Sec-Fetch-Mode"),
+			"Sec-Fetch-Dest": c.GetHeader("Sec-Fetch-Dest"),
+			"Referer":        c.GetHeader("Referer"),
+			"Accept":         c.GetHeader("Accept"),
+		},
+	})
+}
+
 func main() {
 	r := gin.Default()
 	r.Static("/assets", "./assets")
@@ -289,6 +352,14 @@ func main() {
 	r.GET("/api/resources", handleListResources)
 	r.POST("/api/resources/reset", handleResetResources)
 	r.Any("/echo", handleEcho)
+
+	r.GET("/spa", serveSPA)
+	r.GET("/spa/app/*route", serveSPA) // client-side routes, so a reload on one still works
+	r.GET("/spa/api/feed", handleSPAFeed)
+	r.GET("/spa/api/notifications", handleSPANotifications)
+	r.POST("/spa/api/like", handleSPALike)
+	r.GET("/spa/api/route/:route", handleSPARoute)
+	r.GET("/spa/api/whoami", handleSPAWhoami)
 
 	r.NoRoute(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
