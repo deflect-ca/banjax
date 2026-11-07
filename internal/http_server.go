@@ -1083,10 +1083,11 @@ func decisionForNginx2(
 	decisionForNginxResult.DecisionListResult = NotSet
 	decisionForNginxResult.ClientUserAgent = clientUserAgent
 
-	// protected_ips are never blocked: each block decision below is skipped for them (with
-	// break, out of its switch) and the request falls through to the next check
+	// protected_ips are never blocked or rate limited: each block or rate limit decision below
+	// is skipped for them (with break, out of its switch) and the request falls through to the
+	// next check
 	protectedIp := config.IsProtectedIP(clientIp)
-	skipBlock := func(trigger string, decision Decision) bool {
+	skipDenial := func(trigger string, decision Decision) bool {
 		if !protectedIp {
 			return false
 		}
@@ -1188,7 +1189,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			if skipBlock("per_site_ip_list", decision) {
+			if skipDenial("per_site_ip_list", decision) {
 				break
 			}
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ip_list", decision)
@@ -1237,7 +1238,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			if skipBlock("per_site_ua_list", uaDecision) {
+			if skipDenial("per_site_ua_list", uaDecision) {
 				break
 			}
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "per_site_ua_list", uaDecision)
@@ -1252,7 +1253,7 @@ func decisionForNginx2(
 		switch decision {
 		case Allow:
 			// a site may opt in to rate limiting globally allowlisted ips (verified bots)
-			if config.SitesToRateLimitGlobalAllowlist[requestedHost] {
+			if config.SitesToRateLimitGlobalAllowlist[requestedHost] && !protectedIp {
 				ipHostDecision, ipHostOk := dynamicDecisionLists.CheckByIpHost(clientIp, requestedHost)
 				if ipHostOk && ipHostDecision.Decision == TooManyRequests {
 					tooManyRequests(c, config, DecisionListResultToString[GlobalAllowlistTooManyRequests], ipHostDecision.Expires)
@@ -1296,7 +1297,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			if skipBlock("global_ip_list", decision) {
+			if skipDenial("global_ip_list", decision) {
 				break
 			}
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ip_list", decision)
@@ -1345,7 +1346,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
 			return
 		case NginxBlock, IptablesBlock:
-			if skipBlock("global_ua_list", uaDecisionGlobal) {
+			if skipDenial("global_ua_list", uaDecisionGlobal) {
 				break
 			}
 			banner.LogListDecision(config, clientIp, clientUserAgent, requestedHost, requestedPath, c.Request.Method, "global_ua_list", uaDecisionGlobal)
@@ -1422,7 +1423,7 @@ func decisionForNginx2(
 					return
 				}
 			case NginxBlock, IptablesBlock:
-				if skipBlock("expiring_session_list", sessionExpiringDecision.Decision) {
+				if skipDenial("expiring_session_list", sessionExpiringDecision.Decision) {
 					break
 				}
 				if sessionExpiringDecision.fromBaskerville && disabled {
@@ -1499,7 +1500,7 @@ func decisionForNginx2(
 				return
 			}
 		case NginxBlock, IptablesBlock:
-			if skipBlock("expiring_ua_list", uaExpiringDecision.Decision) {
+			if skipDenial("expiring_ua_list", uaExpiringDecision.Decision) {
 				break
 			}
 			if uaExpiringDecision.fromBaskerville && disabled {
@@ -1580,7 +1581,7 @@ func decisionForNginx2(
 	expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringAltChaChallenge, ExpiringBlock
 	// (for a protected ip a subnet block is ignored, so it can't hide the ip's own challenge)
 	if subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp); subnetOk &&
-		!(protectedIp && subnetExpiringDecision.Decision.IsBlock()) &&
+		!(protectedIp && subnetExpiringDecision.Decision.IsDenial()) &&
 		(!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
 		ipExpiringDecision, ipOk = subnetExpiringDecision, true
 		expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult = ExpiringSubnetChallenge, ExpiringSubnetAltChaChallenge, ExpiringSubnetBlock
@@ -1645,11 +1646,14 @@ func decisionForNginx2(
 				return
 			}
 		case TooManyRequests:
+			if skipDenial("expiring_ip_list", ipExpiringDecision.Decision) {
+				break
+			}
 			tooManyRequests(c, config, DecisionListResultToString[ExpiringTooManyRequests], ipExpiringDecision.Expires)
 			decisionForNginxResult.DecisionListResult = ExpiringTooManyRequests
 			return
 		case NginxBlock, IptablesBlock:
-			if skipBlock("expiring_ip_list", ipExpiringDecision.Decision) {
+			if skipDenial("expiring_ip_list", ipExpiringDecision.Decision) {
 				break
 			}
 			if ipExpiringDecision.fromBaskerville && disabled {

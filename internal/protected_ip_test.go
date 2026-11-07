@@ -267,3 +267,119 @@ global_user_agent_decision_lists:
 		assert.Equal(t, ExpiringChallenge, run(t, config, lists, protectedIp, "ua", ""))
 	})
 }
+
+func TestDynamicDecisionListsRefuseRateLimitForProtectedIP(t *testing.T) {
+	config := withProtectedIPs(t, &Config{}, "10.0.0.1")
+	expires := time.Now().Add(time.Minute)
+	lists := NewDynamicDecisionLists()
+
+	lists.Update(config, "10.0.0.1", expires, TooManyRequests, false, "example.com", AltChaOptions{})
+	_, ok := lists.Check("", "10.0.0.1")
+	assert.False(t, ok)
+
+	lists.UpdateByIpHost(config, "10.0.0.1", "example.com", expires, TooManyRequests)
+	_, ok = lists.CheckByIpHost("10.0.0.1", "example.com")
+	assert.False(t, ok)
+
+	lists.UpdateByIpHost(config, "10.0.0.2", "example.com", expires, TooManyRequests)
+	_, ok = lists.CheckByIpHost("10.0.0.2", "example.com")
+	assert.True(t, ok)
+}
+
+func TestRegexRulesNeverBlockOrRateLimitProtectedIP(t *testing.T) {
+	config := loadConfigString(`
+regexes_with_rates:
+  - decision: too_many_requests
+    rule: 'slow down'
+    regex: 'GET .* GET /slow.*'
+    interval: 60
+    hits_per_interval: 0
+  - decision: nginx_block
+    rule: 'block'
+    regex: 'GET .* GET /blockme.*'
+    interval: 60
+    hits_per_interval: 0
+  - decision: challenge
+    rule: 'challenge'
+    regex: 'GET .* GET /challengeme.*'
+    interval: 60
+    hits_per_interval: 0
+expiring_decision_ttl_seconds: 300
+`)
+	config = withProtectedIPs(t, config, "7.7.7.7")
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	for _, path := range []string{"/slow", "/blockme"} {
+		banner := MockBanner{}
+		consumeLine(logLine("7.7.7.7", "example.com", path), NewRegexRateLimitStates(), &banner, config, staticDecisionLists)
+		assert.Equal(t, "", banner.bannedIp, path)
+		assert.Equal(t, Decision(0), banner.regexBanDecision, "no ban is logged for %s", path)
+
+		banner = MockBanner{}
+		consumeLine(logLine("7.7.7.8", "example.com", path), NewRegexRateLimitStates(), &banner, config, staticDecisionLists)
+		assert.Equal(t, "7.7.7.8", banner.bannedIp, path)
+	}
+
+	// challenge rules still apply
+	banner := MockBanner{}
+	consumeLine(logLine("7.7.7.7", "example.com", "/challengeme"), NewRegexRateLimitStates(), &banner, config, staticDecisionLists)
+	assert.Equal(t, "7.7.7.7", banner.bannedIp)
+	assert.Equal(t, Challenge, banner.bannedDecision)
+}
+
+func TestRegexRulesNeverRateLimitProtectedGlobalAllowlistedIP(t *testing.T) {
+	config, staticDecisionLists := newGlobalAllowlistRateLimitConfig(t)
+	config = withProtectedIPs(t, config, "1.2.3.4")
+
+	banner := MockBanner{}
+	states := NewRegexRateLimitStates()
+	for i := 0; i < 3; i++ {
+		consumeLine(logLine("1.2.3.4", "opted.com", "/limited"), states, &banner, config, staticDecisionLists)
+	}
+	assert.Equal(t, "", banner.tooManyRequestsIp)
+	assert.Equal(t, Decision(0), banner.regexBanDecision)
+
+	// another allowlisted ip is still rate limited
+	for i := 0; i < 2; i++ {
+		consumeLine(logLine("5.5.5.5", "opted.com", "/limited"), states, &banner, config, staticDecisionLists)
+	}
+	assert.Equal(t, "5.5.5.5", banner.tooManyRequestsIp)
+}
+
+func TestDecisionForNginx2SkipsRateLimitsForProtectedIP(t *testing.T) {
+	const host = "opted.com"
+	expires := time.Now().Add(time.Minute)
+
+	run := func(t *testing.T, config *Config, lists *DynamicDecisionLists, ip string) DecisionListResult {
+		t.Helper()
+		staticDecisionLists, err := NewStaticDecisionLists(config)
+		assert.Nil(t, err)
+		passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+		assert.Nil(t, err)
+		c := buildDecisionForNginxTestContext(ip, host, "/", "ua", "")
+		result := decisionForNginx2(c, config, staticDecisionLists, lists, passwordProtectedPaths,
+			NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+		return result.DecisionListResult
+	}
+
+	// decisions stored before the ip was protected (e.g. by an older config)
+	unprotected := &Config{}
+
+	t.Run("expiring ip rate limit", func(t *testing.T) {
+		lists := NewDynamicDecisionLists()
+		lists.Update(unprotected, "10.0.0.1", expires, TooManyRequests, false, host, AltChaOptions{})
+		assert.Equal(t, ExpiringTooManyRequests, run(t, &Config{}, lists, "10.0.0.1"))
+		assert.Equal(t, NoMention, run(t, withProtectedIPs(t, &Config{}, "10.0.0.1"), lists, "10.0.0.1"))
+	})
+
+	t.Run("global allowlist rate limit", func(t *testing.T) {
+		config, _ := newGlobalAllowlistRateLimitConfig(t)
+		lists := NewDynamicDecisionLists()
+		lists.UpdateByIpHost(unprotected, "1.2.3.4", host, expires, TooManyRequests)
+		assert.Equal(t, GlobalAllowlistTooManyRequests, run(t, config, lists, "1.2.3.4"))
+
+		config = withProtectedIPs(t, config, "1.2.3.4")
+		assert.Equal(t, GlobalAccessGranted, run(t, config, lists, "1.2.3.4"))
+	})
+}

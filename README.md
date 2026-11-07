@@ -234,8 +234,8 @@ per_site_decision_lists:       # static allow/challenge/block decisions (per-sit
     - 30.40.50.60
     challenge:
     - 8.8.8.8
-protected_ips:                 # ips/CIDRs never blocked (nginx or iptables) from any source;
-- 10.0.0.1                     # challenges and rate limits still apply
+protected_ips:                 # ips/CIDRs never blocked (nginx or iptables) or rate limited
+- 10.0.0.1                     # (429) from any source; challenges still apply
 - 192.168.100.0/24
 iptables_ban_seconds: 10       # how long an iptables ban lasts
 iptables_unbanner_seconds: 5   # how often the unbanning task runs

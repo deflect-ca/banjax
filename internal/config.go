@@ -117,9 +117,9 @@ type Config struct {
 	AltChaCost                                   int    `yaml:"altcha_cost"`       // PBKDF2 iterations per attempt; 0 means AltChaDefaultCost
 	AltChaChallengeHTML                          string `yaml:"altcha_challenge_html"`
 	AltChaChallengerBytes                        []byte
-	// IPs (or CIDR ranges) that banjax never blocks, by nginx (403) or by iptables, whatever
-	// decided the block: kafka commands, regex rules, failed challenges, or the static ip and
-	// user agent lists. Challenges and rate limits still apply to them.
+	// IPs (or CIDR ranges) that banjax never blocks (nginx 403 or iptables) or rate limits
+	// (429), whatever decided it: kafka commands, regex rules, failed challenges, or the static
+	// ip and user agent lists. Challenges still apply to them.
 	ProtectedIPs []string `yaml:"protected_ips"`
 	// ProtectedIPs parsed by load()
 	protectedIPs protectedIPSet

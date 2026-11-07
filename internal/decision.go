@@ -60,10 +60,10 @@ func ParseStaticListDecision(s string) (Decision, error) {
 	return decision, nil
 }
 
-// IsBlock reports whether d denies access (nginx 403 or iptables), which is never applied
-// to an ip in protected_ips.
-func (d Decision) IsBlock() bool {
-	return d == NginxBlock || d == IptablesBlock
+// IsDenial reports whether d denies access: a block (nginx 403 or iptables) or a rate limit
+// (429). These are never applied to an ip in protected_ips.
+func (d Decision) IsDenial() bool {
+	return d == NginxBlock || d == IptablesBlock || d == TooManyRequests
 }
 
 func (d Decision) String() string {
@@ -555,8 +555,8 @@ func (h *DynamicDecisionLists) Update(
 	domain string,
 	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
-	if newDecision.IsBlock() && config.IsProtectedIP(ip) {
-		log.Println("updateExpiringDecisionLists: not blocking protected ip", newDecision, ip, domain)
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionLists: not blocking or rate limiting protected ip", newDecision, ip, domain)
 		return
 	}
 
@@ -602,8 +602,8 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 ) {
 	// ip is the session's ip as reported by baskerville; the session cookie can also turn up
 	// from another ip, which decisionForNginx checks on each request
-	if newDecision.IsBlock() && config.IsProtectedIP(ip) {
-		log.Printf("updateExpiringDecisionListsSessionId: not blocking session %s of protected ip %s\n", sessionId, ip)
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Printf("updateExpiringDecisionListsSessionId: not blocking or rate limiting session %s of protected ip %s\n", sessionId, ip)
 		return
 	}
 
@@ -876,6 +876,11 @@ func (h *DynamicDecisionLists) UpdateByIpHost(
 	expires time.Time,
 	newDecision Decision,
 ) {
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionListsIpHost: not rate limiting protected ip", newDecision, ip, host)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 

@@ -278,9 +278,19 @@ func applyRegexToLog(
 	if result.RateLimitResult.Exceeded {
 		// log.Println("!!! rate limit exceeded !!! ip: ", ipString)
 		decision := regexWithRate.Decision
-		if globalAllowlisted && decision != Allow {
-			// rate limit, but never challenge or block, a globally allowlisted ip
+		// rate limit, but never challenge or block, a globally allowlisted ip
+		rateLimitOnHost := globalAllowlisted && decision != Allow
+		if rateLimitOnHost {
 			decision = TooManyRequests
+		}
+		if decision.IsDenial() && config.IsProtectedIP(ipString) {
+			// never blocked or rate limited, so there is no ban to apply or log
+			if config.Debug {
+				log.Printf("PROTECTED-IP: skip regex rule %s %s for %s on %s", regexWithRate.Rule, decision, ipString, urlString)
+			}
+			return
+		}
+		if rateLimitOnHost {
 			banner.TooManyRequestsIpOnHost(config, ipString, urlString)
 		} else {
 			banner.BanOrChallengeIp(config, ipString, decision, urlString)
