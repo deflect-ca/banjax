@@ -7,6 +7,7 @@
 package internal
 
 import (
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"html"
@@ -43,7 +44,7 @@ func solveAltChaToCookie(t *testing.T, challenge altcha.Challenge) string {
 	return base64.StdEncoding.EncodeToString(jsonBytes)
 }
 
-var altchaChallengeAttr = regexp.MustCompile(`challenge="([^"]*)"`)
+var altchaChallengeAttr = regexp.MustCompile(`\schallenge="([^"]*)"`)
 
 // altchaChallengeFromPage reads the challenge applyArgsToAltChaPage put into the widget.
 func altchaChallengeFromPage(t *testing.T, page string) altcha.Challenge {
@@ -147,6 +148,22 @@ func TestAltChaPage_InjectionTargetsAppearOnce(t *testing.T) {
 	page := string(altchaChallengeEmbed)
 	assert.Equal(t, 1, strings.Count(page, `challenge="{}"`))
 	assert.Equal(t, 1, strings.Count(page, `"deflect_altcha=" + base64_cookie`))
+}
+
+// the inlined ALTCHA widget must be the exact upstream file named in the page's comment; a
+// stray edit to that one huge line still parses but breaks the widget at runtime
+func TestAltChaPage_InlineWidgetMatchesPinnedHash(t *testing.T) {
+	page := string(altchaChallengeEmbed)
+	pinned := regexp.MustCompile(`sha384:\s+(\S+)`).FindStringSubmatch(page)
+	if !assert.NotNil(t, pinned, "sha384 pin comment not found") {
+		return
+	}
+	script := regexp.MustCompile(`(?s)<script type="module">(const e=!1;.*?)</script>`).FindStringSubmatch(page)
+	if !assert.NotNil(t, script, "inline ALTCHA widget script not found") {
+		return
+	}
+	sum := sha512.Sum384([]byte(script[1]))
+	assert.Equal(t, pinned[1], base64.StdEncoding.EncodeToString(sum[:]))
 }
 
 func TestApplyArgsToAltChaPage(t *testing.T) {
