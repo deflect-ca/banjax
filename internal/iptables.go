@@ -116,6 +116,8 @@ func RunIpBanExpirer(config *Config, wg *sync.WaitGroup) {
 
 type BannerInterface interface {
 	BanOrChallengeIp(config *Config, ip string, decision Decision, domain string)
+	// nginx block for an ip that failed too many challenges, under two_step_ban_esculation
+	BlockIpForFailedChallenges(config *Config, ip string, domain string)
 	TooManyRequestsIpOnHost(config *Config, ip string, host string)
 	LogRegexBan(config *Config, logTime time.Time, ip string, ruleName string, logLine string, decision Decision)
 	LogFailedChallengeBan(config *Config, ip string, challengeType string, host string, path string, tooManyFailedChallengesThreshold int,
@@ -372,6 +374,15 @@ func (b Banner) BanOrChallengeIp(
 	}
 }
 
+// BlockIpForFailedChallenges is step one of two_step_ban_esculation: an nginx block, never
+// iptables, which decisionForNginx2 applies ahead of the static lists and challenges.
+func (b Banner) BlockIpForFailedChallenges(config *Config, ip string, domain string) {
+	log.Println("BlockIpForFailedChallenges", ip, domain)
+
+	expires := time.Now().Add(time.Duration(config.ExpiringDecisionTtlSeconds) * time.Second)
+	b.DecisionLists.UpdateFailedChallengeBan(config, ip, expires, domain)
+}
+
 // TooManyRequestsIpOnHost rate limits an ip on one host only. It never touches iptables,
 // since an iptables ban would cut the ip off from every site on this edge.
 func (b Banner) TooManyRequestsIpOnHost(config *Config, ip string, host string) {
@@ -398,10 +409,39 @@ func (b Banner) IPSetDel(ip string) error {
 	return b.IPSetInstance.Del(ip)
 }
 
+// UnbanProtectedIPs removes protected ips from the iptables ipset, for ips that were banned
+// before they were added to protected_ips.
+func UnbanProtectedIPs(config *Config, banner BannerInterface) {
+	if len(config.ProtectedIPs) == 0 || config.StandaloneTesting {
+		return
+	}
+	info, err := banner.IPSetList()
+	if err != nil {
+		log.Printf("UnbanProtectedIPs: ipset list failed: %v", err)
+		return
+	}
+	for _, entry := range info.Entries {
+		// entries look like "1.2.3.4 timeout 298"
+		fields := strings.Fields(entry)
+		if len(fields) == 0 || !config.IsProtectedIP(fields[0]) {
+			continue
+		}
+		if err := banner.IPSetDel(fields[0]); err != nil {
+			log.Printf("UnbanProtectedIPs: ipset del %s failed: %v", fields[0], err)
+			continue
+		}
+		log.Println("UnbanProtectedIPs: removed protected ip from ipset", fields[0])
+	}
+}
+
 func banIp(config *Config, ip string, banner BannerInterface) {
 	log.Println("banIp:", ip, "timeout", config.IptablesBanSeconds)
 	if ip == "127.0.0.1" {
 		log.Println("banIp: Not going to block localhost")
+		return
+	}
+	if config.IsProtectedIP(ip) {
+		log.Println("banIp: Not going to block protected ip", ip)
 		return
 	}
 	if config.StandaloneTesting {

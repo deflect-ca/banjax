@@ -11,7 +11,7 @@ global_decision_lists:
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
 expiring_decision_ttl_seconds: 300
-iptables_ban_seconds: 300
+iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
   - localhost:9094
@@ -115,8 +115,18 @@ sitewide_sha_inv_list:
   www.localhost: no_block
 server_log_file: /var/log/banjax/banjax-format.log
 banning_log_file: /etc/banjax/ban_ip_list.log
-too_many_failed_challenges_interval_seconds: 10
+too_many_failed_challenges_interval_seconds: 20
 too_many_failed_challenges_threshold: 3
+# Two step ban escalation. false (default): failing too many challenges (sha-inv, password or
+# AltCha) gets the ip iptables banned. true: it only gets an nginx block (403), on every host,
+# checked before the static lists and challenges (X-Banjax-Decision: FailedChallengeBlock).
+two_step_ban_esculation: true
+# When true, an ip answered with more than too_many_403_ban_threshold 403s within
+# too_many_403_ban_interval_seconds gets iptables banned, whatever caused the 403s.
+# Both values default to 10 when unset.
+too_many_403_ban_to_iptables_ban: true
+too_many_403_ban_interval_seconds: 20
+too_many_403_ban_threshold: 3
 # AltCha challenge (decision: altcha_challenge), a stronger proof-of-work challenge than sha-inv.
 # Its failures are counted separately from sha-inv/password failures; exceeding
 # altcha_too_many_failed_challenges_threshold within the interval gets the ip iptables banned.
@@ -162,6 +172,17 @@ sites_to_disable_baskerville:
 # keep exempting allowlisted ips. Per-site allow lists always stay exempt.
 #sites_to_rate_limit_global_allowlist:
 #  localhost: true
+# IPs or CIDR ranges that are never blocked (nginx 403 or iptables) or rate limited (429),
+# whatever decided it: kafka commands, regex rules (including sites_to_rate_limit_global_allowlist),
+# failed challenges, or the static ip and user agent lists. A block or rate limit is skipped and
+# the request goes on to the next check, so challenges still apply. When the request is then let
+# through, banjax_decision (X-Banjax-Decision) is ProtectedIPException. Protected ips already in
+# the iptables ipset are removed at startup and on reload.
+#protected_ips:
+#  - 172.19.0.1
+#  - 10.0.0.1
+#  - 192.168.100.0/24
+#  - ::ffff:192.168.101.0/120   # IPv4-mapped, same as 192.168.101.0/24
 # too_many_requests_html: /etc/banjax/too-many-requests.html
 use_user_agent_in_cookie:
   localhost: true

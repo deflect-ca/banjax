@@ -10,7 +10,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/netip"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -54,13 +56,27 @@ type Config struct {
 	SitesToBlockSessionTtlSeconds          map[string]int      `yaml:"sites_to_block_session_ttl_seconds"`
 	TooManyFailedChallengesIntervalSeconds int                 `yaml:"too_many_failed_challenges_interval_seconds"`
 	TooManyFailedChallengesThreshold       int                 `yaml:"too_many_failed_challenges_threshold"`
-	PasswordCookieTtlSeconds               int                 `yaml:"password_cookie_ttl_seconds"`
-	ShaInvCookieTtlSeconds                 int                 `yaml:"sha_inv_cookie_ttl_seconds"`
-	ShaInvExpectedZeroBits                 uint32              `yaml:"sha_inv_expected_zero_bits"`
-	RestartTime                            int
-	ReloadTime                             int
-	Hostname                               string
-	HmacSecret                             string `yaml:"hmac_secret"`
+	// Two step ban escalation. When false (the default), an ip that fails too many challenges
+	// (sha-inv, password or AltCha) gets an iptables ban. When true, it only gets an nginx
+	// block (403), applied ahead of the static lists and challenges like the iptables ban it
+	// stands in for (see decisionForNginx2); too_many_403_ban_to_iptables_ban then decides
+	// whether an ip that keeps coming back while blocked is escalated to an iptables ban.
+	TwoStepBanEsculation bool `yaml:"two_step_ban_esculation"`
+	// When true, an ip that banjax answers with more than too_many_403_ban_threshold 403s
+	// within too_many_403_ban_interval_seconds gets an iptables ban. Every 403 counts, whatever
+	// its trigger: failed challenges, block lists, or expiring blocks from regex rules, kafka
+	// commands or baskerville. Protected ips and ips allowlisted on the requested host are
+	// never counted.
+	TooMany403BanToIptablesBan   bool   `yaml:"too_many_403_ban_to_iptables_ban"`
+	TooMany403BanIntervalSeconds int    `yaml:"too_many_403_ban_interval_seconds"` // 0 means TooMany403BanDefaultIntervalSeconds
+	TooMany403BanThreshold       int    `yaml:"too_many_403_ban_threshold"`        // 0 means TooMany403BanDefaultThreshold
+	PasswordCookieTtlSeconds     int    `yaml:"password_cookie_ttl_seconds"`
+	ShaInvCookieTtlSeconds       int    `yaml:"sha_inv_cookie_ttl_seconds"`
+	ShaInvExpectedZeroBits       uint32 `yaml:"sha_inv_expected_zero_bits"`
+	RestartTime                  int
+	ReloadTime                   int
+	Hostname                     string
+	HmacSecret                   string `yaml:"hmac_secret"`
 	// Path to the file to write gin (http server) log to. Use "-" to log to the stdout or empty
 	// string to disable logging.
 	GinLogFile                    string                         `yaml:"gin_log_file"`
@@ -115,6 +131,83 @@ type Config struct {
 	AltChaCost                                   int    `yaml:"altcha_cost"`       // PBKDF2 iterations per attempt; 0 means AltChaDefaultCost
 	AltChaChallengeHTML                          string `yaml:"altcha_challenge_html"`
 	AltChaChallengerBytes                        []byte
+	// IPs (or CIDR ranges) that banjax never blocks (nginx 403 or iptables) or rate limits
+	// (429), whatever decided it: kafka commands, regex rules, failed challenges, or the static
+	// ip and user agent lists. Challenges still apply to them.
+	ProtectedIPs []string `yaml:"protected_ips"`
+	// ProtectedIPs parsed by load()
+	protectedIPs protectedIPSet
+}
+
+// protectedIPSet is the parsed form of Config.ProtectedIPs.
+type protectedIPSet struct {
+	addrs    map[netip.Addr]bool
+	prefixes []netip.Prefix
+}
+
+// parseProtectedIPs parses each entry as an ip or a CIDR range.
+func parseProtectedIPs(entries []string) (protectedIPSet, error) {
+	set := protectedIPSet{addrs: make(map[netip.Addr]bool)}
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if strings.Contains(entry, "/") {
+			prefix, err := netip.ParsePrefix(entry)
+			if err != nil {
+				return protectedIPSet{}, fmt.Errorf("protected_ips: %q is not a valid ip or CIDR: %w", entry, err)
+			}
+			prefix, err = normalizeMappedPrefix(prefix.Masked())
+			if err != nil {
+				return protectedIPSet{}, fmt.Errorf("protected_ips: %q: %w", entry, err)
+			}
+			set.prefixes = append(set.prefixes, prefix)
+			continue
+		}
+		addr, err := netip.ParseAddr(entry)
+		if err != nil {
+			return protectedIPSet{}, fmt.Errorf("protected_ips: %q is not a valid ip or CIDR: %w", entry, err)
+		}
+		set.addrs[addr.Unmap()] = true
+	}
+	return set, nil
+}
+
+// ipv4MappedPrefix is the IPv6 range holding IPv4-mapped addresses (::ffff:a.b.c.d).
+var ipv4MappedPrefix = netip.MustParsePrefix("::ffff:0:0/96")
+
+// normalizeMappedPrefix rewrites an IPv4-mapped prefix as its IPv4 equivalent
+// (::ffff:192.0.2.0/120 is 192.0.2.0/24), since IsProtectedIP unmaps the addresses it checks
+// and so would never match a mapped prefix. A prefix wider than /96 that overlaps the mapped
+// range has no IPv4 equivalent, and is rejected rather than silently matching none of the
+// IPv4 addresses it covers.
+func normalizeMappedPrefix(prefix netip.Prefix) (netip.Prefix, error) {
+	if prefix.Bits() >= ipv4MappedPrefix.Bits() && ipv4MappedPrefix.Contains(prefix.Addr()) {
+		return netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-ipv4MappedPrefix.Bits()), nil
+	}
+	if prefix.Addr().Is6() && prefix.Overlaps(ipv4MappedPrefix) {
+		return netip.Prefix{}, fmt.Errorf("IPv6 prefix wider than /96 covers IPv4-mapped addresses; list the IPv4 range instead")
+	}
+	return prefix, nil
+}
+
+// IsProtectedIP reports whether ip is listed in protected_ips, so must never be blocked.
+func (c *Config) IsProtectedIP(ip string) bool {
+	if len(c.protectedIPs.addrs) == 0 && len(c.protectedIPs.prefixes) == 0 {
+		return false
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(ip))
+	if err != nil {
+		return false
+	}
+	addr = addr.Unmap()
+	if c.protectedIPs.addrs[addr] {
+		return true
+	}
+	for _, prefix := range c.protectedIPs.prefixes {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }
 
 type RegexWithRate struct {

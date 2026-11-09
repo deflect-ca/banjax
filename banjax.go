@@ -145,35 +145,6 @@ func main() {
 		log.Println("INIT: deflect challenge keys unavailable:", err)
 	}
 
-	sighup_channel := make(chan os.Signal, 1)
-	signal.Notify(sighup_channel, syscall.SIGHUP)
-	// XXX i forgot i had this config reload functionality.
-	// i don't think this will do everything it needs to. i think we'll need to restart
-	// RunHttpServer, RunLogTailer, etc. because they might have internal state that
-	// referenced old config values.
-	go func() {
-		for range sighup_channel {
-			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
-
-			err := configHolder.Reload()
-			if err != nil {
-				log.Println("failed to reload config:", err)
-				continue
-			}
-
-			config := configHolder.Get()
-
-			staticDecisionLists.UpdateFromConfig(config)
-			dynamicDecisionLists.Clear()
-			passwordProtectedPaths.UpdateFromConfig(config)
-			// This is what mints a keypair for a domain that has just turned the
-			// deflect challenge on. Non-fatal for the same reason as above.
-			if err := deflectChallengeKeys.UpdateFromConfig(config); err != nil {
-				log.Println("HOT-RELOAD: deflect challenge key update failed:", err)
-			}
-		}
-	}()
-
 	// XXX this interface exists to make mocking out the iptables stuff
 	// in testing easier. there might be a better way to do it.
 	// at least it encapsulates the decisionlists and their mutex
@@ -205,6 +176,39 @@ func main() {
 		LogThrottle:   internal.NewLogThrottleStates(configHolder),
 		IPSetInstance: init_ipset(config),
 	}
+
+	// a protected ip banned by an earlier run must not stay banned until its ipset timeout
+	internal.UnbanProtectedIPs(config, banner)
+
+	sighup_channel := make(chan os.Signal, 1)
+	signal.Notify(sighup_channel, syscall.SIGHUP)
+	// XXX i forgot i had this config reload functionality.
+	// i don't think this will do everything it needs to. i think we'll need to restart
+	// RunHttpServer, RunLogTailer, etc. because they might have internal state that
+	// referenced old config values.
+	go func() {
+		for range sighup_channel {
+			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
+
+			err := configHolder.Reload()
+			if err != nil {
+				log.Println("failed to reload config:", err)
+				continue
+			}
+
+			config := configHolder.Get()
+
+			staticDecisionLists.UpdateFromConfig(config)
+			dynamicDecisionLists.Clear()
+			internal.UnbanProtectedIPs(config, banner)
+			passwordProtectedPaths.UpdateFromConfig(config)
+			// This is what mints a keypair for a domain that has just turned the
+			// deflect challenge on. Non-fatal for the same reason as above.
+			if err := deflectChallengeKeys.UpdateFromConfig(config); err != nil {
+				log.Println("HOT-RELOAD: deflect challenge key update failed:", err)
+			}
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

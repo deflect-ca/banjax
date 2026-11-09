@@ -60,6 +60,12 @@ func ParseStaticListDecision(s string) (Decision, error) {
 	return decision, nil
 }
 
+// IsDenial reports whether d denies access: a block (nginx 403 or iptables) or a rate limit
+// (429). These are never applied to an ip in protected_ips.
+func (d Decision) IsDenial() bool {
+	return d == NginxBlock || d == IptablesBlock || d == TooManyRequests
+}
+
 func (d Decision) String() string {
 	switch d {
 	case Allow:
@@ -88,6 +94,15 @@ type ExpiringDecision struct {
 	// settings of the challenge served for an AltChaChallenge decision, zero value for the
 	// config defaults
 	altcha AltChaOptions
+	// an ip block from too many failed challenges under two_step_ban_esculation. Unlike other
+	// expiring decisions, decisionForNginx2 applies it before the static lists and challenges.
+	fromFailedChallenge bool
+}
+
+// IsFailedChallengeBan reports whether d is a block from too many failed challenges (see
+// two_step_ban_esculation).
+func (d ExpiringDecision) IsFailedChallengeBan() bool {
+	return d.fromFailedChallenge && d.Decision.IsDenial()
 }
 
 // supersededBy reports whether an update should replace this decision: only with a more
@@ -549,6 +564,31 @@ func (h *DynamicDecisionLists) Update(
 	domain string,
 	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
+	h.update(config, ip, expires, newDecision, fromBaskerville, domain, altcha, false)
+}
+
+// UpdateFailedChallengeBan stores an nginx block for an ip that failed too many challenges
+// under two_step_ban_esculation. decisionForNginx2 applies it ahead of the static lists and
+// challenges, so the ip can't keep being served challenges while it is blocked.
+func (h *DynamicDecisionLists) UpdateFailedChallengeBan(config *Config, ip string, expires time.Time, domain string) {
+	h.update(config, ip, expires, NginxBlock, false, domain, AltChaOptions{}, true)
+}
+
+func (h *DynamicDecisionLists) update(
+	config *Config,
+	ip string,
+	expires time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+	domain string,
+	altcha AltChaOptions,
+	fromFailedChallenge bool,
+) {
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionLists: not blocking or rate limiting protected ip", newDecision, ip, domain)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -569,6 +609,13 @@ func (h *DynamicDecisionLists) Update(
 	// XXX We are not using nginx to banjax cache feature yet
 	// purgeNginxAuthCacheForIp(ip)
 
+	// a failed challenge ban escalated to a more serious block (an iptables ban from
+	// too_many_403_ban_to_iptables_ban, say) keeps its precedence until it expires
+	if ok && existingExpiringDecision.IsFailedChallengeBan() && newDecision.IsDenial() &&
+		time.Now().Before(existingExpiringDecision.Expires) {
+		fromFailedChallenge = true
+	}
+
 	h.value.expiringDecisionLists[ip] = ExpiringDecision{
 		newDecision,
 		expires,
@@ -576,6 +623,7 @@ func (h *DynamicDecisionLists) Update(
 		fromBaskerville,
 		domain,
 		altcha,
+		fromFailedChallenge,
 	}
 }
 
@@ -589,6 +637,13 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 	domain string,
 	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
 ) {
+	// ip is the session's ip as reported by baskerville; the session cookie can also turn up
+	// from another ip, which decisionForNginx checks on each request
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Printf("updateExpiringDecisionListsSessionId: not blocking or rate limiting session %s of protected ip %s\n", sessionId, ip)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -611,6 +666,7 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 		fromBaskerville,
 		domain,
 		altcha,
+		false, // not from failed challenges
 	}
 }
 
@@ -673,6 +729,7 @@ func (h *DynamicDecisionLists) UpdateByHost(
 		fromBaskerville,
 		host,
 		altcha,
+		false, // not from failed challenges
 	}
 }
 
@@ -723,6 +780,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 		fromBaskerville,
 		host,
 		altcha,
+		false, // not from failed challenges
 	}
 }
 
@@ -793,11 +851,23 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 		fromBaskerville,
 		domain,
 		altcha,
+		false, // not from failed challenges
 	}
 }
 
 // CheckBySubnet returns the most serious unexpired subnet decision covering clientIp.
 func (h *DynamicDecisionLists) CheckBySubnet(clientIp string) (ExpiringDecision, bool) {
+	return h.checkBySubnet(clientIp, false)
+}
+
+// CheckBySubnetNonDenial is CheckBySubnet for a protected ip: blocks and rate limits never
+// apply to it, so they are left out before ranking, and a block on a wider (or narrower)
+// subnet can't hide a challenge on another one.
+func (h *DynamicDecisionLists) CheckBySubnetNonDenial(clientIp string) (ExpiringDecision, bool) {
+	return h.checkBySubnet(clientIp, true)
+}
+
+func (h *DynamicDecisionLists) checkBySubnet(clientIp string, skipDenials bool) (ExpiringDecision, bool) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -825,6 +895,9 @@ func (h *DynamicDecisionLists) CheckBySubnet(clientIp string) (ExpiringDecision,
 		}
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete(h.value.expiringDecisionListsSubnet, subnet)
+			continue
+		}
+		if skipDenials && expiringDecision.Decision.IsDenial() {
 			continue
 		}
 		if !foundOk || expiringDecision.Decision > found.Decision {
@@ -858,6 +931,11 @@ func (h *DynamicDecisionLists) UpdateByIpHost(
 	expires time.Time,
 	newDecision Decision,
 ) {
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionListsIpHost: not rate limiting protected ip", newDecision, ip, host)
+		return
+	}
+
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
 
@@ -882,6 +960,7 @@ func (h *DynamicDecisionLists) UpdateByIpHost(
 		false,
 		host,
 		AltChaOptions{}, // allowlist rate limits never serve altcha
+		false,           // not from failed challenges
 	}
 }
 

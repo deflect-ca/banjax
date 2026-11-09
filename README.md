@@ -200,6 +200,23 @@ altcha_too_many_failed_challenges_interval_seconds: 10
 altcha_too_many_failed_challenges_threshold: 3
 ```
 
+Failed challenge bans can be split into two steps:
+```yaml
+# true: too many failed challenges (any kind) only get an nginx block (403), not an iptables ban
+two_step_ban_esculation: true
+# true: an ip answered with more than too_many_403_ban_threshold 403s (for any reason)
+# within too_many_403_ban_interval_seconds gets an iptables ban. Both default to 10.
+too_many_403_ban_to_iptables_ban: true
+too_many_403_ban_interval_seconds: 10
+too_many_403_ban_threshold: 10
+```
+With both on, a client that fails too many challenges is first blocked by nginx, and only gets
+an iptables ban if it keeps sending requests while blocked. The nginx block
+(`X-Banjax-Decision: FailedChallengeBlock`) applies to every host and is checked before the
+static lists and every challenge, like the iptables ban it stands in for; only protected ips, ips
+allowlisted on the requested host, and a valid password cookie get past it. Protected ips and
+ips allowlisted on the requested host are never escalated.
+
 The Kafka connection is configured with:
 ```yaml
 kafka_brokers:
@@ -234,6 +251,9 @@ per_site_decision_lists:       # static allow/challenge/block decisions (per-sit
     - 30.40.50.60
     challenge:
     - 8.8.8.8
+protected_ips:                 # ips/CIDRs never blocked (nginx or iptables) or rate limited
+- 10.0.0.1                     # (429) from any source; challenges still apply
+- 192.168.100.0/24             # IPv4-mapped forms like ::ffff:192.168.100.0/120 also work
 iptables_ban_seconds: 10       # how long an iptables ban lasts
 iptables_unbanner_seconds: 5   # how often the unbanning task runs
 kafka_brokers:

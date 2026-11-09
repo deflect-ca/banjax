@@ -163,6 +163,13 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	if config.AltChaTooManyFailedChallengesThreshold <= 0 {
 		config.AltChaTooManyFailedChallengesThreshold = AltChaDefaultTooManyFailedChallengesThreshold
 	}
+	// a zero threshold would iptables ban an ip on its first 403
+	if config.TooMany403BanIntervalSeconds <= 0 {
+		config.TooMany403BanIntervalSeconds = TooMany403BanDefaultIntervalSeconds
+	}
+	if config.TooMany403BanThreshold <= 0 {
+		config.TooMany403BanThreshold = TooMany403BanDefaultThreshold
+	}
 
 	if config.PasswordProtectedPathHTML != "" {
 		log.Printf("INIT: Reading Password protected path HTML from %s", config.PasswordProtectedPathHTML)
@@ -226,6 +233,15 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("config needs kafka_brokers")
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
+
+	protectedIPs, err := parseProtectedIPs(config.ProtectedIPs)
+	if err != nil {
+		return nil, err
+	}
+	config.protectedIPs = protectedIPs
+	if len(config.ProtectedIPs) > 0 {
+		log.Println("INIT: protected ips (never blocked): ", config.ProtectedIPs)
+	}
 
 	if config.DecisionLogThrottleEnabled && config.DecisionLogThrottleIntervalSeconds <= 0 {
 		config.DecisionLogThrottleIntervalSeconds = 60
