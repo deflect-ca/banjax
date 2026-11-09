@@ -58,6 +58,8 @@ Banjax-go currently has six internal Decision types:
 - returns a JS-based SHA-inverting proof-of-work page. if the request contains a cookie with a solved challenge, banjax-go returns @access\_granted. if an IP exceeds a rate limit of failed challenges, they get blocked.
 - AltChaChallenge
 - a stronger, independent version of Challenge using an AltCha proof-of-work page. its failures are counted separately (`altcha_too_many_failed_challenges_threshold` / `_interval_seconds`), and an IP exceeding them gets blocked with iptables.
+- AltChaClickChallenge
+- AltChaChallenge with a one-click "I'm not a robot" checkbox: the proof of work only starts when the visitor ticks it, instead of on page load. it is `altcha_click_challenge` in the config decision lists and `altcha_click: true` on an `altcha_challenge_*` Kafka command, and every `banjax_decision` (X-Banjax-Decision) it produces has `AltChaClick` in place of `AltCha` (`PerSiteAltChaClickChallenge`, `AltChaClickChallengePassed`, `TooManyFailedAltChaClickChallenges`, ...), so it can be told apart in the nginx logs. it shares the `deflect_altcha` cookie and the failure counter with AltChaChallenge.
 - TooManyRequests
 - returns a plain 429 page. only produced by the regex rate limits.
 
@@ -181,6 +183,7 @@ Messages sent on `kafka_command_topic` (from Baskerville to banjax-go):
 * `{"name": "altcha_challenge_ip", "value": "1.2.3.4"}`
   * Same, with the AltCha challenge. `altcha_challenge_subnet`, `altcha_challenge_session`,
     `altcha_challenge_ua` and `altcha_challenge_all` mirror their `challenge_*` counterparts.
+    With `"altcha_click": true` they store an AltChaClickChallenge (one-click checkbox) instead.
   See [PSEUDOCODE_DESCRIPTION.md](PSEUDOCODE_DESCRIPTION.md) for the full command list.
 
 Messages sent on `kafka_report_topic` (from banjax-go to Baskerville):

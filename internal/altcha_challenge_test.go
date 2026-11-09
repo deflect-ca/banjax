@@ -235,6 +235,50 @@ per_site_decision_lists:
 	assert.Equal(t, AltChaChallenge, decision)
 }
 
+func TestStaticDecisionLists_AltChaClickChallenge(t *testing.T) {
+	config := loadConfigString(`
+global_decision_lists:
+  altcha_click_challenge:
+    - 10.0.0.1
+    - 10.0.1.0/24
+per_site_decision_lists:
+  example.com:
+    altcha_click_challenge:
+      - 10.1.0.1
+      - 10.1.1.0/24
+global_user_agent_decision_lists:
+  altcha_click_challenge:
+    - ClickBot
+`)
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+
+	for _, ip := range []string{"10.0.0.1", "10.0.1.7"} {
+		decision, ok := staticDecisionLists.CheckGlobal(config, ip)
+		assert.True(t, ok, ip)
+		assert.Equal(t, AltChaClickChallenge, decision, ip)
+	}
+	for _, ip := range []string{"10.1.0.1", "10.1.1.7"} {
+		decision, ok := staticDecisionLists.CheckPerSite(config, "example.com", ip)
+		assert.True(t, ok, ip)
+		assert.Equal(t, AltChaClickChallenge, decision, ip)
+	}
+	decision, ok := staticDecisionLists.CheckGlobalUserAgent("ClickBot/2.0")
+	assert.True(t, ok)
+	assert.Equal(t, AltChaClickChallenge, decision)
+}
+
+func TestCheckUADecision_AltChaClickBeatsAltCha(t *testing.T) {
+	pattern, _ := newUAPattern("TestBot")
+	rules := globalUAPatternToDecision{
+		AltChaChallenge:      []uaPattern{pattern},
+		AltChaClickChallenge: []uaPattern{pattern},
+	}
+	decision, ok := checkUADecision(rules, "TestBot/1.0")
+	assert.True(t, ok)
+	assert.Equal(t, AltChaClickChallenge, decision)
+}
+
 func TestHandleCommand_AltChaChallenge(t *testing.T) {
 	config := loadConfigString(kafkaTestConfString)
 	decisionLists := NewDynamicDecisionLists()
@@ -266,7 +310,35 @@ func TestHandleCommand_AltChaChallenge(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, AltChaChallenge, hostDecision.Decision)
 
-	assert.Equal(t, 5, decisionLists.MetricsAltChaChallenges())
+	altcha, altchaClick := decisionLists.MetricsAltChaChallenges()
+	assert.Equal(t, 5, altcha)
+	assert.Equal(t, 0, altchaClick)
+}
+
+func TestHandleCommand_AltChaClickChallenge(t *testing.T) {
+	config := loadConfigString(kafkaTestConfString)
+	decisionLists := NewDynamicDecisionLists()
+
+	handleCommand(config, commandMessage{Name: "altcha_challenge_ip", Value: "1.2.3.4", Host: "example.com", AltChaClick: true}, decisionLists)
+	handleCommand(config, commandMessage{Name: "altcha_challenge_subnet", Value: "5.6.7.0/24", Host: "example.com", AltChaClick: true}, decisionLists)
+	handleCommand(config, commandMessage{Name: "altcha_challenge_session", SessionId: "session-a", Value: "1.2.3.4", Host: "example.com", AltChaClick: true}, decisionLists)
+	handleCommand(config, commandMessage{Name: "altcha_challenge_ua", UA: "curl/7.68.0", Host: "example.com", AltChaClick: true}, decisionLists)
+	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaClick: true}, decisionLists)
+
+	ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+	assert.Equal(t, AltChaClickChallenge, ipDecision.Decision)
+	subnetDecision, _ := decisionLists.CheckBySubnet("5.6.7.8")
+	assert.Equal(t, AltChaClickChallenge, subnetDecision.Decision)
+	sessionDecision, _ := decisionLists.Check("session-a", "")
+	assert.Equal(t, AltChaClickChallenge, sessionDecision.Decision)
+	uaDecision, _ := decisionLists.CheckByUA("curl/7.68.0", "example.com")
+	assert.Equal(t, AltChaClickChallenge, uaDecision.Decision)
+	hostDecision, _ := decisionLists.CheckByHost("example.com")
+	assert.Equal(t, AltChaClickChallenge, hostDecision.Decision)
+
+	altcha, altchaClick := decisionLists.MetricsAltChaChallenges()
+	assert.Equal(t, 0, altcha)
+	assert.Equal(t, 5, altchaClick)
 }
 
 func TestHandleCommand_AltChaChallenge_NotDowngradedByChallenge(t *testing.T) {
@@ -550,7 +622,7 @@ func TestLoad_OmittedAltChaFailureSettingsGetDefaults(t *testing.T) {
 	c := buildDecisionForNginxTestContext("1.2.3.4", "example.com", "/", "ua", "")
 	banner := &MockBanner{}
 	result := sendOrValidateAltChaChallenge(config, c, banner, NewFailedChallengeRateLimitStates(), Block,
-		staticDecisionLists, AltChaOptions{}, GlobalAltChaChallenge)
+		staticDecisionLists, AltChaChallenge, AltChaOptions{}, GlobalAltChaChallenge)
 
 	assert.False(t, result.TooManyFailedChallengesResult.Exceeded)
 	assert.Equal(t, 429, c.Writer.Status())
@@ -567,7 +639,7 @@ func TestSendOrValidateAltChaChallenge_NotBefore(t *testing.T) {
 		c := buildDecisionForNginxTestContext(clientIp, "example.com", "/", "ua", "")
 		c.Request.AddCookie(&http.Cookie{Name: AltChaCookieName, Value: cookie})
 		return sendOrValidateAltChaChallenge(config, c, &MockBanner{}, NewFailedChallengeRateLimitStates(), NoBlock,
-			staticDecisionLists, options, GlobalAltChaChallenge)
+			staticDecisionLists, AltChaChallenge, options, GlobalAltChaChallenge)
 	}
 
 	old, err := CreateAltChaChallenge(config, clientIp, 0)

@@ -48,8 +48,8 @@ type commandMessage struct {
 	// optional difficulty for altcha_challenge_* commands, clamped to
 	// [AltChaMaxNumberMin, AltChaMaxNumberMax]; absent means config.AltChaMaxNumber
 	AltChaMaxNumber *int64 `json:"altcha_max_number"`
-	// optional for altcha_challenge_* commands: true serves the one-click checkbox challenge
-	// instead of the default one that solves on page load
+	// optional for altcha_challenge_* commands: true stores an AltChaClickChallenge (the
+	// one-click checkbox challenge) instead of an AltChaChallenge (solves on page load)
 	AltChaClick bool `json:"altcha_click"`
 	// optional for altcha_challenge_* commands: true rejects altcha cookies minted before the
 	// command arrived, so clients that already passed must solve a new challenge
@@ -217,6 +217,12 @@ func handleCommand(
 		return
 	}
 
+	// altcha_challenge_* commands: altcha_click picks the one-click decision
+	altchaDecision := AltChaChallenge
+	if command.AltChaClick {
+		altchaDecision = AltChaClickChallenge
+	}
+
 	// handle commands
 	switch command.Name {
 	case "challenge_ip":
@@ -250,19 +256,19 @@ func handleCommand(
 		handleUACommand(config, command, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
 		break
 	case "altcha_challenge_ip":
-		handleIPCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		handleIPCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "altcha_challenge_subnet":
-		handleSubnetCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		handleSubnetCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "altcha_challenge_session":
-		handleSessionCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		handleSessionCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "altcha_challenge_all":
-		handleHostCommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		handleHostCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "altcha_challenge_ua":
-		handleUACommand(config, command, decisionLists, AltChaChallenge, config.ExpiringDecisionTtlSeconds)
+		handleUACommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "clear_rules":
 		handleClearRulesCommand(config, command, decisionLists)
@@ -275,13 +281,13 @@ func handleCommand(
 }
 
 // altchaOptionsFor is the AltCha settings to store with a decision from command: the command's
-// altcha_max_number (clamped into range), altcha_click and altcha_force_new for an
-// AltChaChallenge, otherwise the zero value (config defaults, no click, any cookie accepted).
+// altcha_max_number (clamped into range) and altcha_force_new for an AltChaChallenge or
+// AltChaClickChallenge, otherwise the zero value (config defaults, any cookie accepted).
 func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
-	if decision != AltChaChallenge {
+	if !decision.IsAltCha() {
 		return AltChaOptions{}
 	}
-	options := AltChaOptions{Click: command.AltChaClick}
+	options := AltChaOptions{}
 	if command.AltChaMaxNumber != nil {
 		options.MaxNumber = ClampAltChaMaxNumber(*command.AltChaMaxNumber)
 	}

@@ -98,7 +98,7 @@ if decision in [NginxBlock, IptablesBlock]:
 # sitewide_altcha_list is checked first, so a site listed in both gets the AltCha challenge
 if sitewide_altcha_list[requested_host]:
     # block, no_block, block_click or no_block_click: fail_action Block or Allow, and _click
-    # serves the one-click checkbox instead of solving on page load
+    # makes it an AltChaClickChallenge (one-click checkbox) instead of an AltChaChallenge
     fail_action = sitewide_altcha_list[requested_host].fail_action
     if password_protected_path_exceptions[requested_host][requested_path]:
         return access_granted()
@@ -148,9 +148,15 @@ lists reject it.
 `send_or_validate_altcha_challenge()` is `send_or_validate_challenge()` with an ALTCHA v2 proof-of-work page
 (cookie `deflect_altcha`, `altcha_max_number` / `altcha_cost` difficulty, `altcha_challenge_html` to override
 the page). The page runs the official ALTCHA widget, loaded from jsDelivr pinned to one version with a
-Subresource Integrity hash. By default it solves on page load; a decision with the click option
-(Kafka `altcha_click`, or a `*_click` `sitewide_altcha_list` entry) shows the widget's one-click
-checkbox instead, and only solves once the visitor ticks it. Either way it solves a PBKDF2/SHA-256
+Subresource Integrity hash. For an AltChaChallenge it solves on page load; an AltChaClickChallenge
+(`altcha_click_challenge` in the decision lists, an `altcha_challenge_*` Kafka command with
+`altcha_click: true`, or a `*_click` `sitewide_altcha_list` entry) shows the widget's one-click checkbox instead, and only
+solves once the visitor ticks it. The two are separate decisions so every X-Banjax-Decision
+(`banjax_decision` in the nginx log) an AltChaClickChallenge produces names it: `AltChaClick` takes
+the place of `AltCha` (`PerSiteAltChaClickChallenge`, `ExpiringSubnetAltChaClickChallenge`,
+`SiteWideAltChaClickChallengeException`, `AltChaClickChallengePassed`,
+`TooManyFailedAltChaClickChallenges`, ...). Both share the `deflect_altcha` cookie and the AltCha
+failure counter, so a cookie solved for one passes the other. Either way it solves a PBKDF2/SHA-256
 challenge in Web Workers: banjax picks a secret
 counter in 0..`altcha_max_number`, and the client derives keys of `altcha_cost` iterations from 0 upwards
 until one matches. The widget needs a secure context (`crypto.subtle`), so the AltCha challenge only
@@ -225,20 +231,23 @@ checked above:
 The `altcha_challenge_*` commands take an optional integer `altcha_max_number`: the difficulty of the
 challenge served while that decision lasts, in place of `altcha_max_number` from the config. It is
 clamped to 1000..20000 (out-of-range values become the nearest limit) and ignored by every other
-command. They also take an optional boolean `altcha_click`: true serves the one-click checkbox
-challenge instead of the default one that solves on page load. And an optional boolean
+command. They also take an optional boolean `altcha_click`: true stores an AltChaClickChallenge
+(the one-click checkbox) instead of an AltChaChallenge (solves on page load). And an optional
+boolean
 `altcha_force_new`: true rejects AltCha cookies whose challenge was minted before the command arrived
 (each challenge carries a signed `issued_at`), so clients that already passed must solve a new one;
 the new cookie is then accepted. Without it a valid cookie keeps passing a new decision until it
-expires. Writes still never downgrade, but an `altcha_challenge_*` command for a key that already
-holds an AltChaChallenge with a different difficulty, click mode or force-new time replaces it, so
-resending the command changes them (and each resent `altcha_force_new` forces another new challenge).
+expires. Writes still never downgrade, but an AltCha command for a key that already holds an
+AltChaChallenge or AltChaClickChallenge replaces it whenever the decision, difficulty or force-new
+time differs, so resending with or without `altcha_click` switches between them either way and changes the rest
+(and each resent `altcha_force_new` forces another new challenge). AltChaClickChallenge ranks just
+above AltChaChallenge and below TooManyRequests and the blocks.
 
 `challenge_all` is the temporary, Kafka-driven equivalent of the `sitewide_sha_inv_list` config
 entry: it challenges every request to a host until the TTL expires, without editing the config file.
-The host list only acts on a Challenge or AltChaChallenge decision; the User-Agent list only acts on
-those two and the two block decisions (an Allow there is ignored). The `altcha_challenge_*` commands
-use the same `expiring_decision_ttl_seconds` default TTL as the `challenge_*` ones.
+The host list only acts on a Challenge, AltChaChallenge or AltChaClickChallenge decision; the
+User-Agent list only acts on those three and the two block decisions (an Allow there is ignored).
+The `altcha_challenge_*` commands use the same `expiring_decision_ttl_seconds` default TTL as the `challenge_*` ones.
 
 `block_subnet` / `challenge_subnet` cover every IP in a subnet with one command, e.g. a botnet
 rotating through a `/24` to evade per-IP blocks. The value is normalized to its network address
@@ -246,7 +255,7 @@ rotating through a `/24` to evade per-IP blocks. The value is normalized to its 
 rejected. The subnet list is checked in the same step as the IP list and acts as if the command had
 been sent for every IP in the subnet: when both an IP entry and one or more covering subnet entries
 exist, the most severe decision wins. Subnet matches are reported as `ExpiringSubnetChallenge` /
-`ExpiringSubnetAltChaChallenge` / `ExpiringSubnetBlock`.
+`ExpiringSubnetAltChaChallenge` / `ExpiringSubnetAltChaClickChallenge` / `ExpiringSubnetBlock`.
 
 Writes never downgrade an existing entry: a new decision is only stored if it is more severe than
 the one already in the list for that key.

@@ -284,20 +284,21 @@ func (bannedEntry BannedEntry) String() string {
 }
 
 type MetricsLogLine struct {
-	Time                           string
-	LenExpiringChallenges          int
-	LenExpiringBlocks              int
-	LenExpiringSitewideChallenges  int
-	LenExpiringSitewideBlocks      int
-	LenExpiringUAChallenges        int
-	LenExpiringUABlocks            int
-	LenExpiringSubnetChallenges    int
-	LenExpiringSubnetBlocks        int
-	LenExpiringTooManyRequests     int
-	LenExpiringAltChaChallenges    int
-	LenIpToRegexStates             int
-	LenFailedChallengeStates       int
-	LenAltChaFailedChallengeStates int
+	Time                             string
+	LenExpiringChallenges            int
+	LenExpiringBlocks                int
+	LenExpiringSitewideChallenges    int
+	LenExpiringSitewideBlocks        int
+	LenExpiringUAChallenges          int
+	LenExpiringUABlocks              int
+	LenExpiringSubnetChallenges      int
+	LenExpiringSubnetBlocks          int
+	LenExpiringTooManyRequests       int
+	LenExpiringAltChaChallenges      int
+	LenExpiringAltChaClickChallenges int
+	LenIpToRegexStates               int
+	LenFailedChallengeStates         int
+	LenAltChaFailedChallengeStates   int
 }
 
 func WriteMetricsToEncoder(
@@ -311,24 +312,25 @@ func WriteMetricsToEncoder(
 	lenExpiringTooManyRequests := decisionLists.MetricsTooManyRequests()
 	lenRegexStates := regexStates.Len()
 	lenFailedChallengeStates := failedChallengeStates.Len()
-	lenExpiringAltChaChallenges := decisionLists.MetricsAltChaChallenges()
+	lenExpiringAltChaChallenges, lenExpiringAltChaClickChallenges := decisionLists.MetricsAltChaChallenges()
 	lenAltChaFailedChallengeStates := altchaFailedChallengeStates.Len()
 
 	metricsLogLine := MetricsLogLine{
-		Time:                           time.Now().Format(time.RFC1123),
-		LenExpiringChallenges:          lenExpiringChallenges,
-		LenExpiringBlocks:              lenExpiringBlocks,
-		LenExpiringSitewideChallenges:  lenExpiringSitewideChallenges,
-		LenExpiringSitewideBlocks:      lenExpiringSitewideBlocks,
-		LenExpiringUAChallenges:        lenExpiringUAChallenges,
-		LenExpiringUABlocks:            lenExpiringUABlocks,
-		LenExpiringSubnetChallenges:    lenExpiringSubnetChallenges,
-		LenExpiringSubnetBlocks:        lenExpiringSubnetBlocks,
-		LenExpiringTooManyRequests:     lenExpiringTooManyRequests,
-		LenExpiringAltChaChallenges:    lenExpiringAltChaChallenges,
-		LenIpToRegexStates:             lenRegexStates,
-		LenFailedChallengeStates:       lenFailedChallengeStates,
-		LenAltChaFailedChallengeStates: lenAltChaFailedChallengeStates,
+		Time:                             time.Now().Format(time.RFC1123),
+		LenExpiringChallenges:            lenExpiringChallenges,
+		LenExpiringBlocks:                lenExpiringBlocks,
+		LenExpiringSitewideChallenges:    lenExpiringSitewideChallenges,
+		LenExpiringSitewideBlocks:        lenExpiringSitewideBlocks,
+		LenExpiringUAChallenges:          lenExpiringUAChallenges,
+		LenExpiringUABlocks:              lenExpiringUABlocks,
+		LenExpiringSubnetChallenges:      lenExpiringSubnetChallenges,
+		LenExpiringSubnetBlocks:          lenExpiringSubnetBlocks,
+		LenExpiringTooManyRequests:       lenExpiringTooManyRequests,
+		LenExpiringAltChaChallenges:      lenExpiringAltChaChallenges,
+		LenExpiringAltChaClickChallenges: lenExpiringAltChaClickChallenges,
+		LenIpToRegexStates:               lenRegexStates,
+		LenFailedChallengeStates:         lenFailedChallengeStates,
+		LenAltChaFailedChallengeStates:   lenAltChaFailedChallengeStates,
 	}
 
 	err := metricsLogEncoder.Encode(metricsLogLine)

@@ -762,12 +762,13 @@ func TestHandleCommand_AltChaClick(t *testing.T) {
 		return command
 	}
 
-	t.Run("altcha_click true is stored with the decision", func(t *testing.T) {
+	t.Run("altcha_click true stores an AltChaClickChallenge", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com", "altcha_click": true, "altcha_max_number": 5000}`), decisionLists)
 		hostDecision, ok := decisionLists.CheckByHost("example.com")
 		assert.True(t, ok)
-		assert.Equal(t, AltChaOptions{MaxNumber: 5000, Click: true}, hostDecision.altcha)
+		assert.Equal(t, AltChaClickChallenge, hostDecision.Decision)
+		assert.Equal(t, AltChaOptions{MaxNumber: 5000}, hostDecision.altcha)
 	})
 
 	t.Run("absent or false means no click", func(t *testing.T) {
@@ -776,23 +777,36 @@ func TestHandleCommand_AltChaClick(t *testing.T) {
 		handleCommand(config, decode(`{"name": "altcha_challenge_ua", "ua": "bot/1.0", "host": "example.com", "altcha_click": false}`), decisionLists)
 		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
 		uaDecision, _ := decisionLists.CheckByUA("bot/1.0", "example.com")
-		assert.False(t, ipDecision.altcha.Click)
-		assert.False(t, uaDecision.altcha.Click)
+		assert.Equal(t, AltChaChallenge, ipDecision.Decision)
+		assert.Equal(t, AltChaChallenge, uaDecision.Decision)
 	})
 
 	t.Run("ignored by non-altcha commands", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "challenge_all", "host": "example.com", "altcha_click": true}`), decisionLists)
 		hostDecision, _ := decisionLists.CheckByHost("example.com")
+		assert.Equal(t, Challenge, hostDecision.Decision)
 		assert.Equal(t, AltChaOptions{}, hostDecision.altcha)
 	})
 
-	t.Run("resending with a different click mode changes it", func(t *testing.T) {
+	t.Run("resending switches between click and no click either way", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com"}`), decisionLists)
 		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com", "altcha_click": true}`), decisionLists)
 		hostDecision, _ := decisionLists.CheckByHost("example.com")
-		assert.True(t, hostDecision.altcha.Click)
+		assert.Equal(t, AltChaClickChallenge, hostDecision.Decision)
+
+		handleCommand(config, decode(`{"name": "altcha_challenge_all", "host": "example.com"}`), decisionLists)
+		hostDecision, _ = decisionLists.CheckByHost("example.com")
+		assert.Equal(t, AltChaChallenge, hostDecision.Decision)
+	})
+
+	t.Run("a block is not downgraded to a click challenge", func(t *testing.T) {
+		decisionLists := NewDynamicDecisionLists()
+		handleCommand(config, decode(`{"name": "block_ip", "value": "1.2.3.4", "host": "example.com"}`), decisionLists)
+		handleCommand(config, decode(`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com", "altcha_click": true}`), decisionLists)
+		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+		assert.Equal(t, NginxBlock, ipDecision.Decision)
 	})
 }
 
