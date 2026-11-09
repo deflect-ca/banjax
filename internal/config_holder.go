@@ -132,6 +132,7 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		log.Printf("INIT: Reading SHA-inverse challenge HTML from embed")
 		config.ChallengerBytes = shaInvChallengeEmbed
 	}
+	config.ChallengerBytes = minifyChallengePage("SHA-inverse challenge", config.ChallengerBytes, shaInvPageMarkers())
 
 	if config.AltChaChallengeHTML != "" {
 		log.Printf("INIT: Reading AltCha challenge HTML from %s", config.AltChaChallengeHTML)
@@ -144,6 +145,7 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		log.Printf("INIT: Reading AltCha challenge HTML from embed")
 		config.AltChaChallengerBytes = altchaChallengeEmbed
 	}
+	config.AltChaChallengerBytes = minifyChallengePage("AltCha challenge", config.AltChaChallengerBytes, altchaPageMarkers())
 
 	// A zero/unset altcha_cookie_ttl_seconds mints instantly-expired challenges and a
 	// max-age=0 cookie: the client could never present a valid cookie and would loop until

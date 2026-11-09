@@ -581,15 +581,18 @@ func modifyHTMLContent(pageBytes []byte, targetStr string, toReplace string) (mo
 	return bytes.Replace(pageBytes, []byte(targetStr), []byte(toReplace), 1)
 }
 
+// cookieValueMarker is the JS the cookie rewrites below match, in
+// document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
+func cookieValueMarker(cookieName string) string {
+	return fmt.Sprintf("\"%s=\" + base64_cookie", cookieName)
+}
+
 func applyCookieMaxAge(pageBytes []byte, cookieName string, ttlSeconds int) (modifiedPageBytes []byte) {
-	/*
-		Replace hardcoded JS code to control cookie conditions
-		Target: document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
-	*/
+	// Replace hardcoded JS code to control cookie conditions
 	return modifyHTMLContent(
 		pageBytes,
-		fmt.Sprintf("\"%s=\" + base64_cookie", cookieName),
-		fmt.Sprintf("\"%s=\" + base64_cookie + \";max-age=%d\"", cookieName, ttlSeconds),
+		cookieValueMarker(cookieName),
+		fmt.Sprintf("%s + \";max-age=%d\"", cookieValueMarker(cookieName), ttlSeconds),
 	)
 }
 
@@ -616,6 +619,12 @@ func applyArgsToPasswordPage(pageBytes []byte, roaming bool, cookieTtl int) (mod
 	// apply domain scope if allow banjax roaming
 	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, PasswordCookieName)
 	return
+}
+
+// shaInvPageMarkers lists every string applyArgsToShaInvPage rewrites, so minifying the
+// page keeps them intact
+func shaInvPageMarkers() []string {
+	return []string{cookieValueMarker(ChallengeCookieName), "new_solver(10)"}
 }
 
 func applyArgsToShaInvPage(config *Config) (modifiedPageBytes []byte) {

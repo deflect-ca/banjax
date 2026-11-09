@@ -173,6 +173,12 @@ func verifyAltChaPayloadNotBefore(config *Config, payloadB64 string, binding str
 // attribute and rewrites the cookie max-age, like applyArgsToShaInvPage. The JSON is
 // HTML-escaped because the binding inside it can be the client's User-Agent. With click, the
 // widget waits for its checkbox instead of solving on load.
+// altchaPageMarkers lists every string applyArgsToAltChaPage rewrites, so minifying the
+// page keeps them intact
+func altchaPageMarkers() []string {
+	return []string{`challenge="{}"`, `auto="onload"`, cookieValueMarker(AltChaCookieName)}
+}
+
 func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge, click bool) []byte {
 	challengeJSON, err := json.Marshal(challenge)
 	if err != nil {
