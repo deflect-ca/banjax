@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -696,8 +697,9 @@ sitewide_altcha_list:
 	assert.Contains(t, err.Error(), "sitewide_altcha_list[altcha.com]")
 }
 
-// Only a Kafka command with altcha_click or a *_click sitewide_altcha_list entry serves the
-// one-click challenge; every other AltCha decision solves on page load.
+// Only an AltChaClickChallenge decision serves the one-click challenge, and X-Banjax-Decision
+// (banjax_decision in the nginx log) tells it apart from the AltChaChallenge that solves on
+// page load, wherever the decision came from.
 func TestDecisionForNginx2_AltChaClickMode(t *testing.T) {
 	config := loadConfigString(`
 hmac_secret: secret
@@ -713,6 +715,14 @@ per_site_decision_lists:
   static.com:
     altcha_challenge:
       - 1.1.1.1
+    altcha_click_challenge:
+      - 1.1.1.2
+global_decision_lists:
+  altcha_click_challenge:
+    - 1.1.1.3
+global_user_agent_decision_lists:
+  altcha_click_challenge:
+    - ClickBot
 `)
 	config.AltChaChallengerBytes = altchaChallengeEmbed
 	staticDecisionLists, err := NewStaticDecisionLists(config)
@@ -723,26 +733,38 @@ per_site_decision_lists:
 	decisionLists := NewDynamicDecisionLists()
 	expires := time.Now().Add(time.Minute)
 	decisionLists.UpdateByHost(config, "kafka.com", expires, AltChaChallenge, true, AltChaOptions{})
-	decisionLists.UpdateByHost(config, "kafka-click.com", expires, AltChaChallenge, true, AltChaOptions{Click: true})
+	decisionLists.UpdateByHost(config, "kafka-click.com", expires, AltChaClickChallenge, true, AltChaOptions{})
+	decisionLists.Update(config, "8.8.8.8", expires, AltChaClickChallenge, true, "ip.com", AltChaOptions{})
+	decisionLists.UpdateBySubnet(config, netip.MustParsePrefix("7.7.7.0/24"), expires, AltChaClickChallenge, true, "subnet.com", AltChaOptions{})
+	decisionLists.UpdateByUA(config, "click-ua/1.0", expires, AltChaClickChallenge, true, "ua.com", AltChaOptions{})
 
 	cases := []struct {
-		host, ip string
-		click    bool
+		host, ip, ua string
+		click        bool
+		want         string
 	}{
-		{"static.com", "1.1.1.1", false},
-		{"kafka.com", "9.9.9.9", false},
-		{"kafka-click.com", "9.9.9.9", true},
-		{"sitewide.com", "9.9.9.9", false},
-		{"sitewide-click.com", "9.9.9.9", true},
+		{"static.com", "1.1.1.1", "ua", false, "PerSiteAltChaChallenge"},
+		{"static.com", "1.1.1.2", "ua", true, "PerSiteAltChaClickChallenge"},
+		{"other.com", "1.1.1.3", "ua", true, "GlobalAltChaClickChallenge"},
+		{"other.com", "9.9.9.9", "ClickBot/1.0", true, "GlobalUAAltChaClickChallenge"},
+		{"kafka.com", "9.9.9.9", "ua", false, "ExpiringSiteWideAltChaChallenge"},
+		{"kafka-click.com", "9.9.9.9", "ua", true, "ExpiringSiteWideAltChaClickChallenge"},
+		{"ip.com", "8.8.8.8", "ua", true, "ExpiringAltChaClickChallenge"},
+		{"subnet.com", "7.7.7.7", "ua", true, "ExpiringSubnetAltChaClickChallenge"},
+		{"ua.com", "9.9.9.9", "click-ua/1.0", true, "ExpiringUAAltChaClickChallenge"},
+		{"sitewide.com", "9.9.9.9", "ua", false, "SiteWideAltChaChallenge"},
+		{"sitewide-click.com", "9.9.9.9", "ua", true, "SiteWideAltChaClickChallenge"},
 	}
 	for _, tc := range cases {
-		t.Run(tc.host, func(t *testing.T) {
+		t.Run(tc.want, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
-			c.Request = buildDecisionForNginxTestContext(tc.ip, tc.host, "/", "ua", "").Request
-			decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
+			c.Request = buildDecisionForNginxTestContext(tc.ip, tc.host, "/", tc.ua, "").Request
+			result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates(), &MockBanner{})
 
 			assert.Equal(t, 429, recorder.Code)
+			assert.Equal(t, tc.want, recorder.Header().Get("X-Banjax-Decision"))
+			assert.Equal(t, tc.want, result.DecisionListResult.String())
 			if tc.click {
 				assert.Contains(t, recorder.Body.String(), `<altcha-widget id="altcha" auto="off"`)
 			} else {
@@ -750,6 +772,62 @@ per_site_decision_lists:
 			}
 		})
 	}
+}
+
+// The pass, the path exception and the too-many-failures ban of a click challenge each have
+// their own X-Banjax-Decision too.
+func TestDecisionForNginx2_AltChaClickOutcomes(t *testing.T) {
+	config := loadConfigString(`
+hmac_secret: secret
+altcha_cost: 10
+altcha_max_number: 5
+altcha_cookie_ttl_seconds: 3600
+altcha_too_many_failed_challenges_threshold: 1
+altcha_too_many_failed_challenges_interval_seconds: 60
+sitewide_altcha_list:
+  click.com: block_click
+password_protected_path_exceptions:
+  click.com:
+    - /public
+`)
+	config.AltChaChallengerBytes = altchaChallengeEmbed
+	staticDecisionLists, err := NewStaticDecisionLists(config)
+	assert.Nil(t, err)
+	passwordProtectedPaths, err := NewPasswordProtectedPaths(config)
+	assert.Nil(t, err)
+	decisionLists := NewDynamicDecisionLists()
+	altchaStates := NewFailedChallengeRateLimitStates()
+
+	serve := func(ip, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = buildDecisionForNginxTestContext(ip, "click.com", path, "ua", "").Request
+		for _, cookie := range cookies {
+			c.Request.AddCookie(cookie)
+		}
+		decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, NewFailedChallengeRateLimitStates(), altchaStates, &MockBanner{})
+		return recorder
+	}
+
+	t.Run("pass", func(t *testing.T) {
+		challenge := altchaChallengeFromPage(t, serve("1.1.1.1", "/").Body.String())
+		recorder := serve("1.1.1.1", "/", &http.Cookie{Name: AltChaCookieName, Value: solveAltChaToCookie(t, challenge)})
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "AltChaClickChallengePassed", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("path exception", func(t *testing.T) {
+		recorder := serve("1.1.1.1", "/public")
+		assert.Equal(t, 200, recorder.Code)
+		assert.Equal(t, "SiteWideAltChaClickChallengeException", recorder.Header().Get("X-Banjax-Decision"))
+	})
+
+	t.Run("too many failures", func(t *testing.T) {
+		serve("2.2.2.2", "/")
+		recorder := serve("2.2.2.2", "/")
+		assert.Equal(t, 403, recorder.Code)
+		assert.Equal(t, "TooManyFailedAltChaClickChallenges", recorder.Header().Get("X-Banjax-Decision"))
+	})
 }
 
 // The decisionForNginx log line shows the AltCha settings that were applied, and nothing when
@@ -783,12 +861,14 @@ sitewide_altcha_list:
 	assert.Equal(t, &AltChaOptions{MaxNumber: 5000}, kafka.AltChaOptions)
 	// unset difficulty is shown as the config value actually used
 	sitewide := result("sitewide-click.com")
-	assert.Equal(t, &AltChaOptions{MaxNumber: 7, Click: true}, sitewide.AltChaOptions)
+	assert.Equal(t, &AltChaOptions{MaxNumber: 7}, sitewide.AltChaOptions)
+	assert.Equal(t, SiteWideAltChaClickChallenge, sitewide.DecisionListResult)
 	assert.Nil(t, result("nothing.com").AltChaOptions)
 
 	logged, err := json.Marshal(sitewide)
 	assert.Nil(t, err)
-	assert.Contains(t, string(logged), `"AltChaOptions":{"MaxNumber":7,"Click":true}`)
+	assert.Contains(t, string(logged), `"DecisionListResult":"SiteWideAltChaClickChallenge"`)
+	assert.Contains(t, string(logged), `"AltChaOptions":{"MaxNumber":7}`)
 	logged, err = json.Marshal(result("nothing.com"))
 	assert.Nil(t, err)
 	assert.Contains(t, string(logged), `"AltChaOptions":null`)

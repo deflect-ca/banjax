@@ -23,6 +23,7 @@ const (
 	Allow
 	Challenge
 	AltChaChallenge
+	AltChaClickChallenge // AltChaChallenge with a checkbox: the proof of work starts on a click
 	TooManyRequests
 	NginxBlock
 	IptablesBlock
@@ -36,6 +37,8 @@ func ParseDecision(s string) (Decision, error) {
 		return Challenge, nil
 	case "altcha_challenge":
 		return AltChaChallenge, nil
+	case "altcha_click_challenge":
+		return AltChaClickChallenge, nil
 	case "too_many_requests":
 		return TooManyRequests, nil
 	case "nginx_block":
@@ -66,6 +69,11 @@ func (d Decision) IsDenial() bool {
 	return d == NginxBlock || d == IptablesBlock || d == TooManyRequests
 }
 
+// IsAltCha reports whether d serves an AltCha challenge, with or without the click.
+func (d Decision) IsAltCha() bool {
+	return d == AltChaChallenge || d == AltChaClickChallenge
+}
+
 func (d Decision) String() string {
 	switch d {
 	case Allow:
@@ -74,6 +82,8 @@ func (d Decision) String() string {
 		return "Challenge"
 	case AltChaChallenge:
 		return "AltChaChallenge"
+	case AltChaClickChallenge:
+		return "AltChaClickChallenge"
 	case TooManyRequests:
 		return "TooManyRequests"
 	case NginxBlock:
@@ -91,8 +101,8 @@ type ExpiringDecision struct {
 	IpAddress       string
 	fromBaskerville bool
 	domain          string
-	// settings of the challenge served for an AltChaChallenge decision, zero value for the
-	// config defaults
+	// settings of the challenge served for an AltChaChallenge or AltChaClickChallenge
+	// decision, zero value for the config defaults
 	altcha AltChaOptions
 	// an ip block from too many failed challenges under two_step_ban_esculation. Unlike other
 	// expiring decisions, decisionForNginx2 applies it before the static lists and challenges.
@@ -106,14 +116,15 @@ func (d ExpiringDecision) IsFailedChallengeBan() bool {
 }
 
 // supersededBy reports whether an update should replace this decision: only with a more
-// serious decision, or, for AltChaChallenge, the same decision with different settings
-// (so a repeated altcha command can change its difficulty or click mode, and each
-// altcha_force_new command moves NotBefore forward, forcing another new challenge).
+// serious decision, or, between the two AltCha decisions, any change of decision or settings
+// (so a repeated altcha command can switch between click and no click either way, change its
+// difficulty, and each altcha_force_new command moves NotBefore forward, forcing another new
+// challenge).
 func (d ExpiringDecision) supersededBy(newDecision Decision, altcha AltChaOptions) bool {
-	if newDecision != d.Decision {
-		return newDecision > d.Decision
+	if newDecision.IsAltCha() && d.Decision.IsAltCha() {
+		return newDecision != d.Decision || altcha != d.altcha
 	}
-	return newDecision == AltChaChallenge && altcha != d.altcha
+	return newDecision > d.Decision
 }
 
 type FailAction int
@@ -175,7 +186,7 @@ func (l *StaticDecisionLists) CheckPerSite(config *Config, site string, clientIp
 
 	// perSiteDecisionListsIPMatcher has different struct as perSiteDecisionLists
 	// decision must iterate in order, once found in one of the list, break the loop
-	for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, NginxBlock, IptablesBlock} {
+	for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, AltChaClickChallenge, NginxBlock, IptablesBlock} {
 		if c.perSiteDecisionListsIPMatcher[site][iterateDecision].Contains(clientIp) {
 			if config.Debug {
 				log.Printf("matched in per-site ipMatcher %s %v %s", site, iterateDecision, clientIp)
@@ -195,7 +206,7 @@ func (l *StaticDecisionLists) CheckGlobal(config *Config, clientIp string) (Deci
 	if ok {
 		return decision, true
 	} else {
-		for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, NginxBlock, IptablesBlock} {
+		for _, iterateDecision := range []Decision{Allow, Challenge, AltChaChallenge, AltChaClickChallenge, NginxBlock, IptablesBlock} {
 			if c.globalDecisionListsIPMatcher[iterateDecision].Contains(clientIp) {
 				if config.Debug {
 					log.Printf("matched in ipMatcher %v %s", iterateDecision, clientIp)
@@ -314,6 +325,15 @@ type siteToFailAction map[string]FailAction
 type SitewideAltCha struct {
 	FailAction FailAction
 	Click      bool
+}
+
+// Decision is the AltCha decision the entry serves: AltChaClickChallenge with the _click
+// suffix, otherwise AltChaChallenge.
+func (s SitewideAltCha) Decision() Decision {
+	if s.Click {
+		return AltChaClickChallenge
+	}
+	return AltChaChallenge
 }
 
 type siteToSitewideAltCha map[string]SitewideAltCha
@@ -562,7 +582,7 @@ func (h *DynamicDecisionLists) Update(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
 ) {
 	h.update(config, ip, expires, newDecision, fromBaskerville, domain, altcha, false)
 }
@@ -635,7 +655,7 @@ func (h *DynamicDecisionLists) UpdateBySessionId(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
 ) {
 	// ip is the session's ip as reported by baskerville; the session cookie can also turn up
 	// from another ip, which decisionForNginx checks on each request
@@ -704,7 +724,7 @@ func (h *DynamicDecisionLists) UpdateByHost(
 	expires time.Time,
 	newDecision Decision,
 	fromBaskerville bool,
-	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -754,7 +774,7 @@ func (h *DynamicDecisionLists) UpdateByUA(
 	newDecision Decision,
 	fromBaskerville bool,
 	host string,
-	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -826,7 +846,7 @@ func (h *DynamicDecisionLists) UpdateBySubnet(
 	newDecision Decision,
 	fromBaskerville bool,
 	domain string,
-	altcha AltChaOptions, // AltChaChallenge settings, zero value for the config defaults
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
 ) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -1215,10 +1235,20 @@ func (h *DynamicDecisionLists) MetricsTooManyRequests() (lenExpiringTooManyReque
 	return
 }
 
-// Number of AltChaChallenge decisions across the ip, session, host, UA and subnet lists.
-func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChallenges int) {
+// Number of AltChaChallenge and of AltChaClickChallenge decisions across the ip, session,
+// host, UA and subnet lists.
+func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChallenges int, lenExpiringAltChaClickChallenges int) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
+
+	countAltCha := func(expiringDecision ExpiringDecision) {
+		switch expiringDecision.Decision {
+		case AltChaChallenge:
+			lenExpiringAltChaChallenges += 1
+		case AltChaClickChallenge:
+			lenExpiringAltChaClickChallenges += 1
+		}
+	}
 
 	for _, list := range []map[string]ExpiringDecision{
 		h.value.expiringDecisionLists,
@@ -1226,22 +1256,16 @@ func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChall
 		h.value.expiringDecisionListsHost,
 	} {
 		for _, expiringDecision := range list {
-			if expiringDecision.Decision == AltChaChallenge {
-				lenExpiringAltChaChallenges += 1
-			}
+			countAltCha(expiringDecision)
 		}
 	}
 
 	for _, expiringDecision := range h.value.expiringDecisionListsUA {
-		if expiringDecision.Decision == AltChaChallenge {
-			lenExpiringAltChaChallenges += 1
-		}
+		countAltCha(expiringDecision)
 	}
 
 	for _, expiringDecision := range h.value.expiringDecisionListsSubnet {
-		if expiringDecision.Decision == AltChaChallenge {
-			lenExpiringAltChaChallenges += 1
-		}
+		countAltCha(expiringDecision)
 	}
 
 	return

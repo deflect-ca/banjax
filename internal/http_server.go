@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	PasswordCookieName  = "deflect_password3"
-	ChallengeCookieName = "deflect_challenge3"
+	PasswordCookieName       = "deflect_password3"
+	ChallengeCookieName      = "deflect_challenge3"
 	IntegrityCheckCookieName = "deflect_integrity"
 )
 
@@ -581,15 +581,18 @@ func modifyHTMLContent(pageBytes []byte, targetStr string, toReplace string) (mo
 	return bytes.Replace(pageBytes, []byte(targetStr), []byte(toReplace), 1)
 }
 
+// cookieValueMarker is the JS the cookie rewrites below match, in
+// document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
+func cookieValueMarker(cookieName string) string {
+	return fmt.Sprintf("\"%s=\" + base64_cookie", cookieName)
+}
+
 func applyCookieMaxAge(pageBytes []byte, cookieName string, ttlSeconds int) (modifiedPageBytes []byte) {
-	/*
-		Replace hardcoded JS code to control cookie conditions
-		Target: document.cookie = "<cookieName>=" + base64_cookie + ";SameSite=Lax;path=/;";
-	*/
+	// Replace hardcoded JS code to control cookie conditions
 	return modifyHTMLContent(
 		pageBytes,
-		fmt.Sprintf("\"%s=\" + base64_cookie", cookieName),
-		fmt.Sprintf("\"%s=\" + base64_cookie + \";max-age=%d\"", cookieName, ttlSeconds),
+		cookieValueMarker(cookieName),
+		fmt.Sprintf("%s + \";max-age=%d\"", cookieValueMarker(cookieName), ttlSeconds),
 	)
 }
 
@@ -616,6 +619,12 @@ func applyArgsToPasswordPage(pageBytes []byte, roaming bool, cookieTtl int) (mod
 	// apply domain scope if allow banjax roaming
 	modifiedPageBytes = applyCookieDomain(modifiedPageBytes, PasswordCookieName)
 	return
+}
+
+// shaInvPageMarkers lists every string applyArgsToShaInvPage rewrites, so minifying the
+// page keeps them intact
+func shaInvPageMarkers() []string {
+	return []string{cookieValueMarker(ChallengeCookieName), "new_solver(10)"}
 }
 
 func applyArgsToShaInvPage(config *Config) (modifiedPageBytes []byte) {
@@ -1010,53 +1019,99 @@ const (
 	SiteWideAltChaChallengeException
 	ProtectedIPException // a protected_ips block or rate limit was skipped and access granted
 	FailedChallengeBlock // blocked for too many failed challenges, under two_step_ban_esculation
+	// the AltChaClickChallenge counterparts of the *AltChaChallenge results above
+	PerSiteAltChaClickChallenge
+	PerSiteUAAltChaClickChallenge
+	GlobalAltChaClickChallenge
+	GlobalUAAltChaClickChallenge
+	ExpiringAltChaClickChallenge
+	ExpiringUAAltChaClickChallenge
+	ExpiringSiteWideAltChaClickChallenge
+	ExpiringSubnetAltChaClickChallenge
+	SiteWideAltChaClickChallenge
+	SiteWideAltChaClickChallengeException
 	NoMention
 	NotSet
 )
 
 var DecisionListResultToString = map[DecisionListResult]string{
-	PasswordProtectedPriorityPass:    "PasswordProtectedPriorityPass",
-	PasswordProtectedPath:            "PasswordProtectedPath",
-	PasswordProtectedPathException:   "PasswordProtectedPathException",
-	PerSiteAccessGranted:             "PerSiteAccessGranted",
-	PerSiteChallenge:                 "PerSiteChallenge",
-	PerSiteBlock:                     "PerSiteBlock",
-	GlobalAccessGranted:              "GlobalAccessGranted",
-	GlobalChallenge:                  "GlobalChallenge",
-	GlobalBlock:                      "GlobalBlock",
-	ExpiringAccessGranted:            "ExpiringAccessGranted",
-	ExpiringChallenge:                "ExpiringChallenge",
-	ExpiringBlock:                    "ExpiringBlock",
-	PerSiteShaInvPathException:       "PerSiteShaInvPathException",
-	SiteWideChallenge:                "SiteWideChallenge",
-	SiteWideChallengeException:       "SiteWideChallengeException",
-	ExpiringSiteWideChallenge:        "ExpiringSiteWideChallenge",
-	PerSiteUAAccessGranted:           "PerSiteUAAccessGranted",
-	PerSiteUAChallenge:               "PerSiteUAChallenge",
-	PerSiteUABlock:                   "PerSiteUABlock",
-	GlobalUAAccessGranted:            "GlobalUAAccessGranted",
-	GlobalUAChallenge:                "GlobalUAChallenge",
-	GlobalUABlock:                    "GlobalUABlock",
-	ExpiringUAChallenge:              "ExpiringUAChallenge",
-	ExpiringUABlock:                  "ExpiringUABlock",
-	ExpiringSubnetChallenge:          "ExpiringSubnetChallenge",
-	ExpiringSubnetBlock:              "ExpiringSubnetBlock",
-	GlobalAllowlistTooManyRequests:   "GlobalAllowlistTooManyRequests",
-	ExpiringTooManyRequests:          "ExpiringTooManyRequests",
-	PerSiteAltChaChallenge:           "PerSiteAltChaChallenge",
-	PerSiteUAAltChaChallenge:         "PerSiteUAAltChaChallenge",
-	GlobalAltChaChallenge:            "GlobalAltChaChallenge",
-	GlobalUAAltChaChallenge:          "GlobalUAAltChaChallenge",
-	ExpiringAltChaChallenge:          "ExpiringAltChaChallenge",
-	ExpiringUAAltChaChallenge:        "ExpiringUAAltChaChallenge",
-	ExpiringSiteWideAltChaChallenge:  "ExpiringSiteWideAltChaChallenge",
-	ExpiringSubnetAltChaChallenge:    "ExpiringSubnetAltChaChallenge",
-	SiteWideAltChaChallenge:          "SiteWideAltChaChallenge",
-	SiteWideAltChaChallengeException: "SiteWideAltChaChallengeException",
-	ProtectedIPException:             "ProtectedIPException",
-	FailedChallengeBlock:             "FailedChallengeBlock",
-	NoMention:                        "NoMention",
-	NotSet:                           "NotSet",
+	PasswordProtectedPriorityPass:         "PasswordProtectedPriorityPass",
+	PasswordProtectedPath:                 "PasswordProtectedPath",
+	PasswordProtectedPathException:        "PasswordProtectedPathException",
+	PerSiteAccessGranted:                  "PerSiteAccessGranted",
+	PerSiteChallenge:                      "PerSiteChallenge",
+	PerSiteBlock:                          "PerSiteBlock",
+	GlobalAccessGranted:                   "GlobalAccessGranted",
+	GlobalChallenge:                       "GlobalChallenge",
+	GlobalBlock:                           "GlobalBlock",
+	ExpiringAccessGranted:                 "ExpiringAccessGranted",
+	ExpiringChallenge:                     "ExpiringChallenge",
+	ExpiringBlock:                         "ExpiringBlock",
+	PerSiteShaInvPathException:            "PerSiteShaInvPathException",
+	SiteWideChallenge:                     "SiteWideChallenge",
+	SiteWideChallengeException:            "SiteWideChallengeException",
+	ExpiringSiteWideChallenge:             "ExpiringSiteWideChallenge",
+	PerSiteUAAccessGranted:                "PerSiteUAAccessGranted",
+	PerSiteUAChallenge:                    "PerSiteUAChallenge",
+	PerSiteUABlock:                        "PerSiteUABlock",
+	GlobalUAAccessGranted:                 "GlobalUAAccessGranted",
+	GlobalUAChallenge:                     "GlobalUAChallenge",
+	GlobalUABlock:                         "GlobalUABlock",
+	ExpiringUAChallenge:                   "ExpiringUAChallenge",
+	ExpiringUABlock:                       "ExpiringUABlock",
+	ExpiringSubnetChallenge:               "ExpiringSubnetChallenge",
+	ExpiringSubnetBlock:                   "ExpiringSubnetBlock",
+	GlobalAllowlistTooManyRequests:        "GlobalAllowlistTooManyRequests",
+	ExpiringTooManyRequests:               "ExpiringTooManyRequests",
+	PerSiteAltChaChallenge:                "PerSiteAltChaChallenge",
+	PerSiteUAAltChaChallenge:              "PerSiteUAAltChaChallenge",
+	GlobalAltChaChallenge:                 "GlobalAltChaChallenge",
+	GlobalUAAltChaChallenge:               "GlobalUAAltChaChallenge",
+	ExpiringAltChaChallenge:               "ExpiringAltChaChallenge",
+	ExpiringUAAltChaChallenge:             "ExpiringUAAltChaChallenge",
+	ExpiringSiteWideAltChaChallenge:       "ExpiringSiteWideAltChaChallenge",
+	ExpiringSubnetAltChaChallenge:         "ExpiringSubnetAltChaChallenge",
+	SiteWideAltChaChallenge:               "SiteWideAltChaChallenge",
+	SiteWideAltChaChallengeException:      "SiteWideAltChaChallengeException",
+	ProtectedIPException:                  "ProtectedIPException",
+	FailedChallengeBlock:                  "FailedChallengeBlock",
+	PerSiteAltChaClickChallenge:           "PerSiteAltChaClickChallenge",
+	PerSiteUAAltChaClickChallenge:         "PerSiteUAAltChaClickChallenge",
+	GlobalAltChaClickChallenge:            "GlobalAltChaClickChallenge",
+	GlobalUAAltChaClickChallenge:          "GlobalUAAltChaClickChallenge",
+	ExpiringAltChaClickChallenge:          "ExpiringAltChaClickChallenge",
+	ExpiringUAAltChaClickChallenge:        "ExpiringUAAltChaClickChallenge",
+	ExpiringSiteWideAltChaClickChallenge:  "ExpiringSiteWideAltChaClickChallenge",
+	ExpiringSubnetAltChaClickChallenge:    "ExpiringSubnetAltChaClickChallenge",
+	SiteWideAltChaClickChallenge:          "SiteWideAltChaClickChallenge",
+	SiteWideAltChaClickChallengeException: "SiteWideAltChaClickChallengeException",
+	NoMention:                             "NoMention",
+	NotSet:                                "NotSet",
+}
+
+// altchaClickResults maps each *AltChaChallenge result to its AltChaClickChallenge counterpart.
+var altchaClickResults = map[DecisionListResult]DecisionListResult{
+	PerSiteAltChaChallenge:           PerSiteAltChaClickChallenge,
+	PerSiteUAAltChaChallenge:         PerSiteUAAltChaClickChallenge,
+	GlobalAltChaChallenge:            GlobalAltChaClickChallenge,
+	GlobalUAAltChaChallenge:          GlobalUAAltChaClickChallenge,
+	ExpiringAltChaChallenge:          ExpiringAltChaClickChallenge,
+	ExpiringUAAltChaChallenge:        ExpiringUAAltChaClickChallenge,
+	ExpiringSiteWideAltChaChallenge:  ExpiringSiteWideAltChaClickChallenge,
+	ExpiringSubnetAltChaChallenge:    ExpiringSubnetAltChaClickChallenge,
+	SiteWideAltChaChallenge:          SiteWideAltChaClickChallenge,
+	SiteWideAltChaChallengeException: SiteWideAltChaClickChallengeException,
+}
+
+// altchaResult is the AltChaChallenge result for decision: result itself, or its
+// AltChaClickChallenge counterpart when decision is AltChaClickChallenge.
+func altchaResult(decision Decision, result DecisionListResult) DecisionListResult {
+	if decision == AltChaClickChallenge {
+		if clickResult, ok := altchaClickResults[result]; ok {
+			return clickResult
+		}
+	}
+	return result
 }
 
 func (dfnr DecisionListResult) String() string {
@@ -1081,10 +1136,10 @@ type DecisionForNginxResult struct {
 	PasswordChallengeResult       *PasswordChallengeResult // these are pointers so they can be optionally nil
 	ShaChallengeResult            *ShaChallengeResult
 	AltChaChallengeResult         *AltChaChallengeResult
-	AltChaOptions                 *AltChaOptions // difficulty and click mode of the AltCha challenge, nil if none
+	AltChaOptions                 *AltChaOptions // difficulty of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
 	TooMany403Result              *RateLimitResult // nil unless the response was a 403 counted by too_many_403_ban_to_iptables_ban
-	ClientUserAgent			      string
+	ClientUserAgent               string
 }
 
 // countTooMany403s runs after decisionForNginx2 has answered the request: a 403 answer counts
@@ -1285,7 +1340,8 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
+			trigger := altchaResult(decision, PerSiteAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1293,10 +1349,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
-				PerSiteAltChaChallenge,
+				decision,
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = PerSiteAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1334,7 +1391,8 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
+			trigger := altchaResult(uaDecision, PerSiteUAAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1342,10 +1400,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
-				PerSiteUAAltChaChallenge,
+				uaDecision,
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = PerSiteUAAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1398,7 +1457,8 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
+			trigger := altchaResult(decision, GlobalAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1406,10 +1466,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
-				GlobalAltChaChallenge,
+				decision,
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = GlobalAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1447,7 +1508,8 @@ func decisionForNginx2(
 			decisionForNginxResult.ShaChallengeResult = &sendOrValidateShaChallengeResult.ShaChallengeResult
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
+			trigger := altchaResult(uaDecisionGlobal, GlobalUAAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1455,10 +1517,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
-				AltChaOptions{}, // config defaults: config.AltChaMaxNumber, no click
-				GlobalUAAltChaChallenge,
+				uaDecisionGlobal,
+				AltChaOptions{}, // config defaults: config.AltChaMaxNumber
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = GlobalUAAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1515,7 +1578,7 @@ func decisionForNginx2(
 					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 					return
 				}
-			case AltChaChallenge:
+			case AltChaChallenge, AltChaClickChallenge:
 				if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 					accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 					decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1524,6 +1587,7 @@ func decisionForNginx2(
 				if sessionExpiringDecision.fromBaskerville && disabled {
 					log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring altcha challenge for %s", requestedHost, clientIp)
 				} else {
+					trigger := altchaResult(sessionExpiringDecision.Decision, ExpiringAltChaChallenge)
 					sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 						config,
 						c,
@@ -1531,10 +1595,11 @@ func decisionForNginx2(
 						altchaFailedChallengeStates,
 						Block, // FailAction
 						staticDecisionLists,
+						sessionExpiringDecision.Decision,
 						sessionExpiringDecision.altcha,
-						ExpiringAltChaChallenge,
+						trigger,
 					)
-					decisionForNginxResult.DecisionListResult = ExpiringAltChaChallenge
+					decisionForNginxResult.DecisionListResult = trigger
 					decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 					decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 					decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1592,7 +1657,7 @@ func decisionForNginx2(
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1601,6 +1666,7 @@ func decisionForNginx2(
 			if uaExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring ua altcha challenge for %s", requestedHost, clientIp)
 			} else {
+				trigger := altchaResult(uaExpiringDecision.Decision, ExpiringUAAltChaChallenge)
 				sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 					config,
 					c,
@@ -1608,10 +1674,11 @@ func decisionForNginx2(
 					altchaFailedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
+					uaExpiringDecision.Decision,
 					uaExpiringDecision.altcha,
-					ExpiringUAAltChaChallenge,
+					trigger,
 				)
-				decisionForNginxResult.DecisionListResult = ExpiringUAAltChaChallenge
+				decisionForNginxResult.DecisionListResult = trigger
 				decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 				decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1661,7 +1728,7 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		}
-	} else if hostExpiringDecision.Decision == AltChaChallenge {
+	} else if hostExpiringDecision.Decision.IsAltCha() {
 		if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 			accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 			decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1670,6 +1737,7 @@ func decisionForNginx2(
 		if hostExpiringDecision.fromBaskerville && disabled {
 			log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring sitewide altcha challenge for %s", requestedHost, clientIp)
 		} else {
+			trigger := altchaResult(hostExpiringDecision.Decision, ExpiringSiteWideAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1677,10 +1745,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				Block, // FailAction
 				staticDecisionLists,
+				hostExpiringDecision.Decision,
 				hostExpiringDecision.altcha,
-				ExpiringSiteWideAltChaChallenge,
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = ExpiringSiteWideAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1749,7 +1818,7 @@ func decisionForNginx2(
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 				return
 			}
-		case AltChaChallenge:
+		case AltChaChallenge, AltChaClickChallenge:
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1758,6 +1827,7 @@ func decisionForNginx2(
 			if ipExpiringDecision.fromBaskerville && disabled {
 				log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring altcha challenge for %s", requestedHost, clientIp)
 			} else {
+				trigger := altchaResult(ipExpiringDecision.Decision, expiringAltChaChallengeResult)
 				sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 					config,
 					c,
@@ -1765,10 +1835,11 @@ func decisionForNginx2(
 					altchaFailedChallengeStates,
 					Block, // FailAction
 					staticDecisionLists,
+					ipExpiringDecision.Decision,
 					ipExpiringDecision.altcha,
-					expiringAltChaChallengeResult,
+					trigger,
 				)
-				decisionForNginxResult.DecisionListResult = expiringAltChaChallengeResult
+				decisionForNginxResult.DecisionListResult = trigger
 				decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 				decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 				decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult
@@ -1805,9 +1876,11 @@ func decisionForNginx2(
 	// site listed in both gets AltCha. Same fail actions and path exceptions.
 	if sitewideAltCha, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
 		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
-			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallengeException
-			accessGranted(c, config, DecisionListResultToString[SiteWideAltChaChallengeException], -1.0, "", IntegrityCheckPayloadWrapper{})
+			exception := altchaResult(sitewideAltCha.Decision(), SiteWideAltChaChallengeException)
+			decisionForNginxResult.DecisionListResult = exception
+			accessGranted(c, config, DecisionListResultToString[exception], -1.0, "", IntegrityCheckPayloadWrapper{})
 		} else {
+			trigger := altchaResult(sitewideAltCha.Decision(), SiteWideAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
 				c,
@@ -1815,10 +1888,11 @@ func decisionForNginx2(
 				altchaFailedChallengeStates,
 				sitewideAltCha.FailAction,
 				staticDecisionLists,
-				AltChaOptions{Click: sitewideAltCha.Click},
-				SiteWideAltChaChallenge,
+				sitewideAltCha.Decision(),
+				AltChaOptions{},
+				trigger,
 			)
-			decisionForNginxResult.DecisionListResult = SiteWideAltChaChallenge
+			decisionForNginxResult.DecisionListResult = trigger
 			decisionForNginxResult.AltChaChallengeResult = &sendOrValidateAltChaChallengeResult.AltChaChallengeResult
 			decisionForNginxResult.AltChaOptions = &sendOrValidateAltChaChallengeResult.AltChaOptions
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateAltChaChallengeResult.TooManyFailedChallengesResult

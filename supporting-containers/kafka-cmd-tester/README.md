@@ -69,7 +69,9 @@ decision.
 `-altcha-click` makes that decision serve the one-click "I'm not a robot"
 checkbox: the proof of work only starts when the visitor ticks it. Without it
 the AltCha challenge solves on page load. Resending the command with or without
-`-altcha-click` switches an existing decision.
+`-altcha-click` switches an existing decision. A click decision is its own
+decision type (AltChaClickChallenge), so banjax reports it as
+`*AltChaClickChallenge` in `X-Banjax-Decision` / `banjax_decision`.
 
 `-altcha-force-new` makes that decision reject Altcha cookies minted before
 the command arrived, so clients that already passed must solve a new

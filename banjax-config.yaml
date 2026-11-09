@@ -103,7 +103,8 @@ per_site_regexes_with_rates:
 # Like sitewide_sha_inv_list, but with the AltCha challenge, and checked first: a site in both
 # lists gets AltCha. block / no_block: whether too many failed challenges get the ip banned.
 # block_click / no_block_click: the same, but serving the one-click "I'm not a robot" checkbox
-# instead of the default challenge that solves on page load.
+# (AltChaClickChallenge, banjax_decision SiteWideAltChaClickChallenge) instead of the default
+# challenge that solves on page load (AltChaChallenge, banjax_decision SiteWideAltChaChallenge).
 sitewide_altcha_list:
   example.com: block
   # one-click variant for supporting-containers/altcha-bot-tester
@@ -128,7 +129,10 @@ too_many_403_ban_to_iptables_ban: true
 too_many_403_ban_interval_seconds: 20
 too_many_403_ban_threshold: 3
 # AltCha challenge (decision: altcha_challenge), a stronger proof-of-work challenge than sha-inv.
-# Its failures are counted separately from sha-inv/password failures; exceeding
+# altcha_click_challenge is the same challenge behind a one-click checkbox, a decision of its own
+# so it can be listed separately and shows up as *AltChaClickChallenge in banjax_decision (kafka:
+# an altcha_challenge_* command with altcha_click: true).
+# Their failures are counted separately from sha-inv/password failures; exceeding
 # altcha_too_many_failed_challenges_threshold within the interval gets the ip iptables banned.
 altcha_too_many_failed_challenges_interval_seconds: 10
 altcha_too_many_failed_challenges_threshold: 3

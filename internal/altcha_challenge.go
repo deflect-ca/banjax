@@ -52,10 +52,10 @@ const (
 )
 
 // AltChaOptions are the per-decision AltCha settings. The zero value is the default challenge:
-// config.AltChaMaxNumber difficulty, solved on page load without a click.
+// config.AltChaMaxNumber difficulty. Whether the visitor has to click is not an option but the
+// decision itself: AltChaChallenge solves on page load, AltChaClickChallenge waits for a click.
 type AltChaOptions struct {
 	MaxNumber int64 // difficulty, 0 means config.AltChaMaxNumber
-	Click     bool  // one-click checkbox: the proof of work only starts when the visitor ticks it
 	// unix ms; a cookie whose challenge was minted before this is rejected, so clients must
 	// solve a new challenge (kafka altcha_force_new). 0 accepts any valid cookie.
 	NotBefore int64 `json:",omitempty"`
@@ -173,6 +173,12 @@ func verifyAltChaPayloadNotBefore(config *Config, payloadB64 string, binding str
 // attribute and rewrites the cookie max-age, like applyArgsToShaInvPage. The JSON is
 // HTML-escaped because the binding inside it can be the client's User-Agent. With click, the
 // widget waits for its checkbox instead of solving on load.
+// altchaPageMarkers lists every string applyArgsToAltChaPage rewrites, so minifying the
+// page keeps them intact
+func altchaPageMarkers() []string {
+	return []string{`challenge="{}"`, `auto="onload"`, cookieValueMarker(AltChaCookieName)}
+}
+
 func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge, click bool) []byte {
 	challengeJSON, err := json.Marshal(challenge)
 	if err != nil {
@@ -190,7 +196,7 @@ func applyArgsToAltChaPage(config *Config, challenge altcha.Challenge, click boo
 	return applyCookieMaxAge(modifiedPageBytes, AltChaCookieName, config.AltChaCookieTtlSeconds)
 }
 
-func altchaChallenge(c *gin.Context, config *Config, options AltChaOptions, trigger DecisionListResult) {
+func altchaChallenge(c *gin.Context, config *Config, decision Decision, options AltChaOptions, trigger DecisionListResult) {
 	challenge, err := CreateAltChaChallenge(config, getUserAgentOrIp(c, config), options.MaxNumber)
 	if err != nil {
 		// only fails on rand/key derivation errors; the client gets an unsolvable page
@@ -199,7 +205,7 @@ func altchaChallenge(c *gin.Context, config *Config, options AltChaOptions, trig
 	c.Header("X-Banjax-Decision", DecisionListResultToString[trigger])
 	c.Header("Cache-Control", "no-cache,no-store")
 	sessionCookieEndPoint(c, config)
-	c.Data(429, "text/html", applyArgsToAltChaPage(config, challenge, options.Click))
+	c.Data(429, "text/html", applyArgsToAltChaPage(config, challenge, decision == AltChaClickChallenge))
 	c.Abort()
 }
 
@@ -236,6 +242,14 @@ func (acr AltChaChallengeResult) MarshalJSON() ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
+// X-Banjax-Decision when an AltCha challenge is passed, or failed too many times, so the
+// two AltCha decisions stay apart in the nginx log (banjax_decision)
+const (
+	AltChaClickChallengePassed         = "AltChaClickChallengePassed"
+	TooManyFailedAltChaChallenges      = "TooManyFailedAltChaChallenges"
+	TooManyFailedAltChaClickChallenges = "TooManyFailedAltChaClickChallenges"
+)
+
 type SendOrValidateAltChaChallengeResult struct {
 	AltChaChallengeResult         AltChaChallengeResult
 	AltChaOptions                 AltChaOptions // as applied: MaxNumber resolved to the config default if unset
@@ -252,13 +266,17 @@ func sendOrValidateAltChaChallenge(
 	rateLimitStates *FailedChallengeRateLimitStates,
 	failAction FailAction,
 	decisionLists *StaticDecisionLists,
-	altchaOptions AltChaOptions, // difficulty and click mode for a new challenge
+	decision Decision, // AltChaChallenge, or AltChaClickChallenge for the one-click challenge
+	altchaOptions AltChaOptions, // difficulty for a new challenge
 	trigger DecisionListResult, // why the client is challenged, sent as X-Banjax-Decision
 ) (result SendOrValidateAltChaChallengeResult) {
 	result.AltChaOptions = AltChaOptions{
 		MaxNumber: effectiveAltChaMaxNumber(config, altchaOptions.MaxNumber),
-		Click:     altchaOptions.Click,
 		NotBefore: altchaOptions.NotBefore,
+	}
+	passedLabel, tooManyFailedLabel, challengeType := AltChaChallengeResultToString[AltChaChallengePassed], TooManyFailedAltChaChallenges, "altcha"
+	if decision == AltChaClickChallenge {
+		passedLabel, tooManyFailedLabel, challengeType = AltChaClickChallengePassed, TooManyFailedAltChaClickChallenges, "altcha_click"
 	}
 	clientIp := c.Request.Header.Get("X-Client-IP")
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
@@ -271,7 +289,7 @@ func sendOrValidateAltChaChallenge(
 	if err == nil {
 		ok, err := verifyAltChaPayloadNotBefore(config, altchaCookie, getUserAgentOrIp(c, config), altchaOptions.NotBefore)
 		if err == nil && ok {
-			accessGranted(c, config, AltChaChallengeResultToString[AltChaChallengePassed], botScore, botScoreTopFactor, botFingerprint)
+			accessGranted(c, config, passedLabel, botScore, botScoreTopFactor, botFingerprint)
 			ReportPassedFailedBannedMessage(config, "ip_passed_challenge", clientIp, requestedHost)
 			result.AltChaChallengeResult = AltChaChallengePassed
 			return result
@@ -289,7 +307,7 @@ func sendOrValidateAltChaChallenge(
 			requestedHost,
 			requestedPath,
 			banner,
-			"altcha",
+			challengeType,
 			rateLimitStates,
 			config.AltChaTooManyFailedChallengesIntervalSeconds,
 			config.AltChaTooManyFailedChallengesThreshold,
@@ -299,10 +317,10 @@ func sendOrValidateAltChaChallenge(
 		result.TooManyFailedChallengesResult = tooManyFailedChallengesResult
 		if tooManyFailedChallengesResult.Exceeded {
 			ReportPassedFailedBannedMessage(config, "ip_banned", clientIp, requestedHost)
-			accessDenied(c, config, "TooManyFailedAltChaChallenges", botScore, botScoreTopFactor, botFingerprint)
+			accessDenied(c, config, tooManyFailedLabel, botScore, botScoreTopFactor, botFingerprint)
 			return result
 		}
 	}
-	altchaChallenge(c, config, altchaOptions, trigger)
+	altchaChallenge(c, config, decision, altchaOptions, trigger)
 	return result
 }
