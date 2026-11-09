@@ -109,7 +109,6 @@ sitewide_altcha_list:
   example.com: block
   # one-click variant for supporting-containers/altcha-bot-tester
   altcha-click-test.banjax: no_block_click
-  localhost: block
 sitewide_sha_inv_list:
   example.com: block
   foobar.com: no_block
