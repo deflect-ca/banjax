@@ -1,0 +1,308 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026, eQualit.ie inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# One entry point for the local dev loop, so nobody has to remember docker
+# incantations. Go never runs on the host: it runs in the banjax dev container,
+# or in a one-off container of the same image when the stack is down.
+# Written for macOS bash 3.2 (no associative arrays, no mapfile).
+
+set -u
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+BANJAX_CONTAINER="${BANJAX_CONTAINER:-banjax-next-banjax-1}"
+BANJAX_IMAGE="${BANJAX_IMAGE:-banjax-next-banjax}"
+# Named volumes so one-off containers do not re-download modules or rebuild
+# everything. A fresh named volume is seeded from the image's contents.
+GOMODCACHE_VOLUME="${GOMODCACHE_VOLUME:-banjax-gomodcache}"
+GOBUILDCACHE_VOLUME="${GOBUILDCACHE_VOLUME:-banjax-gobuildcache}"
+
+die() {
+    echo "dev: $*" >&2
+    exit 1
+}
+
+need_docker() {
+    command -v docker >/dev/null 2>&1 || die "docker is not on PATH. Install Docker Desktop."
+    docker info >/dev/null 2>&1 || die "the Docker daemon is not reachable. Start Docker Desktop, then retry."
+}
+
+container_running() {
+    [ "$(docker inspect -f '{{.State.Running}}' "$BANJAX_CONTAINER" 2>/dev/null)" = "true" ]
+}
+
+need_container() {
+    need_docker
+    container_running || die "container $BANJAX_CONTAINER is not running. Start the stack: scripts/dev up"
+}
+
+need_image() {
+    docker image inspect "$BANJAX_IMAGE" >/dev/null 2>&1 ||
+        die "image $BANJAX_IMAGE not found. Build it once: scripts/dev up --build"
+}
+
+# oneoff runs a command in a throwaway container of the banjax image, with the
+# repo mounted and the module/build caches on named volumes. It never touches
+# the dev container, so nothing collides with the live banjax on 127.0.0.1:8081.
+oneoff() {
+    need_docker
+    need_image
+    docker run --rm \
+        -v "$ROOT":/opt/banjax \
+        -v "$GOMODCACHE_VOLUME":/go/pkg/mod \
+        -v "$GOBUILDCACHE_VOLUME":/root/.cache/go-build \
+        -w /opt/banjax \
+        "$BANJAX_IMAGE" "$@"
+}
+
+# in_go runs a command in the dev container when it is up, else in a one-off one.
+in_go() {
+    need_docker
+    if container_running; then
+        docker exec -w /opt/banjax "$BANJAX_CONTAINER" "$@"
+    else
+        echo "dev: $BANJAX_CONTAINER is not running, using a one-off container" >&2
+        oneoff "$@"
+    fi
+}
+
+# changed_go_files prints .go files changed vs HEAD (staged or not) plus
+# untracked, non-ignored .go files, one per line. Unchanged files are left
+# alone on purpose: some tracked files have pre-existing gofmt drift, and
+# formatting them belongs in its own commit.
+changed_go_files() {
+    {
+        git diff --name-only --diff-filter=ACMR HEAD -- '*.go'
+        git ls-files --others --exclude-standard -- '*.go'
+    } | sort -u | while IFS= read -r f; do
+        [ -f "$f" ] && printf '%s\n' "$f"
+    done
+}
+
+cmd_fmt() {
+    fix=0
+    [ "${1:-}" = "--fix" ] && fix=1
+    files="$(changed_go_files)"
+    if [ -z "$files" ]; then
+        echo "fmt: no changed .go files"
+        return 0
+    fi
+    if command -v gofmt >/dev/null 2>&1; then
+        # shellcheck disable=SC2086 # file names in this repo have no spaces
+        drifted="$(gofmt -l $files)"
+    else
+        # shellcheck disable=SC2086
+        drifted="$(in_go gofmt -l $files)"
+    fi
+    if [ -z "$drifted" ]; then
+        echo "fmt: OK ($(printf '%s\n' "$files" | wc -l | tr -d ' ') changed .go file(s) checked)"
+        return 0
+    fi
+    if [ "$fix" = 1 ]; then
+        # shellcheck disable=SC2086
+        if command -v gofmt >/dev/null 2>&1; then gofmt -w $drifted; else in_go gofmt -w $drifted; fi
+        echo "fmt: formatted:"
+        printf '  %s\n' $drifted
+        return 0
+    fi
+    echo "fmt: not gofmt-clean (fix with: scripts/dev fmt --fix):"
+    printf '  %s\n' $drifted
+    return 1
+}
+
+cmd_check() {
+    results=""
+    failed=0
+    step() {
+        name="$1"
+        shift
+        echo
+        echo "==> $name"
+        if "$@"; then
+            results="${results}PASS  $name
+"
+        else
+            results="${results}FAIL  $name
+"
+            failed=1
+        fi
+    }
+    need_docker
+    step "fmt (changed .go files)" cmd_fmt
+    step "go vet ./..." in_go go vet ./...
+    step "unit tests ./internal/" in_go go test ./internal/
+    step "secret scan (worktree)" "$ROOT/scripts/secret-scan.sh" --worktree
+    echo
+    echo "==> summary"
+    printf '%s' "$results"
+    if [ "$failed" = 1 ]; then
+        echo "check: FAILED"
+        return 1
+    fi
+    echo "check: all passed (integration tests not included: scripts/dev itest)"
+}
+
+cmd_tool() {
+    need_docker
+    if [ $# -eq 0 ]; then
+        # services that only exist when the tools profile is enabled
+        all="$(docker compose --profile tools config --services | sort)"
+        base="$(docker compose config --services | sort)"
+        echo "tools (run with: scripts/dev tool <name> [args]):"
+        comm -23 <(printf '%s\n' "$all") <(printf '%s\n' "$base") | sed 's/^/  /'
+        echo "each has a README in supporting-containers/<name>/"
+        return 0
+    fi
+    name="$1"
+    shift
+    docker compose run --rm --build "$name" "$@"
+}
+
+cmd_api() {
+    path="${1:-/info}"
+    case "$path" in /*) ;; *) path="/$path" ;; esac
+    need_container
+    out="$(docker exec "$BANJAX_CONTAINER" curl -sS "http://127.0.0.1:8081$path")" || return 1
+    if command -v jq >/dev/null 2>&1 && printf '%s' "$out" | jq . >/dev/null 2>&1; then
+        printf '%s' "$out" | jq .
+    else
+        printf '%s\n' "$out"
+    fi
+}
+
+cmd_unban() {
+    [ $# -ge 1 ] || die "usage: scripts/dev unban <ip> | unban field=value... (fields: ip, host, ua, subnet)"
+    need_container
+    # a bare argument is an ip; otherwise every argument is one field=value pair
+    if [ $# -eq 1 ] && [ "${1#*=}" = "$1" ]; then
+        set -- "ip=$1"
+    fi
+    form=()
+    for kv in "$@"; do
+        form+=(--data-urlencode "$kv")
+    done
+    docker exec "$BANJAX_CONTAINER" curl -sS -X POST "${form[@]}" http://127.0.0.1:8081/unban
+    echo
+}
+
+usage() {
+    cat <<'EOF'
+usage: scripts/dev <command> [args]
+
+stack
+  up [--build]        start the compose stack (--build after go.mod/Dockerfile changes)
+  down                stop the stack (keeps volumes)
+  ps                  show stack containers
+  logs [svc] [-f]     last 100 log lines of a service (default banjax); -f follows
+  sh                  shell in the banjax container
+
+go (always in Docker, never on the host)
+  test [args]         unit tests: go test ./internal/ [args], e.g. test -run TestFoo -count=1
+  race [args]         unit tests with -race (takes about 5 minutes)
+  itest [args]        integration tests (-tags=integration) in an isolated one-off container
+  vet                 go vet ./...
+  fmt [--fix]         gofmt check (or fix) of .go files changed vs HEAD plus untracked ones
+  vuln                govulncheck ./... in a one-off container
+  check               pre-handoff gate: fmt + vet + unit tests + secret scan
+
+running stack
+  api [path]          GET an admin route, e.g. api /decision_lists (default /info)
+  unban <ip>          POST /unban for an ip; or unban host=x ua=y / unban subnet=1.2.3.0/24
+  banned              list the ipset of banned ips (/ipset/list)
+  tool [name] [args]  run an on-demand tool (compose profile tools); no name lists them
+
+repo
+  hooks               activate .githooks (pre-commit, pre-push) for this clone
+
+env overrides: BANJAX_CONTAINER, BANJAX_IMAGE, GOMODCACHE_VOLUME, GOBUILDCACHE_VOLUME
+EOF
+}
+
+sub="${1:-help}"
+[ $# -gt 0 ] && shift
+
+case "$sub" in
+up)
+    need_docker
+    if [ "${1:-}" = "--build" ]; then docker compose up -d --build; else docker compose up -d; fi
+    ;;
+down)
+    need_docker
+    docker compose down
+    ;;
+ps)
+    need_docker
+    docker compose ps
+    ;;
+logs)
+    need_docker
+    svc="banjax"
+    follow=""
+    for a in "$@"; do
+        case "$a" in
+        -f | --follow) follow="-f" ;;
+        *) svc="$a" ;;
+        esac
+    done
+    # shellcheck disable=SC2086
+    docker compose logs --tail=100 $follow "$svc"
+    ;;
+sh)
+    need_container
+    docker exec -it -w /opt/banjax "$BANJAX_CONTAINER" bash
+    ;;
+test)
+    in_go go test ./internal/ "$@"
+    ;;
+race)
+    echo "race: -race on ./internal/ takes about 5 minutes" >&2
+    in_go go test -race ./internal/ "$@"
+    ;;
+itest)
+    # Integration tests start main() on 127.0.0.1:8081, which the live banjax in the
+    # dev container already holds, so they always get their own container.
+    oneoff go test -count=1 -tags=integration . "$@"
+    ;;
+vet)
+    in_go go vet ./...
+    ;;
+fmt)
+    cmd_fmt "$@"
+    ;;
+vuln)
+    oneoff sh -c 'go install golang.org/x/vuln/cmd/govulncheck@latest && /go/bin/govulncheck ./...'
+    ;;
+check)
+    cmd_check
+    ;;
+tool)
+    cmd_tool "$@"
+    ;;
+api)
+    cmd_api "$@"
+    ;;
+unban)
+    cmd_unban "$@"
+    ;;
+banned)
+    cmd_api /ipset/list
+    ;;
+hooks)
+    git config core.hooksPath .githooks || die "git config failed"
+    echo "hooks: core.hooksPath = $(git config core.hooksPath) (pre-commit: secret scan + gofmt; pre-push: secret scan of pushed commits)"
+    ;;
+help | -h | --help)
+    usage
+    ;;
+*)
+    echo "dev: unknown command: $sub" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac

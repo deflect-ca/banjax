@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(scripts/dev *)",
+      "Bash(./scripts/dev *)",
+      "Bash(scripts/secret-scan.sh *)",
+      "Bash(gofmt *)"
+    ],
+    "ask": [
+      "Bash(git push *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./keys/**)",
+      "Edit(./.env)",
+      "Edit(./keys/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard-bash.sh",
+            "onFailure": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/gofmt-check.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
