@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Copyright (c) 2026, eQualit.ie inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in the
+# LICENSE file in the root directory of this source tree.
+
+# Fast, no Docker: secret scan of the staged changes, then gofmt on staged .go
+# files. Activate with: scripts/dev hooks
+
+ROOT="$(git rev-parse --show-toplevel)" || exit 1
+cd "$ROOT" || exit 1
+
+"$ROOT/scripts/secret-scan.sh" --staged || exit 1
+
+command -v gofmt >/dev/null 2>&1 || exit 0
+
+bad=""
+for f in $(git diff --cached --name-only --diff-filter=ACMR -- '*.go'); do
+    # check the staged content, not the working copy
+    if [ -n "$(git show ":$f" | gofmt -l 2>/dev/null)" ]; then
+        bad="$bad $f"
+    fi
+done
+
+if [ -n "$bad" ]; then
+    echo "pre-commit: staged .go files are not gofmt-clean:" >&2
+    for f in $bad; do echo "  $f" >&2; done
+    echo "fix with: scripts/dev fmt --fix   (then git add the files again)" >&2
+    echo "if a file had gofmt drift before your change, format it in its own commit." >&2
+    exit 1
+fi
+exit 0
