@@ -28,6 +28,9 @@ services:
       - ./logs/banjax:/var/log/banjax/
       - ./supporting-containers/nginx/nginx.conf:/etc/nginx/nginx.conf
       - ./logs/nginx:/var/log/nginx/
+    # nginx proxies to test-origin; start it first so its name resolves
+    depends_on:
+      - test-origin
 
   test-origin:
     build:

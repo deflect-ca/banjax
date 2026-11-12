@@ -17,7 +17,7 @@ tests; it never replaces them.
 
 ## Directory contents
 
-- `Dockerfile`: license header; base image pinned to an exact tag (e.g. `mcr.microsoft.com/playwright:v1.49.1-noble`, `node:<x.y.z>-slim`, `golang:1.26.10-bookworm`); defaults as `ENV` (edge address, test hosts, paths); `ENTRYPOINT` so CLI args become a scenario filter.
+- `Dockerfile`: license header; base image pinned to an exact tag (e.g. `mcr.microsoft.com/playwright:v1.49.1-noble`, `node:<x.y.z>-slim`, `golang:1.26.11-bookworm`); defaults as `ENV` (edge address, test hosts, paths); `ENTRYPOINT` so CLI args become a scenario filter.
 - Dependency manifest with exact versions (`"playwright": "1.49.1"`, not `^1.49`); install with `--omit=dev --no-audit --no-fund`.
 - The runner script: license header, a header comment with the run command, scenarios as data.
 - `README.md`: what it compares or proves, config it relies on (the yaml snippet), how to run, a scenario table (scenario, client, should stop), ban/spacing notes, an environment table (variable, default, purpose).

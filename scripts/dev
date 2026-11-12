@@ -195,7 +195,8 @@ usage() {
 usage: scripts/dev <command> [args]
 
 stack
-  up [--build]        start the compose stack (--build after go.mod/Dockerfile changes)
+  up [--build] [--fg] start the compose stack (--build after go.mod/Dockerfile changes);
+                      --fg stays attached showing banjax output, Ctrl+C stops the whole stack
   down                stop the stack (keeps volumes)
   ps                  show stack containers
   logs [svc] [-f]     last 100 log lines of a service (default banjax); -f follows
@@ -229,7 +230,25 @@ sub="${1:-help}"
 case "$sub" in
 up)
     need_docker
-    if [ "${1:-}" = "--build" ]; then docker compose up -d --build; else docker compose up -d; fi
+    build=""
+    fg=""
+    for a in "$@"; do
+        case "$a" in
+        --build) build="--build" ;;
+        --fg) fg=1 ;;
+        *) die "up: unknown option $a" ;;
+        esac
+    done
+    if [ -n "$fg" ]; then
+        # Up the whole project but print only banjax: Ctrl+C then stops every
+        # service. "docker compose up banjax" would leave nginx and test-origin
+        # running, since Compose only stops the services named on the command line.
+        # shellcheck disable=SC2086
+        docker compose up $build --attach banjax
+    else
+        # shellcheck disable=SC2086
+        docker compose up -d $build
+    fi
     ;;
 down)
     need_docker

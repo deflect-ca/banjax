@@ -106,6 +106,17 @@ set inline in `docker-compose.yml`. Pass `-insecure` to skip TLS, and
 `-brokers`/`-topic` to target a different cluster, e.g. a local, plaintext
 kafka.
 
+SASL username/password auth uses the same `.env` variables as banjax:
+`KAFKA_SASL_MECHANISM` (`PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`, the
+default when a username and password are set; `none` turns SASL off even
+when a username and password are set),
+`KAFKA_SASL_USERNAME` and `KAFKA_SASL_PASSWORD`. `-sasl-mechanism` and
+`-sasl-username` override the first two; the password is read only from the
+environment so it never shows up in the process list or shell history. When
+only `KAFKA_SASL_PASSWORD` is set, the username defaults to `banjax`, the same
+default as `kafka_sasl_username` in `banjax-config.yaml` (this tool does not
+read that file).
+
 ## Flags
 
 | Flag | Purpose |
@@ -125,5 +136,6 @@ kafka.
 | `-dry-run` | print the message instead of sending it |
 | `-brokers`, `-topic`, `-partition` | override the kafka target |
 | `-ssl-ca`, `-ssl-cert`, `-ssl-key`, `-insecure` | override TLS auth |
+| `-sasl-mechanism`, `-sasl-username` | override SASL auth (defaults from `KAFKA_SASL_MECHANISM` / `KAFKA_SASL_USERNAME`; the password comes only from `KAFKA_SASL_PASSWORD`) |
 
 Run `docker compose run --rm kafka-cmd-tester -h` for the full list.

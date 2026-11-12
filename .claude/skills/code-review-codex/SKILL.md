@@ -22,7 +22,7 @@ Also check `codex login status`. If codex is not installed or not logged in, sto
 ## 2. Pick the scope
 
 - No argument and `git status --porcelain` is not empty: the uncommitted changes (staged, unstaged, untracked).
-- No argument and a clean tree: the branch against `master`.
+- No argument and a clean tree: the branch against `main`.
 - Argument that is a branch (`git rev-parse --verify --quiet refs/heads/<arg>` or `refs/remotes/<arg>` succeeds): the branch against `<arg>`.
 - Otherwise an argument that is a commit (`git rev-parse --verify --quiet "<arg>^{commit}"` succeeds): that commit.
 - Anything else: stop and ask.

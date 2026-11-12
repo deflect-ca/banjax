@@ -605,9 +605,7 @@ func TestParseSitewideAltCha(t *testing.T) {
 // A config written before AltCha existed has no altcha_too_many_failed_challenges_* keys. Left
 // at zero, the first cookie-less request would exceed the threshold and get the ip banned.
 func TestLoad_OmittedAltChaFailureSettingsGetDefaults(t *testing.T) {
-	for _, key := range []string{"KAFKA_BROKERS", "KAFKA_COMMAND_TOPIC", "DISABLE_KAFKA"} {
-		t.Setenv(key, "")
-	}
+	clearKafkaEnvForLoad(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	configYaml := "hmac_secret: secret\nserver_log_file: unused.log\niptables_ban_seconds: 60\n" +
 		"kafka_brokers: [localhost:9092]\ndisable_kafka: true\n"

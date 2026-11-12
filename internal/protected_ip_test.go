@@ -79,6 +79,7 @@ func TestParseProtectedIPsRejectsInvalidEntries(t *testing.T) {
 }
 
 func TestLoadParsesProtectedIPs(t *testing.T) {
+	clearKafkaEnvForLoad(t)
 	const base = "server_log_file: x.log\niptables_ban_seconds: 10\nkafka_brokers: [localhost:9092]\n"
 	dir := t.TempDir()
 

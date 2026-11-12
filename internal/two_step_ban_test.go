@@ -332,9 +332,7 @@ func TestFailedChallengeBanPrecedenceIsNotShared(t *testing.T) {
 }
 
 func TestLoad_OmittedTooMany403SettingsGetDefaults(t *testing.T) {
-	for _, key := range []string{"KAFKA_BROKERS", "KAFKA_COMMAND_TOPIC", "DISABLE_KAFKA"} {
-		t.Setenv(key, "")
-	}
+	clearKafkaEnvForLoad(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	configYaml := "hmac_secret: secret\nserver_log_file: unused.log\niptables_ban_seconds: 60\n" +
 		"kafka_brokers: [localhost:9092]\ndisable_kafka: true\ntoo_many_403_ban_to_iptables_ban: true\n"

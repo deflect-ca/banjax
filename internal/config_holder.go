@@ -100,7 +100,7 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// KAFKA_BROKERS / KAFKA_COMMAND_TOPIC / DISABLE_KAFKA from the untracked
+	// KAFKA_BROKERS / KAFKA_COMMAND_TOPIC / KAFKA_SASL_* / DISABLE_KAFKA from the untracked
 	// .env file (loaded via docker-compose env_file) override the yaml values when set.
 	if v, ok := os.LookupEnv("KAFKA_BROKERS"); ok && v != "" {
 		config.KafkaBrokers = nil
@@ -112,6 +112,15 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 	}
 	if v, ok := os.LookupEnv("KAFKA_COMMAND_TOPIC"); ok && v != "" {
 		config.KafkaCommandTopic = v
+	}
+	if v, ok := os.LookupEnv("KAFKA_SASL_MECHANISM"); ok && v != "" {
+		config.KafkaSaslMechanism = v
+	}
+	if v, ok := os.LookupEnv("KAFKA_SASL_USERNAME"); ok && v != "" {
+		config.KafkaSaslUsername = v
+	}
+	if v, ok := os.LookupEnv("KAFKA_SASL_PASSWORD"); ok && v != "" {
+		config.KafkaSaslPassword = v
 	}
 	if v, ok := os.LookupEnv("DISABLE_KAFKA"); ok && v != "" {
 		disableKafka, err := strconv.ParseBool(v)
@@ -235,6 +244,23 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 		return nil, fmt.Errorf("config needs kafka_brokers")
 	}
 	log.Println("INIT: Kafka brokers: ", config.KafkaBrokers)
+
+	// fail the load on bad SASL settings instead of letting the kafka loop retry a
+	// connection the broker will always refuse
+	saslMechanism, err := KafkaSASLMechanism(config.KafkaSaslMechanism, config.KafkaSaslUsername, config.KafkaSaslPassword)
+	if err != nil {
+		return nil, err
+	}
+	// the effective mechanism (so the SCRAM-SHA-512 default shows); never the password
+	saslMechanismName := "none"
+	if saslMechanism != nil {
+		saslMechanismName = saslMechanism.Name()
+	}
+	log.Printf("INIT: Kafka command topic: %q, SASL mechanism: %s, SASL username: %q",
+		config.KafkaCommandTopic, saslMechanismName, config.KafkaSaslUsername)
+	if saslMechanismName == "PLAIN" && config.KafkaSslCert == "" {
+		log.Println("INIT: WARNING: kafka_sasl_mechanism PLAIN without TLS (kafka_ssl_cert) sends the password in cleartext")
+	}
 
 	protectedIPs, err := parseProtectedIPs(config.ProtectedIPs)
 	if err != nil {
