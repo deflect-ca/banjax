@@ -32,7 +32,7 @@ case "$mode" in
 --staged | --worktree) ;;
 --range)
     [ $# -gt 0 ] || {
-        echo "secret-scan: --range needs rev-list arguments, e.g. origin/master..HEAD" >&2
+        echo "secret-scan: --range needs rev-list arguments, e.g. main..HEAD" >&2
         exit 2
     }
     ;;

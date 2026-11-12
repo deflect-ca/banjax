@@ -25,6 +25,7 @@ authoritative description of the decision order and Kafka commands.
 - One of the remotes is a public GitHub repo and branches are pushed there routinely, so anything committed may become public: no secrets, internal hostnames, client IPs from logs, or personal paths in code, tests, fixtures or docs.
 - Do not bypass hooks (`--no-verify`, `-n`, changing core.hooksPath). Fix what they report. Run `scripts/dev hooks` once per clone.
 - Do not push. The human pushes after reviewing.
+- The main branch is `main`: branch from it, diff and review against it (`git diff main...HEAD`). `master` is an old line that shares almost no history with `main`; never use it as a base.
 - `X-Banjax-Decision` strings (`DecisionListResultToString`) are a log contract read from nginx logs by downstream tooling: never rename one; add new ones.
 - When behavior changes, update `PSEUDOCODE_DESCRIPTION.md` and the README in the same change.
 
@@ -33,7 +34,7 @@ authoritative description of the decision order and Kafka commands.
 - HMAC and solution checks use `bytes.Equal` (`challenge_response.go`, `session_cookie.go`): use `hmac.Equal` or `subtle.ConstantTimeCompare`.
 - Session ids come from `math/rand` (`session_cookie.go` newID): use `crypto/rand` for anything an attacker must not predict.
 - `kafka.go` sets `InsecureSkipVerify: true`: never in new TLS code.
-- `internal/integrity_check.go`, `internal/integrity_check_test.go` and `internal/kafka.go` are not gofmt-clean on master. Format them only in a separate commit; `scripts/dev fmt` checks changed files only.
+- `internal/integrity_check.go`, `internal/integrity_check_test.go` and `internal/kafka.go` are not gofmt-clean on `main`. Format them only in a separate commit; `scripts/dev fmt` checks changed files only.
 - Comments marked `XXX` are open questions, not patterns.
 
 ## A feature usually touches these places (check each, skip what does not apply)
