@@ -29,6 +29,9 @@ type Config struct {
 	KafkaSslCert                           string                         `yaml:"kafka_ssl_cert"`
 	KafkaSslKey                            string                         `yaml:"kafka_ssl_key"`
 	KafkaSslKeyPassword                    string                         `yaml:"kafka_ssl_key_password"`
+	KafkaSaslMechanism                     string                         `yaml:"kafka_sasl_mechanism"`
+	KafkaSaslUsername                      string                         `yaml:"kafka_sasl_username"`
+	KafkaSaslPassword                      string                         `yaml:"kafka_sasl_password"`
 	KafkaCommandTopic                      string                         `yaml:"kafka_command_topic"`
 	KafkaReportTopic                       string                         `yaml:"kafka_report_topic"`
 	KafkaMinBytes                          int                            `yaml:"kafka_min_bytes"`

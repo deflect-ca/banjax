@@ -43,7 +43,7 @@ type commandMessage struct {
 	SessionId string `json:"session_id"`
 	Source    string `json:"source"`
 	PrintLog  bool   `json:"print_log"`
-	TTL       int	 `json:"ttl"`
+	TTL       int    `json:"ttl"`
 	UA        string `json:"ua"`
 	// optional difficulty for altcha_challenge_* commands, clamped to
 	// [AltChaMaxNumberMin, AltChaMaxNumberMax]; absent means config.AltChaMaxNumber
@@ -93,11 +93,18 @@ func getDialer(config *Config) *kafka.Dialer {
 		}
 	}
 
+	// load() rejects bad SASL settings, so a loaded config never fails here
+	saslMechanism, err := KafkaSASLMechanism(config.KafkaSaslMechanism, config.KafkaSaslUsername, config.KafkaSaslPassword)
+	if err != nil {
+		log.Fatalf("KAFKA: %s", err)
+	}
+
 	dialer := &kafka.Dialer{
-		Timeout:   time.Duration(config.KafkaDialerTimeoutSeconds) * time.Second,
-		KeepAlive: time.Duration(config.KafkaDialerKeepAliveSeconds) * time.Second,
-		DualStack: true,
-		TLS:       tlsConfig,
+		Timeout:       time.Duration(config.KafkaDialerTimeoutSeconds) * time.Second,
+		KeepAlive:     time.Duration(config.KafkaDialerKeepAliveSeconds) * time.Second,
+		DualStack:     true,
+		TLS:           tlsConfig,
+		SASLMechanism: saslMechanism,
 	}
 	return dialer
 }
@@ -122,14 +129,14 @@ func RunKafkaReader(
 		)
 
 		r := kafka.NewReader(kafka.ReaderConfig{
-			Brokers:        config.KafkaBrokers,
-			StartOffset:    kafka.LastOffset,
-			Partition:      getDNetPartition(config),
-			Topic:          config.KafkaCommandTopic,
-			Dialer:         getDialer(config),
-			MinBytes:       config.KafkaMinBytes,  // 1MB - batch
-			MaxBytes:       config.KafkaMaxBytes,  // 10MB max fetch size
-			MaxWait:        time.Duration(config.KafkaMaxWaitMs) * time.Millisecond,  // 500ms max wait
+			Brokers:     config.KafkaBrokers,
+			StartOffset: kafka.LastOffset,
+			Partition:   getDNetPartition(config),
+			Topic:       config.KafkaCommandTopic,
+			Dialer:      getDialer(config),
+			MinBytes:    config.KafkaMinBytes,                                    // 1MB - batch
+			MaxBytes:    config.KafkaMaxBytes,                                    // 10MB max fetch size
+			MaxWait:     time.Duration(config.KafkaMaxWaitMs) * time.Millisecond, // 500ms max wait
 		})
 		defer r.Close()
 

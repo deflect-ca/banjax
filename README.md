@@ -229,9 +229,20 @@ kafka_ssl_ca: "/etc/banjax/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/certificate.pem"
 kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
+kafka_sasl_mechanism: SCRAM-SHA-512  # or PLAIN, SCRAM-SHA-256; the default when unset
+kafka_sasl_username: banjax
+kafka_sasl_password: dummy           # placeholder: set the real one in .env
 kafka_report_topic: 'banjax_report_topic'
 kafka_command_topic: 'banjax_command_topic'
 ```
+
+SASL username/password auth is used by both the command reader and the report writer, on
+top of the TLS client certificate when `kafka_ssl_cert` is set. `KAFKA_SASL_MECHANISM`,
+`KAFKA_SASL_USERNAME` and `KAFKA_SASL_PASSWORD` in the untracked `.env` (loaded through
+docker-compose `env_file`) override the yaml values, so the real password never needs to be in
+the config file. Without a username and password there is no SASL; with them, the mechanism
+defaults to `SCRAM-SHA-512`. Banjax refuses to load a config with only one of username and
+password, or an unknown mechanism, and logs a warning for `PLAIN` without TLS.
 
 # Sample Configuration
 
