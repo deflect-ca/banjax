@@ -111,7 +111,10 @@ SASL username/password auth uses the same `.env` variables as banjax:
 default when a username and password are set),
 `KAFKA_SASL_USERNAME` and `KAFKA_SASL_PASSWORD`. `-sasl-mechanism` and
 `-sasl-username` override the first two; the password is read only from the
-environment so it never shows up in the process list or shell history.
+environment so it never shows up in the process list or shell history. When
+only `KAFKA_SASL_PASSWORD` is set, the username defaults to `banjax`, the same
+default as `kafka_sasl_username` in `banjax-config.yaml` (this tool does not
+read that file).
 
 ## Flags
 

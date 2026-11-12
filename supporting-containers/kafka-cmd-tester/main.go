@@ -75,6 +75,9 @@ var commandSpecs = map[string]commandSpec{
 	"clear_rules": {},
 }
 
+// matches kafka_sasl_username in banjax-config.yaml
+const defaultSASLUsername = "banjax"
+
 func supportedCommandNames() []string {
 	names := make([]string, 0, len(commandSpecs))
 	for name := range commandSpecs {
@@ -112,7 +115,7 @@ func main() {
 	sslKey := flag.String("ssl-key", envOr("KAFKA_SSL_KEY", "/etc/banjax/key.pem"), "path to client key")
 	insecure := flag.Bool("insecure", false, "connect without TLS (for a local, unauthenticated kafka)")
 	saslMechanism := flag.String("sasl-mechanism", os.Getenv("KAFKA_SASL_MECHANISM"), "SASL mechanism: PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512 (default SCRAM-SHA-512 when a username and password are set, otherwise no SASL)")
-	saslUsername := flag.String("sasl-username", os.Getenv("KAFKA_SASL_USERNAME"), "SASL username (the password is read only from KAFKA_SASL_PASSWORD, so it stays out of the process list)")
+	saslUsername := flag.String("sasl-username", os.Getenv("KAFKA_SASL_USERNAME"), "SASL username, default banjax when KAFKA_SASL_PASSWORD is set (the password is read only from that variable, so it stays out of the process list)")
 
 	count := flag.Int("count", 1, "number of times to send the message")
 	interval := flag.Duration("interval", 0, "delay between sends when -count > 1, e.g. 2s")
@@ -201,7 +204,13 @@ func main() {
 		tlsConfig = buildTLSConfig(*sslCa, *sslCert, *sslKey)
 	}
 
-	sasl, err := internal.KafkaSASLMechanism(*saslMechanism, *saslUsername, os.Getenv("KAFKA_SASL_PASSWORD"))
+	// banjax gets the username from banjax-config.yaml, which this tool does not read,
+	// so fall back to the same default when only the password is in .env
+	saslPassword := os.Getenv("KAFKA_SASL_PASSWORD")
+	if *saslUsername == "" && saslPassword != "" {
+		*saslUsername = defaultSASLUsername
+	}
+	sasl, err := internal.KafkaSASLMechanism(*saslMechanism, *saslUsername, saslPassword)
 	if err != nil {
 		log.Fatalf("kafka sasl: %s", err)
 	}
