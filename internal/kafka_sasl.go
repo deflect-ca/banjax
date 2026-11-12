@@ -20,9 +20,14 @@ const KafkaDefaultSASLMechanism = "SCRAM-SHA-512"
 
 // KafkaSASLMechanism builds the SASL mechanism for the kafka dialer. No mechanism
 // and no credentials means no SASL (TLS client certs only, or plaintext); credentials
-// without a mechanism use KafkaDefaultSASLMechanism. Exported so
-// supporting-containers/kafka-cmd-tester authenticates the same way.
+// without a mechanism use KafkaDefaultSASLMechanism. Mechanism "none" turns SASL off
+// even with credentials set, so one deployment whose broker has no password yet can
+// override the credentials in a shared config file (an empty .env value cannot).
+// Exported so supporting-containers/kafka-cmd-tester authenticates the same way.
 func KafkaSASLMechanism(mechanism, username, password string) (sasl.Mechanism, error) {
+	if strings.EqualFold(mechanism, "none") {
+		return nil, nil
+	}
 	if mechanism == "" {
 		if username == "" && password == "" {
 			return nil, nil

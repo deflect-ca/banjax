@@ -40,6 +40,9 @@ func TestKafkaSASLMechanism(t *testing.T) {
 		{name: "scram-sha-512 uses scram with sha-512", mechanism: "SCRAM-SHA-512", username: "user", password: "pw", wantName: "SCRAM-SHA-512"},
 		{name: "mechanism name is case insensitive", mechanism: "scram-sha-512", username: "user", password: "pw", wantName: "SCRAM-SHA-512"},
 		{name: "credentials without a mechanism default to scram-sha-512", username: "user", password: "pw", wantName: "SCRAM-SHA-512"},
+		{name: "none turns sasl off even with credentials set", mechanism: "none", username: "user", password: "pw", wantName: ""},
+		{name: "none is case insensitive", mechanism: "NONE", username: "user", password: "pw", wantName: ""},
+		{name: "none without credentials means no sasl", mechanism: "none", wantName: ""},
 		{name: "a password alone is rejected", password: "pw", wantErr: true},
 		{name: "a username alone is rejected", username: "user", wantErr: true},
 		{name: "a mechanism without a password is rejected", mechanism: "PLAIN", username: "user", wantErr: true},
@@ -110,6 +113,16 @@ func TestKafkaSASLConfig(t *testing.T) {
 		dialer := getDialer(config)
 		assert.NotNil(t, dialer.SASLMechanism)
 		assert.Equal(t, "SCRAM-SHA-512", dialer.SASLMechanism.Name())
+	})
+
+	t.Run("mechanism none from the environment turns off the yaml credentials", func(t *testing.T) {
+		clearKafkaEnvForLoad(t)
+		t.Setenv("KAFKA_SASL_MECHANISM", "none")
+		path := writeConfig(t, "kafka_sasl_mechanism: SCRAM-SHA-512\nkafka_sasl_username: yaml-user\nkafka_sasl_password: yaml-pw\n")
+
+		config, err := load(path, 0, false, false)
+		assert.Nil(t, err)
+		assert.Nil(t, getDialer(config).SASLMechanism)
 	})
 
 	t.Run("load fails when a password is set without a username", func(t *testing.T) {

@@ -229,7 +229,7 @@ kafka_ssl_ca: "/etc/banjax/caroot.pem"
 kafka_ssl_cert: "/etc/banjax/certificate.pem"
 kafka_ssl_key: "/etc/banjax/key.pem"
 kafka_ssl_key_password: password
-kafka_sasl_mechanism: SCRAM-SHA-512  # or PLAIN, SCRAM-SHA-256; the default when unset
+kafka_sasl_mechanism: SCRAM-SHA-512  # or PLAIN, SCRAM-SHA-256, none; the default when unset
 kafka_sasl_username: banjax
 kafka_sasl_password: dummy           # placeholder: set the real one in .env
 kafka_report_topic: 'banjax_report_topic'
@@ -241,7 +241,10 @@ top of the TLS client certificate when `kafka_ssl_cert` is set. `KAFKA_SASL_MECH
 `KAFKA_SASL_USERNAME` and `KAFKA_SASL_PASSWORD` in the untracked `.env` (loaded through
 docker-compose `env_file`) override the yaml values, so the real password never needs to be in
 the config file. Without a username and password there is no SASL; with them, the mechanism
-defaults to `SCRAM-SHA-512`. Banjax refuses to load a config with only one of username and
+defaults to `SCRAM-SHA-512`. `KAFKA_SASL_MECHANISM=none` (or `kafka_sasl_mechanism: none`)
+turns SASL off even when a username and password are set, for a broker that has no password
+yet; an empty value in `.env` cannot do this, as empty values do not override the yaml. The
+TLS client certificate is a separate setting and still applies. Banjax refuses to load a config with only one of username and
 password, or an unknown mechanism, and logs a warning for `PLAIN` without TLS.
 
 # Sample Configuration

@@ -108,7 +108,8 @@ kafka.
 
 SASL username/password auth uses the same `.env` variables as banjax:
 `KAFKA_SASL_MECHANISM` (`PLAIN`, `SCRAM-SHA-256` or `SCRAM-SHA-512`, the
-default when a username and password are set),
+default when a username and password are set; `none` turns SASL off even
+when a username and password are set),
 `KAFKA_SASL_USERNAME` and `KAFKA_SASL_PASSWORD`. `-sasl-mechanism` and
 `-sasl-username` override the first two; the password is read only from the
 environment so it never shows up in the process list or shell history. When

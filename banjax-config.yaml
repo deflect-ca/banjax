@@ -25,7 +25,9 @@ kafka_ssl_key_password: password
 # password unset for no SASL. KAFKA_SASL_MECHANISM / KAFKA_SASL_USERNAME /
 # KAFKA_SASL_PASSWORD in the untracked .env override these, so keep the real password
 # there, never here. Banjax refuses to start when only one of username/password is set.
-# PLAIN without TLS sends the password in cleartext.
+# PLAIN without TLS sends the password in cleartext. KAFKA_SASL_MECHANISM=none in .env
+# turns SASL off for a broker without a password, whatever username/password are set
+# here (an empty .env value does not override).
 kafka_sasl_mechanism: SCRAM-SHA-512
 kafka_sasl_username: banjax
 kafka_sasl_password: dummy

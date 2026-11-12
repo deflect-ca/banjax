@@ -114,7 +114,7 @@ func main() {
 	sslCert := flag.String("ssl-cert", envOr("KAFKA_SSL_CERT", "/etc/banjax/certificate.pem"), "path to client cert")
 	sslKey := flag.String("ssl-key", envOr("KAFKA_SSL_KEY", "/etc/banjax/key.pem"), "path to client key")
 	insecure := flag.Bool("insecure", false, "connect without TLS (for a local, unauthenticated kafka)")
-	saslMechanism := flag.String("sasl-mechanism", os.Getenv("KAFKA_SASL_MECHANISM"), "SASL mechanism: PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512 (default SCRAM-SHA-512 when a username and password are set, otherwise no SASL)")
+	saslMechanism := flag.String("sasl-mechanism", os.Getenv("KAFKA_SASL_MECHANISM"), "SASL mechanism: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, or none to turn SASL off (default SCRAM-SHA-512 when a username and password are set, otherwise no SASL)")
 	saslUsername := flag.String("sasl-username", os.Getenv("KAFKA_SASL_USERNAME"), "SASL username, default banjax when KAFKA_SASL_PASSWORD is set (the password is read only from that variable, so it stays out of the process list)")
 
 	count := flag.Int("count", 1, "number of times to send the message")

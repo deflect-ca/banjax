@@ -247,10 +247,18 @@ func load(path string, restartTime int, standaloneTesting bool, debug bool) (*Co
 
 	// fail the load on bad SASL settings instead of letting the kafka loop retry a
 	// connection the broker will always refuse
-	if _, err := KafkaSASLMechanism(config.KafkaSaslMechanism, config.KafkaSaslUsername, config.KafkaSaslPassword); err != nil {
+	saslMechanism, err := KafkaSASLMechanism(config.KafkaSaslMechanism, config.KafkaSaslUsername, config.KafkaSaslPassword)
+	if err != nil {
 		return nil, err
 	}
-	if strings.EqualFold(config.KafkaSaslMechanism, "PLAIN") && config.KafkaSslCert == "" {
+	// the effective mechanism (so the SCRAM-SHA-512 default shows); never the password
+	saslMechanismName := "none"
+	if saslMechanism != nil {
+		saslMechanismName = saslMechanism.Name()
+	}
+	log.Printf("INIT: Kafka command topic: %q, SASL mechanism: %s, SASL username: %q",
+		config.KafkaCommandTopic, saslMechanismName, config.KafkaSaslUsername)
+	if saslMechanismName == "PLAIN" && config.KafkaSslCert == "" {
 		log.Println("INIT: WARNING: kafka_sasl_mechanism PLAIN without TLS (kafka_ssl_cert) sends the password in cleartext")
 	}
 
