@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Banjax SPA test</title>
+<!--
+  A small single-page app for testing how banjax challenges XHRs: a challenged
+  fetch()/XMLHttpRequest call gets a 403 JSON error {"error": "challenge_required"}
+  instead of the HTML challenge page, and the app reloads to show the challenge.
+
+  Everything is inline on purpose: nginx sends *.js / *.json / *.css paths
+  straight to the origin, bypassing banjax, so the API lives under /spa/api/ and
+  the script lives in this page.
+-->
+<style>
+  :root {
+    --bg: #ecece2; --panel: #fff; --text: #222; --muted: #666; --border: #d4d4c8;
+    --ok: #1d7a3a; --challenged: #b3261e; --other: #555;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 1.5em; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { display: flex; align-items: center; gap: 1em; margin-bottom: 1em; }
+  header img { width: 48px; height: 48px; }
+  h1 { font-size: 1.4em; margin: 0; }
+  h2 { font-size: 1.05em; margin: 0 0 .5em; }
+  nav a { margin-right: 1em; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1em; margin-bottom: 1em; }
+  button, select { font: inherit; padding: .35em .7em; margin: 0 .3em .4em 0; cursor: pointer; }
+  label { margin-right: 1em; }
+  code, pre { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { background: #f6f6f0; border: 1px solid var(--border); padding: .6em; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: .3em 0 .8em; }
+  #state { font-size: 1.1em; font-weight: 600; padding: .6em .8em; border-radius: 4px; background: #f3f3ec; }
+  #state.ok { color: var(--ok); } #state.challenged { color: var(--challenged); }
+  #state button { margin: 0 0 0 .8em; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: .3em .5em; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); }
+  td.outcome { font-weight: 600; white-space: nowrap; }
+  tr.ok td.outcome { color: var(--ok); }
+  tr.challenged td.outcome { color: var(--challenged); }
+  tr.other td.outcome { color: var(--other); }
+  .muted { color: var(--muted); }
+  #feed li { margin-bottom: .2em; }
+</style>
+</head>
+<body>
+<header>
+  <img src="/assets/deflect_100.png" alt="">
+  <div>
+    <h1>Banjax SPA test: challenged XHRs</h1>
+    <nav>
+      <a href="/spa/app/home" data-route="home">Home</a>
+      <a href="/spa/app/inbox" data-route="inbox">Inbox</a>
+      <a href="/spa/app/settings" data-route="settings">Settings</a>
+      <span class="muted">(in-app links: pushState + fetch, no page load)</span>
+    </nav>
+  </div>
+</header>
+
+<section>
+  <div id="state">Waiting for the first API call...</div>
+  <p class="muted" id="route-line"></p>
+</section>
+
+<div class="grid">
+  <section>
+    <h2>How to test</h2>
+    <ol>
+      <li>Open this page at <code>http://localhost/spa</code>. Use localhost or https: otherwise the browser
+        sends no <code>Sec-Fetch-*</code> headers, and only the XHR button (which sends
+        <code>X-Requested-With</code>) is recognised as an XHR.</li>
+      <li>Leave polling on. Calls should show <b>OK</b>.</li>
+      <li>Send a kafka challenge for this site from the repo root:
+        <pre>docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost</pre>
+        or for this browser's session only:
+        <pre id="cmd-session">(loading session id...)</pre>
+      </li>
+      <li>API calls now show <b>CHALLENGE REQUIRED</b>: a 403 with
+        <code>{"error": "challenge_required"}</code>. They don't count toward the failed challenge ban,
+        so polling can carry on.</li>
+      <li>Click <b>Reload to verify</b> (or tick auto-reload) to get the challenge as a page, solve it, and
+        come back: calls are <b>OK</b> again.</li>
+    </ol>
+    <p class="muted">Compare with <code>curl -H 'Accept: application/json' http://localhost/spa/api/feed</code>
+      while challenged: not an XHR, so it gets the HTML challenge (429) and does count toward the ban.</p>
+  </section>
+
+  <section>
+    <h2>Actions</h2>
+    <div>
+      <button id="poll-toggle">Stop polling</button>
+      <select id="poll-interval" aria-label="Polling interval">
+        <option value="1000">every 1s</option>
+        <option value="2000" selected>every 2s</option>
+        <option value="5000">every 5s</option>
+      </select>
+      <label><input type="checkbox" id="auto-reload"> auto-reload on challenge_required</label>
+    </div>
+    <div>
+      <button data-action="feed">fetch() feed</button>
+      <button data-action="xhr">XHR notifications</button>
+      <button data-action="like">POST like</button>
+      <button data-action="whoami">whoami</button>
+    </div>
+    <div>
+      <button id="navigate">Reload to verify</button>
+      <button id="clear-log">Clear log</button>
+    </div>
+    <h2 style="margin-top:.8em">Feed</h2>
+    <ul id="feed"><li class="muted">nothing yet</li></ul>
+  </section>
+</div>
+
+<section>
+  <h2>Request log <span class="muted">(newest first)</span></h2>
+  <table>
+    <thead><tr><th>Time</th><th>Request</th><th>Status</th><th>X-Banjax-Decision</th><th>Outcome</th></tr></thead>
+    <tbody id="log"></tbody>
+  </table>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  var pollTimer = null;
+  var challengedSince = null;   // when the first challenge_required arrived
+  var stateEl = document.getElementById("state");
+  var logEl = document.getElementById("log");
+  var autoReload = document.getElementById("auto-reload");
+
+  function now() { return new Date().toLocaleTimeString(); }
+
+  // classify a response: ok / challenged (the JSON 403 or an HTML challenge page) / other
+  function classify(status, contentType, body) {
+    if (status === 403 && body && body.error === "challenge_required") {
+      return { cls: "challenged", label: "CHALLENGE REQUIRED (JSON 403, " + body.challenge + ")", challengeRequired: true };
+    }
+    if (status === 429 && contentType.indexOf("text/html") !== -1) return { cls: "challenged", label: "HTML CHALLENGE (429)" };
+    if (status === 403) return { cls: "challenged", label: "BLOCKED (403)" };
+    if (status >= 200 && status < 300) return { cls: "ok", label: "OK" };
+    return { cls: "other", label: "HTTP " + status };
+  }
+
+  function setState(cls, text, withReloadButton) {
+    stateEl.className = cls;
+    stateEl.textContent = text;
+    if (withReloadButton) {
+      var button = document.createElement("button");
+      button.textContent = "Reload to verify";
+      button.addEventListener("click", function () { location.reload(); });
+      stateEl.appendChild(button);
+    }
+  }
+
+  function record(name, status, decision, contentType, body) {
+    var outcome = classify(status, contentType, body);
+    var row = document.createElement("tr");
+    row.className = outcome.cls;
+    [now(), name, String(status), decision || "-", outcome.label].forEach(function (text, i) {
+      var cell = document.createElement("td");
+      cell.textContent = text;
+      if (i === 4) cell.className = "outcome";
+      row.appendChild(cell);
+    });
+    logEl.insertBefore(row, logEl.firstChild);
+    while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+
+    if (outcome.challengeRequired) {
+      if (!challengedSince) challengedSince = Date.now();
+      if (autoReload.checked) {
+        setState("challenged", "CHALLENGE REQUIRED: reloading to show the browser check...");
+        stopPolling();
+        setTimeout(function () { location.reload(); }, 500);
+        return outcome;
+      }
+      var seconds = Math.round((Date.now() - challengedSince) / 1000);
+      setState("challenged", "CHALLENGE REQUIRED: API calls are refused with a 403 JSON error (" + seconds + "s so far, not counted toward a ban).", true);
+    } else if (outcome.cls === "challenged") {
+      setState("challenged", "Challenged: " + outcome.label + ".", true);
+    } else if (outcome.cls === "ok") {
+      challengedSince = null;
+      setState("ok", "OK: API calls reach the origin normally.");
+    }
+    return outcome;
+  }
+
+  // fetch wrapper that logs the banjax outcome and returns parsed JSON when there is some
+  function call(name, url, options) {
+    return fetch(url, options || {}).then(function (response) {
+      var decision = response.headers.get("X-Banjax-Decision") || "";
+      var contentType = response.headers.get("Content-Type") || "";
+      var parse = contentType.indexOf("application/json") !== -1 ? response.json().catch(function () { return null; }) : Promise.resolve(null);
+      return parse.then(function (body) {
+        record(name, response.status, decision, contentType, body);
+        return response.ok ? body : null;
+      });
+    }).catch(function (error) {
+      record(name + " (network error: " + error.message + ")", 0, "", "", null);
+      return null;
+    });
+  }
+
+  function renderFeed(data) {
+    if (!data || !data.items) return;
+    var feed = document.getElementById("feed");
+    feed.textContent = "";
+    data.items.forEach(function (item) {
+      var li = document.createElement("li");
+      li.textContent = item.title + " (" + item.time + ")";
+      feed.appendChild(li);
+    });
+  }
+
+  var actions = {
+    feed: function () {
+      return call("GET /spa/api/feed (fetch)", "/spa/api/feed").then(renderFeed);
+    },
+    // sends X-Requested-With like jQuery does, so it is an XHR even without Sec-Fetch headers
+    xhr: function () {
+      var xhr = new XMLHttpRequest();
+      xhr.open("GET", "/spa/api/notifications");
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+      xhr.onload = function () {
+        var contentType = xhr.getResponseHeader("Content-Type") || "";
+        var body = null;
+        if (contentType.indexOf("application/json") !== -1) {
+          try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
+        }
+        record("GET /spa/api/notifications (XHR)", xhr.status, xhr.getResponseHeader("X-Banjax-Decision") || "", contentType, body);
+      };
+      xhr.onerror = function () { record("GET /spa/api/notifications (XHR, network error)", 0, "", "", null); };
+      xhr.send();
+    },
+    like: function () {
+      return call("POST /spa/api/like", "/spa/api/like", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ item: 1 })
+      });
+    },
+    whoami: function () {
+      return call("GET /spa/api/whoami", "/spa/api/whoami").then(function (data) {
+        if (data) showSession(data);
+      });
+    }
+  };
+
+  function showSession(data) {
+    var cmd = document.getElementById("cmd-session");
+    if (data.deflect_session) {
+      cmd.textContent = "docker compose run --rm kafka-cmd-tester -cmd challenge_session -host localhost -value 1.1.1.1 -session-id '" + data.deflect_session + "'";
+    } else {
+      cmd.textContent = "(no deflect_session cookie yet: reload the page once)";
+    }
+  }
+
+  function startPolling() {
+    stopPolling();
+    var interval = Number(document.getElementById("poll-interval").value);
+    pollTimer = setInterval(actions.feed, interval);
+    document.getElementById("poll-toggle").textContent = "Stop polling";
+  }
+  function stopPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+    document.getElementById("poll-toggle").textContent = "Start polling";
+  }
+
+  // in-app routing: change the URL without a navigation, then load the route's data with fetch
+  function showRoute(route) {
+    document.getElementById("route-line").textContent = "Route: " + route + " (rendered client-side, URL " + location.pathname + ")";
+  }
+  document.querySelectorAll("nav a[data-route]").forEach(function (link) {
+    link.addEventListener("click", function (event) {
+      event.preventDefault();
+      var route = link.getAttribute("data-route");
+      history.pushState({ route: route }, "", link.getAttribute("href"));
+      showRoute(route);
+      call("GET /spa/api/route/" + route + " (fetch)", "/spa/api/route/" + route);
+    });
+  });
+  window.addEventListener("popstate", function (event) {
+    showRoute((event.state && event.state.route) || "home");
+  });
+
+  document.querySelectorAll("button[data-action]").forEach(function (button) {
+    button.addEventListener("click", function () { actions[button.getAttribute("data-action")](); });
+  });
+  document.getElementById("poll-toggle").addEventListener("click", function () {
+    if (pollTimer) stopPolling(); else startPolling();
+  });
+  document.getElementById("poll-interval").addEventListener("change", function () {
+    if (pollTimer) startPolling();
+  });
+  document.getElementById("navigate").addEventListener("click", function () { location.reload(); });
+  document.getElementById("clear-log").addEventListener("click", function () { logEl.textContent = ""; });
+
+  // remember the auto-reload choice across reloads
+  try { autoReload.checked = localStorage.getItem("spa-auto-reload") === "1"; } catch (e) {}
+  autoReload.addEventListener("change", function () {
+    try { localStorage.setItem("spa-auto-reload", autoReload.checked ? "1" : "0"); } catch (e) {}
+  });
+
+  var initialRoute = location.pathname.replace(/^\/spa\/app\/?/, "").replace(/^\/spa\/?$/, "") || "home";
+  showRoute(initialRoute);
+  actions.whoami();
+  actions.feed();
+  startPolling();
+})();
+</script>
+</body>
+</html>

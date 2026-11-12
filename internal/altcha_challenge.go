@@ -298,6 +298,11 @@ func sendOrValidateAltChaChallenge(
 	} else {
 		result.AltChaChallengeResult = AltChaChallengeFailedNoCookie
 	}
+	// an XHR can't show the challenge page: a 403 JSON error, not counted as a failed challenge
+	if IsXHR(c.Request) {
+		xhrChallenge(c, config, trigger, "altcha")
+		return result
+	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
 		tooManyFailedChallengesResult := tooManyFailedChallenges(

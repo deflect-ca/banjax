@@ -826,6 +826,11 @@ func sendOrValidateShaChallenge(
 			return sendOrValidateShaChallengeResult
 		}
 	}
+	// an XHR can't show the challenge page: a 403 JSON error, not counted as a failed challenge
+	if IsXHR(c.Request) {
+		xhrChallenge(c, config, trigger, "sha_inv")
+		return sendOrValidateShaChallengeResult
+	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
 		tooManyFailedChallengesResult := tooManyFailedChallenges(
@@ -1139,6 +1144,7 @@ type DecisionForNginxResult struct {
 	AltChaOptions                 *AltChaOptions // difficulty of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
 	TooMany403Result              *RateLimitResult // nil unless the response was a 403 counted by too_many_403_ban_to_iptables_ban
+	XHRChallenge                  bool             `json:",omitempty"` // challenged XHR answered with the 403 JSON error
 	ClientUserAgent               string
 }
 
@@ -1153,6 +1159,10 @@ func countTooMany403s(
 	banner BannerInterface,
 ) {
 	if !config.TooMany403BanToIptablesBan || c.Writer.Status() != http.StatusForbidden {
+		return
+	}
+	// a challenged XHR's 403 is not a block (see xhrChallenge)
+	if isXHRChallenge(c) {
 		return
 	}
 	result := tooMany403s(
@@ -1191,6 +1201,7 @@ func decisionForNginx(
 			altchaFailedChallengeStates,
 			banner,
 		)
+		decisionForNginxResult.XHRChallenge = isXHRChallenge(c)
 		countTooMany403s(c, config, &decisionForNginxResult, tooMany403States, staticDecisionLists, banner)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
