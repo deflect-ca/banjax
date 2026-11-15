@@ -78,6 +78,41 @@ Decisions added at run-time (from the log tailer, Kafka, or the failed challenge
 
 From the perspective of the JS and cookie cryptographic implementation, these work very similarly to the SHA-inverting proof-of-work challenge. But the use-cases are different: the PoW challenge is intended to filter out DDoS traffic, and so it makes sense for the Nginx configuration to fail open in case Banjax-go is unreachable. Password-protected paths should fail closed.
 
+## How paths are matched
+
+banjax gets the raw request path (`X-Requested-Path`, nginx's `$request_uri`), while the
+origin serves whatever that path resolves to. So that every spelling of a path gets the
+same decision, banjax matches a canonical form of it:
+
+- the query string is dropped and the path is percent-decoded once
+- `.` and `..` segments and repeated slashes are resolved (`/foo/../wp-admin/` is `/wp-admin`)
+- a rule covers the path itself and everything below it, on a segment boundary:
+  `wp-admin` protects `/wp-admin` and `/wp-admin/x`, not `/wp-admin-public`
+- `password_protected_paths` match case-insensitively (`/WP-ADMIN/` is protected, since
+  some origins are case-insensitive); exceptions match only in the case they are written
+  in, because an exception grants access and must not widen
+
+`password_protected_path_exceptions` (also used as the sitewide challenge exceptions) and
+`sha_inv_path_exceptions` are matched the same way.
+
+Some paths have no single safe reading, because origins resolve them differently: an
+encoded slash (`%2F`), a backslash, a control character, a `%` left after one decode
+(double encoding), `#`, a `;` path parameter, an invalid escape, or a segment ending in a
+dot or space. Such a path is never an exception. On a site with protected paths it asks
+for the password when any reading an origin might use (encoded slash kept as text or
+split on, decoded again, `;` parameters and trailing dots and spaces stripped) starts with
+a protected path; elsewhere on the site it is not protected.
+
+Configured entries never stop banjax from starting or reloading. An exception with a query
+string or with one of the characters above is dropped with a `CONFIG:` log line (the path
+then stays protected or challenged). A protected path with such characters is kept and
+logged, since dropping it would expose it.
+
+In nginx, the location that asks banjax for protected paths must win over any regex
+location (for example one for static files that skips banjax) and fail closed. The dev
+config uses a case-insensitive regex location listed before the static-file one
+(`location ~* ^/wp-admin` in `supporting-containers/nginx/nginx.conf`).
+
 # Development
 
 Create a empty `.env` file for docker-compose. `touch .env`
@@ -277,7 +312,7 @@ kafka_brokers:
 - localhost:9092
 password_hashes:               # for password_protected_paths
   example.com: <base64 string> 
-password_protected_paths:      # for password_protected_paths
+password_protected_paths:      # for password_protected_paths (see "How paths are matched")
   example.com:
   - wp-admin
 per_site_regexes_with_rates: # fail2ban-like challenging/blocking (per-site)

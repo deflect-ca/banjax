@@ -8,8 +8,15 @@ decision-making works like this:
 if has_valid_password_cookie():
     return access_granted()
 
-if password_protected_path[requested_host][requested_path]:
-    if password_protected_path_exceptions[requested_host][requested_path]:
+# path = canonical(requested_path): query dropped, percent-decoded once, dot segments and
+# repeated slashes resolved. Rules match the path or anything below it, on a segment
+# boundary; protected paths case-insensitively, exceptions (here and below, including
+# per_site_sha_inv_path_exceptions) case-sensitively. A path with no safe canonical form
+# (encoded slash, backslash, control character, leftover %, #, ;, bad escape, trailing
+# dot or space on a segment) is never an exception, and is protected when any reading an
+# origin might use starts with a protected path. See README "How paths are matched".
+if password_protected_path[requested_host][path]:
+    if password_protected_path_exceptions[requested_host][path]:
         return access_granted()
     else:
         return send_or_validate_password_page()
@@ -100,14 +107,14 @@ if sitewide_altcha_list[requested_host]:
     # block, no_block, block_click or no_block_click: fail_action Block or Allow, and _click
     # makes it an AltChaClickChallenge (one-click checkbox) instead of an AltChaChallenge
     fail_action = sitewide_altcha_list[requested_host].fail_action
-    if password_protected_path_exceptions[requested_host][requested_path]:
+    if password_protected_path_exceptions[requested_host][path]:  # same canonical path
         return access_granted()
     else:
         return send_or_validate_altcha_challenge(fail_action)
 
 if sitewide_sha_inv_list[requested_host]:
     fail_action = sitewide_sha_inv_list[requested_host].fail_action  # Block or Allow
-    if password_protected_path_exceptions[requested_host][requested_path]:
+    if password_protected_path_exceptions[requested_host][path]:  # same canonical path
         return access_granted()
     else:
         return send_or_validate_challenge(fail_action)

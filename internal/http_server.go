@@ -1222,7 +1222,6 @@ func decisionForNginx2(
 	requestedHost := c.Request.Header.Get("X-Requested-Host")
 	requestedPath := c.Request.Header.Get("X-Requested-Path")
 	clientUserAgent := c.Request.Header.Get("X-Client-User-Agent")
-	requestedProtectedPath := CleanRequestedPath(requestedPath)
 
 	// log.Println("clientIp: ", clientIp, " requestedHost: ", requestedHost, " requestedPath: ", requestedPath)
 	// log.Println("headers: ", c.Request.Header)
@@ -1289,7 +1288,7 @@ func decisionForNginx2(
 		}
 	}
 
-	switch passwordProtectedPaths.ClassifyPath(requestedHost, requestedProtectedPath) {
+	switch passwordProtectedPaths.ClassifyPath(requestedHost, requestedPath) {
 	case PasswordProtected:
 		sendOrValidatePasswordResult := sendOrValidatePassword(
 			config,
@@ -1875,7 +1874,7 @@ func decisionForNginx2(
 	// sitewide_altcha_list: sitewide_sha_inv_list for the AltCha challenge, checked first so a
 	// site listed in both gets AltCha. Same fail actions and path exceptions.
 	if sitewideAltCha, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
-		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
+		if passwordProtectedPaths.IsException(requestedHost, requestedPath) {
 			exception := altchaResult(sitewideAltCha.Decision(), SiteWideAltChaChallengeException)
 			decisionForNginxResult.DecisionListResult = exception
 			accessGranted(c, config, DecisionListResultToString[exception], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1909,7 +1908,7 @@ func decisionForNginx2(
 	} else {
 		// log.Println("challenge from sitewide list")
 		// Reuse the exception from password prot for site-wide sha inv exceptions path
-		if passwordProtectedPaths.IsException(requestedHost, requestedProtectedPath) {
+		if passwordProtectedPaths.IsException(requestedHost, requestedPath) {
 			decisionForNginxResult.DecisionListResult = SiteWideChallengeException
 			accessGranted(c, config, DecisionListResultToString[SiteWideChallengeException], -1.0, "", IntegrityCheckPayloadWrapper{})
 		} else {
@@ -1938,12 +1937,6 @@ func decisionForNginx2(
 	return
 }
 
-func CleanRequestedPath(requestedPath string) string {
-	path := "/" + strings.Trim(requestedPath, "/")
-	path = strings.Split(path, "?")[0]
-	return path
-}
-
 func checkExpiringDecisionLists(c *gin.Context, clientIp string, decisionLists *DynamicDecisionLists) (ExpiringDecision, bool) {
 	sessionId, _ := c.Cookie(SessionCookieName)
 	return decisionLists.Check(sessionId, clientIp)
@@ -1954,14 +1947,21 @@ func checkPerSiteShaInvPathExceptions(
 	requestedHost string,
 	requestedPath string,
 ) bool {
-	// check against config.SitesToShaInvPathExceptions
+	// Matched like password protected path exceptions: canonical path, segment boundary,
+	// case-sensitive, and never for a path without a canonical form, so the raw spelling
+	// cannot widen the exemption (/wp-json/../admin is /admin).
 	pathExceptions, hasExceptions := config.SitesToShaInvPathExceptions[requestedHost]
-	if hasExceptions {
-		for _, pException := range pathExceptions {
-			if strings.HasPrefix(requestedPath, pException) {
-				log.Println("checkPerSiteShaInvPathExceptions:", requestedPath, "pException:", pException)
-				return true
-			}
+	if !hasExceptions {
+		return false
+	}
+	canonical, ok := canonicalPath(requestedPath)
+	if !ok {
+		return false
+	}
+	for _, pException := range pathExceptions {
+		if rule, ok := canonicalExceptionRule(pException); ok && isAtOrUnder(canonical, rule) {
+			log.Printf("checkPerSiteShaInvPathExceptions: %q pException: %q\n", canonical, pException)
+			return true
 		}
 	}
 	return false
