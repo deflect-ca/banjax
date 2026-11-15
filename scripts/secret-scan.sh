@@ -15,6 +15,8 @@
 #                                                secret added then removed is still caught
 #
 # Findings print file, line and rule only, never the matched value.
+# With SECRET_SCAN_REMOTE=<remote> (set by the pre-push hook), a local .env value that the
+# remote's default branch already contains is not counted: this push cannot leak it.
 # A line containing the marker secret-scan:allow is skipped.
 # Needs only git, grep, awk, sed; bash 3.2 compatible. Runs gitleaks too when installed.
 
@@ -113,6 +115,12 @@ done
 
 envvals="$TMP/envvals"
 : >"$envvals"
+# The commit the push target already holds as its default branch, if known. Only for
+# --range: staged and worktree scans have no target, so they count every value.
+published=""
+if [ "$mode" = "--range" ] && [ -n "${SECRET_SCAN_REMOTE:-}" ]; then
+    published="$(git rev-parse --verify -q "refs/remotes/$SECRET_SCAN_REMOTE/HEAD^{commit}")" || published=""
+fi
 if [ -f "$ROOT/.env" ]; then
     # KEY=value, optionally prefixed by export and quoted; written to a private
     # temp file so the values never appear in argv or output
@@ -129,6 +137,14 @@ if [ -f "$ROOT/.env" ]; then
             *[!0-9]*) ;;
             *) continue ;;
             esac
+            if [ -n "$published" ]; then
+                # the value goes through a private file, never argv
+                printf '%s\n' "$value" >"$TMP/envval"
+                if git grep -q -F -f "$TMP/envval" "$published" -- 2>/dev/null; then
+                    echo "secret-scan: .env variable $name not counted: its value is already on $SECRET_SCAN_REMOTE's default branch" >&2
+                    continue
+                fi
+            fi
             printf '%s\t%s\n' "$name" "$value"
         done >"$envvals"
 fi

@@ -21,6 +21,9 @@ case "$url" in
 *deflect-ca/*) echo "pre-push: note: this remote is a public repository; everything pushed is world-readable." ;;
 esac
 
+# lets the scan skip .env values this remote's default branch already holds
+export SECRET_SCAN_REMOTE="$remote"
+
 status=0
 while read -r local_ref local_sha remote_ref remote_sha; do
     # deleting a remote branch pushes no content
