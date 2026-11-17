@@ -49,7 +49,7 @@ func newTestDeflectChallengeKeys(t *testing.T, config *Config) *DeflectChallenge
 // same function that produces them.
 func TestDeflectChallengeMessage(t *testing.T) {
 	got := string(DeflectChallengeMessage("example.com", "nonce123"))
-	want := "deflect-challenge-v1\nexample.com\nnonce123"
+	want := "mirror-challenge-v1\nexample.com\nnonce123"
 
 	if got != want {
 		t.Errorf("DeflectChallengeMessage = %q, want %q", got, want)
