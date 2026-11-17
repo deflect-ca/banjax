@@ -318,6 +318,29 @@ func TestDecisionForNginx2_ExpiringDecisionShaInvPathException(t *testing.T) {
 		assert.Equal(t, ExpiringSiteWideChallenge, result.DecisionListResult)
 	})
 
+	for _, tc := range []struct {
+		name string
+		path string
+		want DecisionListResult
+	}{
+		{"a dot-dot out of the exception path is still challenged", "/wp-json/../about", ExpiringSiteWideChallenge},
+		{"an encoded slash out of the exception path is still challenged", "/wp-json%2F..%2Fabout", ExpiringSiteWideChallenge},
+		{"a name that only starts with the exception path is still challenged", "/wp-jsonx", ExpiringSiteWideChallenge},
+		{"an exception path in another case is still challenged", "/WP-JSON/v2", ExpiringSiteWideChallenge},
+		{"a percent-encoded spelling of the exception path is exempted", "/%77p-json/v2", PerSiteShaInvPathException},
+		{"a dot-dot into the exception path is exempted", "/foo/../wp-json/v2", PerSiteShaInvPathException},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decisionLists := NewDynamicDecisionLists()
+			decisionLists.UpdateByHost(config, host, time.Now().Add(time.Minute), Challenge, true, AltChaOptions{})
+
+			c := buildDecisionForNginxTestContext(clientIp, host, tc.path, userAgent, "")
+			result := decisionForNginx2(c, config, staticDecisionLists, decisionLists, passwordProtectedPaths, failedChallengeStates, NewFailedChallengeRateLimitStates(), banner)
+
+			assert.Equal(t, DecisionListResultToString[tc.want], DecisionListResultToString[result.DecisionListResult], "path %q", tc.path)
+		})
+	}
+
 	t.Run("ua block is not exempted by a sha-inv path exception", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		decisionLists.UpdateByUA(config, userAgent, time.Now().Add(time.Minute), NginxBlock, true, host, AltChaOptions{})

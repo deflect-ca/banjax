@@ -38,6 +38,9 @@ kafka_max_bytes: 10000000  # 10MB
 kafka_max_wait_ms: 5000
 kafka_dialer_timeout_seconds: 20
 kafka_dialer_keep_alive_seconds: 120
+# Matched case-insensitively against the decoded, dot-segment-resolved path; each entry
+# covers the path and everything below it (wp-admin: /wp-admin, /wp-admin/x, not
+# /wp-admin-public). See README "How paths are matched".
 password_protected_paths:
   "localhost:8081":
     - wp-admin
@@ -45,6 +48,8 @@ password_protected_paths:
     - wp-admin
   "sub.localhost":
     - wp-admin
+# Same matching as password_protected_paths but case-sensitive; also used as the sitewide
+# challenge exceptions. An entry with a query string, ';', '%', '#' or a backslash is dropped.
 password_protected_path_exceptions:
   "localhost:8081":
     - wp-admin/admin-ajax.php
@@ -206,6 +211,8 @@ sha_inv_expected_zero_bits: 10
 session_cookie_not_verify: true
 block_ip_ttl_seconds: 10
 block_session_ttl_seconds: 10
+# Matched like password_protected_path_exceptions (decoded, dot segments resolved,
+# segment boundary, case-sensitive).
 sha_inv_path_exceptions:
   "localhost:8081":
     - /no_challenge
