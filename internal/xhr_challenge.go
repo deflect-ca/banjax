@@ -9,34 +9,52 @@ package internal
 import (
 	"net/http"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Challenged XHRs. A fetch()/XMLHttpRequest call (see IsXHR) can't display an HTML
-// challenge page, so a challenged one gets a 403 JSON error instead, which the page's
-// script can read and act on, e.g. by reloading so the challenge is shown as a page.
+// Challenged XHRs. A browser subresource request (see IsSubresource: fetch()/XMLHttpRequest,
+// images, scripts, WebSockets and so on) can't display an HTML challenge page, so a
+// challenged one gets a 403 JSON error instead, which the page's script can read and act on,
+// e.g. by reloading so the challenge is shown as a page. Named for its main case, the XHR.
 //
 // A challenged XHR is not a failed challenge: it is not reported to baskerville as
 // ip_failed_challenge, and counts toward neither too_many_failed_challenges_* nor
 // too_many_403_ban_*, so an SPA that keeps polling while challenged is not banned for it.
+// Because a client can claim to be a subresource, xhrChallengeCounters makes the volume of
+// this exemption visible in the metrics log instead.
 
 // xhrChallengeContextKey marks a request answered with the XHR challenge, so
 // countTooMany403s can leave its 403 out.
 const xhrChallengeContextKey = "banjax_xhr_challenge"
 
+// xhrChallengeCounters count XHR challenges since banjax started (not reset on reload), for
+// the metrics log. badCookie counts the ones that carried a challenge cookie that failed
+// validation: a browser with a stale cookie, or a client guessing cookies without being
+// counted toward the failed challenge ban.
+var xhrChallengeCounters struct {
+	total     atomic.Uint64
+	badCookie atomic.Uint64
+}
+
 // XHRChallengeResponse is the body of the 403 a challenged XHR gets.
 type XHRChallengeResponse struct {
 	Error     string `json:"error"`     // always "challenge_required"
-	Challenge string `json:"challenge"` // "sha_inv" or "altcha": the challenge a navigation will get
+	Challenge string `json:"challenge"` // "sha_inv", "altcha" or "altcha_click": the challenge a navigation will get
 	Message   string `json:"message"`
 }
 
 // xhrChallenge answers a challenged XHR. trigger is why it is challenged, sent as
 // X-Banjax-Decision like the HTML challenge pages do. Unlike them it sets no challenge
 // cookie: overwriting the cookie from a background call could break a challenge being
-// solved in another tab.
-func xhrChallenge(c *gin.Context, config *Config, trigger DecisionListResult, challengeType string) {
+// solved in another tab. badCookie is true when the request carried a challenge cookie that
+// failed validation.
+func xhrChallenge(c *gin.Context, config *Config, trigger DecisionListResult, challengeType string, badCookie bool) {
+	xhrChallengeCounters.total.Add(1)
+	if badCookie {
+		xhrChallengeCounters.badCookie.Add(1)
+	}
 	c.Header("X-Banjax-Decision", DecisionListResultToString[trigger])
 	c.Header("Cache-Control", "no-cache,no-store")
 	allowRequestedHostOrigin(c)

@@ -42,24 +42,86 @@ func IsNavigation(r *http.Request) bool {
 	return mode == "navigate"
 }
 
-// IsXHR reports whether r is a browser's fetch() or XMLHttpRequest call, which can't
-// display an HTML challenge. Banjax answers a challenged XHR with a 403 JSON error instead,
-// and does not count it toward the failed challenge ban.
+// subresourceModes are the Sec-Fetch-Mode values of a request the browser will not render
+// as a page. "navigate" is the only other value browsers send.
+var subresourceModes = map[string]bool{
+	"cors":        true,
+	"no-cors":     true,
+	"same-origin": true,
+	"websocket":   true,
+}
+
+// subresourceDests are the Sec-Fetch-Dest values of a request whose response is consumed
+// by script or a subresource loader, never rendered as a page. Left out on purpose: the
+// page destinations (document, iframe, frame, embed, object, fencedframe) and any value
+// browsers may add later, which fall back to the HTML challenge until listed here.
+var subresourceDests = map[string]bool{
+	"empty":         true, // fetch(), XMLHttpRequest, EventSource, sendBeacon; Firefox WebSocket
+	"websocket":     true, // Chromium WebSocket
+	"audio":         true,
+	"audioworklet":  true,
+	"font":          true,
+	"image":         true,
+	"json":          true,
+	"manifest":      true,
+	"paintworklet":  true,
+	"report":        true,
+	"script":        true,
+	"serviceworker": true,
+	"sharedworker":  true,
+	"style":         true,
+	"track":         true,
+	"video":         true,
+	"worker":        true,
+	"xslt":          true,
+}
+
+// IsSubresource reports whether r is a browser request whose response the browser will
+// not render as a page: fetch() or XMLHttpRequest, an image, script, stylesheet, font,
+// media file, worker, WebSocket handshake and so on. Such a request can't display an
+// HTML challenge, so banjax answers a challenged one with a 403 JSON error instead (see
+// xhrChallenge) and does not count it toward the failed challenge ban.
 //
-// With Sec-Fetch-Dest, only "empty" is an XHR: browsers send it for fetch(), XHR,
-// EventSource and sendBeacon, and a specific destination for everything else ("document"
-// for navigations, "image", "script" and so on). Without Sec-Fetch-Dest (older browsers, or
-// plain http), only an X-Requested-With: XMLHttpRequest header (sent by jQuery and many
-// frameworks) marks one.
+// Because that exempts the request from counting, the check is strict and any header
+// combination a browser would not send counts as a page request (HTML challenge,
+// counted):
+//   - Sec-Fetch-Mode must be cors, no-cors, same-origin or websocket, and Sec-Fetch-Dest
+//     a subresource destination (subresourceDests).
+//   - A WebSocket mode goes with a websocket or empty destination, and a websocket
+//     destination with the websocket mode only.
+//   - Sec-Fetch-Site must be present and not "none" (sent only for user-typed navigations).
+//   - Sec-Fetch-User must be absent (sent only on user-activated navigations).
+//   - Without Sec-Fetch-Mode (older browsers, or plain http to a non-localhost host) no
+//     other Sec-Fetch-* header may be present, and only X-Requested-With: XMLHttpRequest
+//     (sent by jQuery and many frameworks) marks one.
 //
-// Kept strict on purpose: a non-browser client (curl, most bots) sends neither header, so it
-// keeps getting the HTML challenge and keeps counting toward the ban. Both headers can be
-// forged, but a bot has to choose to.
-func IsXHR(r *http.Request) bool {
-	if dest := headerToken(r, "Sec-Fetch-Dest"); dest != "" {
-		return dest == "empty"
+// A non-browser client (curl, most bots) sends none of these, so it keeps getting the HTML
+// challenge and keeps counting toward the ban. All of them can be forged, but a bot has to
+// choose to, and has to forge a consistent set.
+func IsSubresource(r *http.Request) bool {
+	mode := headerToken(r, "Sec-Fetch-Mode")
+	dest := headerToken(r, "Sec-Fetch-Dest")
+	site := headerToken(r, "Sec-Fetch-Site")
+	_, hasUser := r.Header[http.CanonicalHeaderKey("Sec-Fetch-User")]
+
+	if mode == "" {
+		// A lone Sec-Fetch-Dest: empty is tolerated: WebKit rolled the headers out in stages,
+		// and it adds nothing a client could not claim with X-Requested-With anyway.
+		if (dest != "" && dest != "empty") || site != "" || hasUser {
+			return false
+		}
+		return headerToken(r, "X-Requested-With") == "xmlhttprequest"
 	}
-	return headerToken(r, "X-Requested-With") == "xmlhttprequest"
+	if hasUser || site == "" || site == "none" {
+		return false
+	}
+	if !subresourceModes[mode] || !subresourceDests[dest] {
+		return false
+	}
+	if mode == "websocket" {
+		return dest == "websocket" || dest == "empty"
+	}
+	return dest != "websocket"
 }
 
 // IsPreflight reports whether r is a CORS preflight: an OPTIONS request carrying

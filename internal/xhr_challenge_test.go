@@ -75,6 +75,19 @@ var (
 		"Sec-Fetch-Mode": "no-cors",
 		"Sec-Fetch-Dest": "image",
 	}
+	webSocketHeaders = map[string]string{
+		"Sec-Fetch-Site": "same-origin",
+		"Sec-Fetch-Mode": "websocket",
+		"Sec-Fetch-Dest": "websocket",
+		"Upgrade":        "websocket",
+	}
+	// a bot copying part of a fetch()'s headers onto a navigation: no browser sends this
+	inconsistentHeaders = map[string]string{
+		"Accept":         chromeNavigationAccept,
+		"Sec-Fetch-Site": "same-origin",
+		"Sec-Fetch-Mode": "navigate",
+		"Sec-Fetch-Dest": "empty",
+	}
 	curlHeaders = map[string]string{"Accept": "*/*"}
 )
 
@@ -209,6 +222,14 @@ func TestXHRChallengeResponseShape(t *testing.T) {
 			wantJSON: true, challengeType: "altcha", decision: "ExpiringAltChaChallenge",
 		},
 		{
+			name: "fetch() to an altcha click challenge names the click variant",
+			setup: func(h *xhrHarness) {
+				h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), AltChaClickChallenge, true, xhrTestHost, AltChaOptions{})
+			},
+			host: xhrTestHost, headers: fetchHeaders,
+			wantJSON: true, challengeType: "altcha_click", decision: "ExpiringAltChaClickChallenge",
+		},
+		{
 			name:  "fetch() to a static per-site challenge",
 			setup: func(h *xhrHarness) {},
 			host:  "static.com", headers: fetchHeaders,
@@ -234,11 +255,27 @@ func TestXHRChallengeResponseShape(t *testing.T) {
 			host: xhrTestHost, headers: navigationRequestHeaders,
 		},
 		{
-			name: "image load gets the HTML challenge",
+			name: "image load gets the JSON error",
 			setup: func(h *xhrHarness) {
 				h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), Challenge, true, xhrTestHost, AltChaOptions{})
 			},
 			host: xhrTestHost, headers: imageHeaders,
+			wantJSON: true, challengeType: "sha_inv", decision: "ExpiringChallenge",
+		},
+		{
+			name: "WebSocket handshake gets the JSON error",
+			setup: func(h *xhrHarness) {
+				h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), Challenge, true, xhrTestHost, AltChaOptions{})
+			},
+			host: xhrTestHost, headers: webSocketHeaders,
+			wantJSON: true, challengeType: "sha_inv", decision: "ExpiringChallenge",
+		},
+		{
+			name: "inconsistent Fetch Metadata gets the HTML challenge",
+			setup: func(h *xhrHarness) {
+				h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), Challenge, true, xhrTestHost, AltChaOptions{})
+			},
+			host: xhrTestHost, headers: inconsistentHeaders,
 		},
 		{
 			name: "curl gets the HTML challenge",
@@ -329,7 +366,7 @@ func TestXHRChallengeCORS(t *testing.T) {
 // Repeated challenged XHRs are never a failed challenge: no ban, no ip_failed_challenge, and
 // they don't move the counter, so the client's first real failure is counted as the first.
 func TestXHRChallengeNotCountedAsFailedChallenge(t *testing.T) {
-	for _, decision := range []Decision{Challenge, AltChaChallenge} {
+	for _, decision := range []Decision{Challenge, AltChaChallenge, AltChaClickChallenge} {
 		t.Run(decision.String(), func(t *testing.T) {
 			h := newXHRHarness(t, xhrTestConfig(""))
 			h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), decision, true, xhrTestHost, AltChaOptions{})
@@ -365,6 +402,67 @@ func TestHTMLChallengeStillCountedAsFailedChallenge(t *testing.T) {
 	}
 	assert.True(t, exceeded)
 	assert.Equal(t, xhrTestIp, h.banner.bannedIp)
+}
+
+// Forging part of a subresource's headers does not escape the ban: a set no browser sends is
+// a page request, and counted.
+func TestInconsistentFetchMetadataStillCountedAsFailedChallenge(t *testing.T) {
+	h := newXHRHarness(t, xhrTestConfig(""))
+	h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), Challenge, true, xhrTestHost, AltChaOptions{})
+
+	exceeded := false
+	for i := 0; i < 5 && !exceeded; i++ {
+		recorder, _, result := h.serve(xhrTestHost, inconsistentHeaders)
+		assert.False(t, result.XHRChallenge)
+		exceeded = result.TooManyFailedChallengesResult.Exceeded
+		if !exceeded {
+			assertHTMLChallenge(t, recorder)
+		}
+	}
+	assert.True(t, exceeded)
+	assert.Equal(t, xhrTestIp, h.banner.bannedIp)
+}
+
+// The exemption from counting is visible in the metrics log instead: every XHR challenge is
+// counted, and the ones with a cookie that failed validation separately. The counters are
+// process-wide, so the test compares before and after.
+func TestXHRChallengeCounters(t *testing.T) {
+	type counts struct{ total, badCookie uint64 }
+	read := func() counts {
+		var buf strings.Builder
+		WriteMetricsToEncoder(json.NewEncoder(&buf), NewDynamicDecisionLists(), NewRegexRateLimitStates(),
+			NewFailedChallengeRateLimitStates(), NewFailedChallengeRateLimitStates())
+		var line MetricsLogLine
+		assert.Nil(t, json.Unmarshal([]byte(buf.String()), &line))
+		return counts{line.XHRChallenges, line.XHRChallengesBadCookie}
+	}
+	tests := []struct {
+		name     string
+		decision Decision
+		headers  map[string]string
+		cookie   *http.Cookie
+		want     counts
+	}{
+		{"sha-inv XHR without a cookie counts once", Challenge, fetchHeaders, nil, counts{1, 0}},
+		{"sha-inv XHR with a bad cookie counts as bad cookie", Challenge, fetchHeaders, &http.Cookie{Name: ChallengeCookieName, Value: "Zm9yZ2Vk"}, counts{1, 1}},
+		{"altcha XHR without a cookie counts once", AltChaChallenge, fetchHeaders, nil, counts{1, 0}},
+		{"altcha XHR with a bad cookie counts as bad cookie", AltChaChallenge, fetchHeaders, &http.Cookie{Name: AltChaCookieName, Value: "Zm9yZ2Vk"}, counts{1, 1}},
+		{"HTML challenge is not an XHR challenge", Challenge, curlHeaders, &http.Cookie{Name: ChallengeCookieName, Value: "Zm9yZ2Vk"}, counts{0, 0}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newXHRHarness(t, xhrTestConfig(""))
+			h.decisionLists.Update(h.config, xhrTestIp, time.Now().Add(time.Hour), tt.decision, true, xhrTestHost, AltChaOptions{})
+			before := read()
+			if tt.cookie != nil {
+				h.serve(xhrTestHost, tt.headers, tt.cookie)
+			} else {
+				h.serve(xhrTestHost, tt.headers)
+			}
+			after := read()
+			assert.Equal(t, tt.want, counts{after.total - before.total, after.badCookie - before.badCookie})
+		})
+	}
 }
 
 // With too_many_403_ban_to_iptables_ban, a challenged XHR's 403 is not counted, so a polling

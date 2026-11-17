@@ -10,7 +10,7 @@ global_decision_lists:
     - 8.8.8.8
 # These two should be the same,
 # if not, it will still work but API to query banned IP will be inconsistent
-expiring_decision_ttl_seconds: 300
+expiring_decision_ttl_seconds: 30
 iptables_ban_seconds: 10
 iptables_unbanner_seconds: 5
 kafka_brokers:
@@ -123,6 +123,7 @@ per_site_regexes_with_rates:
 # challenge that solves on page load (AltChaChallenge, banjax_decision SiteWideAltChaChallenge).
 sitewide_altcha_list:
   example.com: block
+  localhost: block
   # one-click variant for supporting-containers/altcha-bot-tester
   altcha-click-test.banjax: no_block_click
 sitewide_sha_inv_list:

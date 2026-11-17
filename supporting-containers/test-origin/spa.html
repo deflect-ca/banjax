@@ -5,18 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Banjax SPA test</title>
 <!--
-  A small single-page app for testing how banjax challenges XHRs: a challenged
-  fetch()/XMLHttpRequest call gets a 403 JSON error {"error": "challenge_required"}
-  instead of the HTML challenge page, and the app reloads to show the challenge.
+  A test page for banjax's "challenge for requests that cannot show a page" feature.
 
-  Everything is inline on purpose: nginx sends *.js / *.json / *.css paths
-  straight to the origin, bypassing banjax, so the API lives under /spa/api/ and
-  the script lives in this page.
+  A challenged request that cannot render an HTML challenge page (fetch, XHR, <img>,
+  <script>, <link rel=stylesheet>, no-cors, cross-origin calls) gets a 403 with the JSON
+  body {"error": "challenge_required", "challenge": "sha_inv"|"altcha"|"altcha_click",
+  "message": ...} and X-Banjax-Decision set to the trigger. It is not counted toward a
+  failed-challenge ban. Page loads (navigations, iframes) still get the HTML challenge
+  (429), and those are counted.
+
+  Banjax decides "cannot render a page" from Fetch Metadata (Sec-Fetch-Mode/Dest/Site/User);
+  without any Sec-Fetch-* headers only X-Requested-With: XMLHttpRequest marks one.
+  CORS preflights (OPTIONS + Access-Control-Request-Method + Origin) skip challenges and
+  reach the origin.
+
+  Everything is inline on purpose: nginx sends *.js / *.json / *.css / *.png paths
+  straight to the origin, bypassing banjax, so every test endpoint lives under
+  /spa/api/ or /spa/app/ with no file extension, and the script lives in this page.
 -->
 <style>
   :root {
     --bg: #ecece2; --panel: #fff; --text: #222; --muted: #666; --border: #d4d4c8;
-    --ok: #1d7a3a; --challenged: #b3261e; --other: #555;
+    --ok: #1d7a3a; --challenged: #b3261e; --other: #555; --warn-bg: #fff4d6; --warn-border: #e0c36a;
   }
   * { box-sizing: border-box; }
   body { margin: 0; padding: 1.5em; background: var(--bg); color: var(--text);
@@ -29,29 +39,38 @@
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   section { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1em; margin-bottom: 1em; }
+  section.warn { background: var(--warn-bg); border-color: var(--warn-border); }
   button, select { font: inherit; padding: .35em .7em; margin: 0 .3em .4em 0; cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
   label { margin-right: 1em; }
   code, pre { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
   pre { background: #f6f6f0; border: 1px solid var(--border); padding: .6em; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: .3em 0 .8em; }
+  .cmd { position: relative; }
+  .cmd pre { padding-right: 4.5em; }
+  .cmd button { position: absolute; top: .3em; right: .3em; margin: 0; padding: .1em .5em; font-size: 12px; }
   #state { font-size: 1.1em; font-weight: 600; padding: .6em .8em; border-radius: 4px; background: #f3f3ec; }
   #state.ok { color: var(--ok); } #state.challenged { color: var(--challenged); }
   #state button { margin: 0 0 0 .8em; }
   table { width: 100%; border-collapse: collapse; }
   th, td { text-align: left; padding: .3em .5em; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { font-weight: 600; color: var(--muted); }
-  td.outcome { font-weight: 600; white-space: nowrap; }
+  td.outcome { font-weight: 600; }
   tr.ok td.outcome { color: var(--ok); }
   tr.challenged td.outcome { color: var(--challenged); }
   tr.other td.outcome { color: var(--other); }
+  table.tests td:first-child { white-space: nowrap; color: var(--muted); }
   .muted { color: var(--muted); }
   #feed li { margin-bottom: .2em; }
+  #frame-box iframe { width: 100%; height: 140px; border: 1px solid var(--border); background: #fff; margin-top: .4em; }
+  .curl { margin-bottom: .6em; }
+  .curl .expect { display: block; margin-bottom: .1em; }
 </style>
 </head>
 <body>
 <header>
   <img src="/assets/deflect_100.png" alt="">
   <div>
-    <h1>Banjax SPA test: challenged XHRs</h1>
+    <h1>Banjax SPA test: challenges for requests that cannot show a page</h1>
     <nav>
       <a href="/spa/app/home" data-route="home">Home</a>
       <a href="/spa/app/inbox" data-route="inbox">Inbox</a>
@@ -70,23 +89,28 @@
   <section>
     <h2>How to test</h2>
     <ol>
-      <li>Open this page at <code>http://localhost/spa</code>. Use localhost or https: otherwise the browser
-        sends no <code>Sec-Fetch-*</code> headers, and only the XHR button (which sends
-        <code>X-Requested-With</code>) is recognised as an XHR.</li>
-      <li>Leave polling on. Calls should show <b>OK</b>.</li>
-      <li>Send a kafka challenge for this site from the repo root:
-        <pre>docker compose run --rm kafka-cmd-tester -cmd challenge_all -host localhost</pre>
-        or for this browser's session only:
-        <pre id="cmd-session">(loading session id...)</pre>
-      </li>
-      <li>API calls now show <b>CHALLENGE REQUIRED</b>: a 403 with
-        <code>{"error": "challenge_required"}</code>. They don't count toward the failed challenge ban,
-        so polling can carry on.</li>
-      <li>Click <b>Reload to verify</b> (or tick auto-reload) to get the challenge as a page, solve it, and
-        come back: calls are <b>OK</b> again.</li>
+      <li>Open this page through the edge at <code>http://localhost/spa</code> (port 8080 is the origin
+        directly, without banjax). Use localhost or https: otherwise the browser sends no
+        <code>Sec-Fetch-*</code> headers, and only the XHR button that sends
+        <code>X-Requested-With</code> is recognised as a request that cannot show a page.</li>
+      <li>Leave polling on. Calls show <b>OK</b>.</li>
+      <li>Challenge this site (commands below, under "Trigger a challenge"). The challenge type decides the
+        <code>challenge</code> field of the JSON: <code>sha_inv</code>, <code>altcha</code> or
+        <code>altcha_click</code>.</li>
+      <li>Click through the test points. Expected results while challenged:
+        <ul>
+          <li>fetch, XHR, POST, no-cors, img, script, stylesheet: <b>403 JSON</b> (for img, script and
+            stylesheet the page can only see load/error and the Resource Timing status). Not counted
+            toward a ban, so polling carries on.</li>
+          <li>iframe and reload: the <b>HTML challenge page (429)</b>, counted toward the failed-challenge ban.</li>
+          <li>CORS preflight: never challenged (<code>CORSPreflightException</code>).</li>
+        </ul></li>
+      <li>Click <b>Reload to verify</b> (or tick auto-reload) to get the challenge as a page, solve it, and come
+        back: calls are <b>OK</b> again.</li>
     </ol>
-    <p class="muted">Compare with <code>curl -H 'Accept: application/json' http://localhost/spa/api/feed</code>
-      while challenged: not an XHR, so it gets the HTML challenge (429) and does count toward the ban.</p>
+    <p class="muted">Three failed HTML challenges in 10 seconds from one IP get that IP banned. A browser on the
+      same machine as curl shares that IP: if everything hangs, see <code>scripts/dev banned</code> and
+      <code>scripts/dev unban &lt;ip&gt;</code>.</p>
   </section>
 
   <section>
@@ -101,12 +125,7 @@
       <label><input type="checkbox" id="auto-reload"> auto-reload on challenge_required</label>
     </div>
     <div>
-      <button data-action="feed">fetch() feed</button>
-      <button data-action="xhr">XHR notifications</button>
-      <button data-action="like">POST like</button>
-      <button data-action="whoami">whoami</button>
-    </div>
-    <div>
+      <button data-action="whoami">whoami (session id for the commands)</button>
       <button id="navigate">Reload to verify</button>
       <button id="clear-log">Clear log</button>
     </div>
@@ -114,6 +133,93 @@
     <ul id="feed"><li class="muted">nothing yet</li></ul>
   </section>
 </div>
+
+<section class="warn" id="gap">
+  <h2>Known gap: cross-origin calls to a sibling host cannot recover from a challenge</h2>
+  <p>A page on <code>localhost</code> calling <code>www.localhost</code> (or the other way round) can fail
+    when the API host is challenged. The challenge cookie is scoped to the host, and banjax gives CORS headers
+    only to an Origin equal to the requested host, so the sibling origin gets none. The script then sees a
+    <b>network error</b> (a TypeError), not the JSON, and cannot tell a challenge from an outage. Test point 10
+    shows this: challenge <code>www.localhost</code> (command below) and run it.</p>
+</section>
+
+<section>
+  <h2>Test points</h2>
+  <p class="muted">Each button logs one row in the request log below. "Expect" is the outcome while this site is challenged.</p>
+  <table class="tests">
+    <thead><tr><th>#</th><th>Test</th><th>Run</th><th>Expect while challenged</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>fetch()</code> GET, same origin (the polling feed)</td>
+        <td><button data-action="feed">fetch feed</button></td>
+        <td>403 JSON, <code>challenge_required</code>, decision = the trigger</td></tr>
+      <tr><td>2a</td><td>XHR with <code>X-Requested-With: XMLHttpRequest</code></td>
+        <td><button data-action="xhr">XHR + header</button></td>
+        <td>403 JSON, even without Sec-Fetch headers</td></tr>
+      <tr><td>2b</td><td>XHR without that header (Fetch Metadata only)</td>
+        <td><button data-action="xhrPlain">XHR, no header</button></td>
+        <td>403 JSON on localhost/https; on plain http elsewhere no Sec-Fetch headers are sent, so a page request: HTML 429, counted</td></tr>
+      <tr><td>3</td><td><code>fetch()</code> POST (like)</td>
+        <td><button data-action="like">POST like</button></td>
+        <td>403 JSON</td></tr>
+      <tr><td>4</td><td><code>fetch</code> with <code>mode: "no-cors"</code>. Same origin is not opaque in browsers (the log says which); the sibling host is.</td>
+        <td><button data-action="noCors">no-cors, same origin</button>
+            <button data-action="noCorsSibling" class="needs-sibling">no-cors, sibling host</button></td>
+        <td>Same origin: 403 readable. Sibling: <b>opaque</b>, status from Resource Timing <code>responseStatus</code> when the browser exposes it (cross-origin usually hides it: "opaque")</td></tr>
+      <tr><td>5</td><td><code>&lt;img&gt;</code> to <code>/spa/api/pixel</code> (1x1 PNG)</td>
+        <td><button data-action="img">load image</button></td>
+        <td>error, <code>responseStatus</code> 403; unchallenged: loaded, 200</td></tr>
+      <tr><td>6</td><td><code>&lt;script&gt;</code> to <code>/spa/api/script</code></td>
+        <td><button data-action="script">load script</button></td>
+        <td>error, 403; unchallenged: loaded, flag set, 200</td></tr>
+      <tr><td>7</td><td><code>&lt;link rel=stylesheet&gt;</code> to <code>/spa/api/style</code></td>
+        <td><button data-action="style">load stylesheet</button></td>
+        <td>error, 403; unchallenged: loaded, 200</td></tr>
+      <tr><td>8</td><td>iframe of <code>/spa/app/frame</code> (navigate mode, dest iframe)</td>
+        <td><button data-action="iframe">load iframe</button>
+            <div id="frame-box"></div></td>
+        <td><b>HTML challenge page (429)</b> in the frame, counted toward the ban</td></tr>
+      <tr><td>9</td><td>Full reload</td>
+        <td><button data-action="reload">Reload to verify</button></td>
+        <td>HTML challenge page (429), counted</td></tr>
+      <tr><td>10</td><td>Cross-origin <code>fetch</code> to the sibling host, <code>credentials: "include"</code> and header <code>X-SPA-Test</code> (forces a preflight)</td>
+        <td><button data-action="cross" class="needs-sibling">cross-origin fetch</button>
+            <div class="muted" id="sibling-line"></div></td>
+        <td>Preflight passes (<code>CORSPreflightException</code>). If the sibling is not challenged: 200 and the decision is readable. If it is challenged: network error, the known gap above</td></tr>
+      <tr><td>11</td><td><b>Tampered cookies.</b> Overwrites <code>deflect_challenge3</code> and <code>deflect_altcha</code> with garbage, then fires one fetch.
+          <b>You must re-solve the challenge afterwards.</b></td>
+        <td><button data-action="tamper">tamper cookies + fetch</button></td>
+        <td>403 JSON, and the <code>XHRChallengesBadCookie</code> metric goes up (see Metrics)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="grid">
+  <section>
+    <h2>12. Trigger a challenge (and pick its type)</h2>
+    <p>Run from the repo root (needs the real Kafka from <code>.env</code>; see
+      <code>supporting-containers/kafka-cmd-tester/README.md</code>). The outcome label in the log shows
+      <code>body.challenge</code>. All three types are supported by the tool.</p>
+    <div id="kafka-cmds"></div>
+  </section>
+
+  <section>
+    <h2>Metrics</h2>
+    <p>Banjax writes a metrics line every 29 seconds. Two cumulative counters (reset when banjax restarts) matter here:
+      <code>XHRChallenges</code> (challenged requests that got the JSON 403) and
+      <code>XHRChallengesBadCookie</code> (of those, requests that carried a challenge cookie that failed validation: test point 11).</p>
+    <p>Tail the file (it is <code>/var/log/banjax/metrics.log</code> in the banjax container, mounted at
+      <code>logs/banjax/metrics.log</code> in the repo):</p>
+    <div id="metrics-cmds"></div>
+  </section>
+</div>
+
+<section>
+  <h2>13. curl checks <span class="muted">(against the edge, while this site is challenged)</span></h2>
+  <p class="muted">curl sends no cookies and no Sec-Fetch headers by default, so each case is explicit. The
+    HTML ones count toward the failed-challenge ban; space them out, and note the ban hits the IP your browser
+    shares.</p>
+  <div id="curl-cmds"></div>
+</section>
 
 <section>
   <h2>Request log <span class="muted">(newest first)</span></h2>
@@ -132,11 +238,37 @@
   var stateEl = document.getElementById("state");
   var logEl = document.getElementById("log");
   var autoReload = document.getElementById("auto-reload");
+  var sessionId = "";
+
+  // keep Resource Timing entries from running out: every call adds one, and a full buffer drops new ones
+  if (performance.setResourceTimingBufferSize) performance.setResourceTimingBufferSize(1000);
+  performance.addEventListener("resourcetimingbufferfull", function () { performance.clearResourceTimings(); });
 
   function now() { return new Date().toLocaleTimeString(); }
 
-  // classify a response: ok / challenged (the JSON 403 or an HTML challenge page) / other
-  function classify(status, contentType, body) {
+  // The sibling host for the cross-origin tests: localhost <-> www.localhost, same scheme and port.
+  var siblingOrigin = "";
+  if (location.hostname === "localhost" || location.hostname === "www.localhost") {
+    siblingOrigin = location.protocol + "//" + (location.hostname === "localhost" ? "www.localhost" : "localhost") +
+      (location.port ? ":" + location.port : "");
+  }
+  var siblingHost = siblingOrigin ? siblingOrigin.replace(/^https?:\/\//, "").replace(/:\d+$/, "") : "www.localhost";
+
+  function absUrl(path) { return new URL(path, location.href).href; }
+  function bust(path) {
+    return path + (path.indexOf("?") === -1 ? "?" : "&") + "t=" + Date.now() + Math.random().toString(36).slice(2, 6);
+  }
+
+  // classify a response: ok / challenged (the JSON 403 or an HTML challenge page) / other.
+  // statusOnly: the body is not readable (img, script, no-cors...), so judge by status alone.
+  function classify(status, contentType, body, statusOnly) {
+    if (statusOnly) {
+      if (status === 403) return { cls: "challenged", label: "CHALLENGE REQUIRED (403, body not readable here)", challengeRequired: true };
+      if (status === 429) return { cls: "challenged", label: "HTML CHALLENGE (429)" };
+      if (status >= 200 && status < 300) return { cls: "ok", label: "OK" };
+      if (!status) return { cls: "other", label: "NO STATUS" };
+      return { cls: "other", label: "HTTP " + status };
+    }
     if (status === 403 && body && body.error === "challenge_required") {
       return { cls: "challenged", label: "CHALLENGE REQUIRED (JSON 403, " + body.challenge + ")", challengeRequired: true };
     }
@@ -157,11 +289,10 @@
     }
   }
 
-  function record(name, status, decision, contentType, body) {
-    var outcome = classify(status, contentType, body);
+  function addRow(name, statusText, decision, outcome) {
     var row = document.createElement("tr");
     row.className = outcome.cls;
-    [now(), name, String(status), decision || "-", outcome.label].forEach(function (text, i) {
+    [now(), name, statusText, decision || "-", outcome.label].forEach(function (text, i) {
       var cell = document.createElement("td");
       cell.textContent = text;
       if (i === 4) cell.className = "outcome";
@@ -169,38 +300,87 @@
     });
     logEl.insertBefore(row, logEl.firstChild);
     while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+  }
 
+  // update the banner from an outcome; noState: results from another host must not flip this page's state
+  function applyOutcome(outcome, noState) {
+    if (noState) return;
     if (outcome.challengeRequired) {
       if (!challengedSince) challengedSince = Date.now();
       if (autoReload.checked) {
         setState("challenged", "CHALLENGE REQUIRED: reloading to show the browser check...");
         stopPolling();
         setTimeout(function () { location.reload(); }, 500);
-        return outcome;
+        return;
       }
       var seconds = Math.round((Date.now() - challengedSince) / 1000);
-      setState("challenged", "CHALLENGE REQUIRED: API calls are refused with a 403 JSON error (" + seconds + "s so far, not counted toward a ban).", true);
+      setState("challenged", "CHALLENGE REQUIRED: requests that cannot show a page are refused with a 403 JSON error (" + seconds + "s so far, not counted toward a ban).", true);
     } else if (outcome.cls === "challenged") {
       setState("challenged", "Challenged: " + outcome.label + ".", true);
     } else if (outcome.cls === "ok") {
       challengedSince = null;
-      setState("ok", "OK: API calls reach the origin normally.");
+      setState("ok", "OK: requests reach the origin normally.");
     }
+  }
+
+  function record(name, status, decision, contentType, body, opts) {
+    opts = opts || {};
+    var outcome = classify(status, contentType, body, opts.statusOnly);
+    addRow(name, String(status), decision, outcome);
+    applyOutcome(outcome, opts.noState);
     return outcome;
   }
 
+  // Resource Timing responseStatus for a URL: a number, or null when the browser does not expose it
+  // (older browsers) or no entry showed up. 0 means the browser hid it (cross-origin without Timing-Allow-Origin).
+  function timingStatus(url) {
+    return new Promise(function (resolve) {
+      if (typeof PerformanceResourceTiming === "undefined" || !("responseStatus" in PerformanceResourceTiming.prototype)) {
+        resolve(null);
+        return;
+      }
+      var tries = 0;
+      (function check() {
+        var entries = performance.getEntriesByName(url);
+        if (entries.length) { resolve(entries[entries.length - 1].responseStatus); return; }
+        if (++tries >= 10) { resolve(null); return; }
+        setTimeout(check, 60);
+      })();
+    });
+  }
+
+  // log the result of a load that exposes only loaded/error: kind is "loaded" or "error"
+  function recordLoad(name, kind, status, extra) {
+    var statusText = status === null ? "?" : String(status);
+    var outcome;
+    if (status) {
+      outcome = classify(status, "", null, true);
+      outcome.label += " [" + kind + (extra ? ", " + extra : "") + "]";
+    } else if (kind === "loaded") {
+      outcome = { cls: "ok", label: "OK [loaded" + (extra ? ", " + extra : "") + ", responseStatus unavailable]" };
+    } else {
+      outcome = { cls: "other", label: "ERROR [failed, responseStatus " + (status === null ? "unavailable" : "hidden") + "]" };
+    }
+    addRow(name, statusText, "-", outcome);
+    applyOutcome(outcome);
+  }
+
   // fetch wrapper that logs the banjax outcome and returns parsed JSON when there is some
-  function call(name, url, options) {
+  function call(name, url, options, opts) {
+    opts = opts || {};
     return fetch(url, options || {}).then(function (response) {
       var decision = response.headers.get("X-Banjax-Decision") || "";
       var contentType = response.headers.get("Content-Type") || "";
       var parse = contentType.indexOf("application/json") !== -1 ? response.json().catch(function () { return null; }) : Promise.resolve(null);
       return parse.then(function (body) {
-        record(name, response.status, decision, contentType, body);
+        record(name, response.status, decision, contentType, body, opts);
         return response.ok ? body : null;
       });
     }).catch(function (error) {
-      record(name + " (network error: " + error.message + ")", 0, "", "", null);
+      addRow(name + " (network error: " + error.message + ")", "0", "", {
+        cls: "other",
+        label: opts.networkErrorLabel || "NETWORK ERROR"
+      });
       return null;
     });
   }
@@ -216,27 +396,109 @@
     });
   }
 
+  function runXHR(withHeader) {
+    var label = "GET /spa/api/notifications (XHR" + (withHeader ? " + X-Requested-With" : ", no header") + ")";
+    var xhr = new XMLHttpRequest();
+    xhr.open("GET", "/spa/api/notifications");
+    xhr.setRequestHeader("Accept", "application/json");
+    // jQuery sends this, which marks an XHR even when the browser sends no Sec-Fetch headers
+    if (withHeader) xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+    xhr.onload = function () {
+      var contentType = xhr.getResponseHeader("Content-Type") || "";
+      var body = null;
+      if (contentType.indexOf("application/json") !== -1) {
+        try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
+      }
+      record(label, xhr.status, xhr.getResponseHeader("X-Banjax-Decision") || "", contentType, body);
+    };
+    xhr.onerror = function () { addRow(label + " (network error)", "0", "", { cls: "other", label: "NETWORK ERROR" }); };
+    xhr.send();
+  }
+
+  // fetch with mode no-cors. The response to a same-origin URL is readable (not opaque); to the sibling host it is opaque.
+  function runNoCors(name, url, credentials) {
+    return fetch(url, { mode: "no-cors", credentials: credentials }).then(function (response) {
+      var decision = response.type === "opaque" ? "" : (response.headers.get("X-Banjax-Decision") || "");
+      return timingStatus(url).then(function (timing) {
+        var outcome;
+        var statusText;
+        if (response.type === "opaque") {
+          statusText = timing ? String(timing) : "opaque";
+          outcome = timing ? classify(timing, "", null, true) : { cls: "other", label: "OPAQUE" };
+          outcome.label += timing ? " [opaque response, status from Resource Timing]" :
+            (timing === null ? " (status hidden by the browser; Resource Timing unavailable)" : " (status hidden by the browser)");
+        } else {
+          statusText = String(response.status);
+          outcome = classify(response.status, "", null, true);
+          outcome.label += " [" + response.type + " response, not opaque]";
+        }
+        addRow(name, statusText, decision, outcome);
+        applyOutcome(outcome, response.type === "opaque");
+      });
+    }).catch(function (error) {
+      addRow(name + " (network error: " + error.message + ")", "0", "", { cls: "other", label: "NETWORK ERROR" });
+    });
+  }
+
+  // <img>, <script>, <link rel=stylesheet>: the page only learns loaded/error; the status comes from Resource Timing
+  function runResource(name, path, build) {
+    var url = absUrl(bust(path));
+    var element = build(url, function (kind, extra) {
+      timingStatus(url).then(function (status) {
+        recordLoad(name, kind, status, extra && extra());
+        if (element.parentNode) element.parentNode.removeChild(element);
+      });
+    });
+  }
+
+  function runIframe() {
+    var box = document.getElementById("frame-box");
+    box.textContent = "";
+    var url = absUrl(bust("/spa/app/frame"));
+    var frame = document.createElement("iframe");
+    frame.title = "banjax iframe test";
+    frame.addEventListener("load", function () {
+      var showsOK = null;
+      try { showsOK = !!frame.contentDocument.getElementById("spa-frame-ok"); } catch (e) { showsOK = null; }
+      timingStatus(url).then(function (status) {
+        var inferred = false;
+        if (!status && showsOK !== null) { status = showsOK ? 200 : 429; inferred = true; }
+        var outcome = classify(status || 0, "text/html", null, true);
+        if (showsOK === false || (status === 429)) outcome.label = "HTML CHALLENGE (429) in the iframe";
+        outcome.label += inferred ? " [status inferred from frame content]" : " [iframe, status from Resource Timing]";
+        addRow("GET /spa/app/frame (iframe, navigate)", status ? String(status) : "?", "-", outcome);
+        applyOutcome(outcome);
+      });
+    });
+    frame.src = url;
+    box.appendChild(frame);
+  }
+
+  function runCross() {
+    if (!siblingOrigin) return;
+    return call("GET " + siblingOrigin + "/spa/api/feed (cross-origin fetch, preflight)", siblingOrigin + "/spa/api/feed", {
+      credentials: "include",
+      headers: { "X-SPA-Test": "1" }
+    }, {
+      noState: true,
+      networkErrorLabel: "NETWORK ERROR (known gap if " + siblingHost + " is challenged: no CORS headers, so the script cannot read it)"
+    });
+  }
+
+  function runTamper() {
+    if (!window.confirm("This overwrites the challenge cookies (deflect_challenge3, deflect_altcha) with garbage. " +
+        "If this site is challenged you must solve the challenge again afterwards. Continue?")) return;
+    document.cookie = "deflect_challenge3=tampered-by-spa-test; path=/; max-age=3600";
+    document.cookie = "deflect_altcha=tampered-by-spa-test; path=/; max-age=3600";
+    return call("GET /spa/api/feed (after tampering the challenge cookies)", "/spa/api/feed");
+  }
+
   var actions = {
     feed: function () {
       return call("GET /spa/api/feed (fetch)", "/spa/api/feed").then(renderFeed);
     },
-    // sends X-Requested-With like jQuery does, so it is an XHR even without Sec-Fetch headers
-    xhr: function () {
-      var xhr = new XMLHttpRequest();
-      xhr.open("GET", "/spa/api/notifications");
-      xhr.setRequestHeader("Accept", "application/json");
-      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
-      xhr.onload = function () {
-        var contentType = xhr.getResponseHeader("Content-Type") || "";
-        var body = null;
-        if (contentType.indexOf("application/json") !== -1) {
-          try { body = JSON.parse(xhr.responseText); } catch (e) { body = null; }
-        }
-        record("GET /spa/api/notifications (XHR)", xhr.status, xhr.getResponseHeader("X-Banjax-Decision") || "", contentType, body);
-      };
-      xhr.onerror = function () { record("GET /spa/api/notifications (XHR, network error)", 0, "", "", null); };
-      xhr.send();
-    },
+    xhr: function () { runXHR(true); },
+    xhrPlain: function () { runXHR(false); },
     like: function () {
       return call("POST /spa/api/like", "/spa/api/like", {
         method: "POST",
@@ -248,16 +510,152 @@
       return call("GET /spa/api/whoami", "/spa/api/whoami").then(function (data) {
         if (data) showSession(data);
       });
-    }
+    },
+    noCors: function () {
+      return runNoCors("GET /spa/api/feed (fetch no-cors, same origin)", absUrl(bust("/spa/api/feed")), "same-origin");
+    },
+    noCorsSibling: function () {
+      if (!siblingOrigin) return;
+      return runNoCors("GET " + siblingOrigin + "/spa/api/feed (fetch no-cors, sibling host)", siblingOrigin + bust("/spa/api/feed"), "include");
+    },
+    img: function () {
+      runResource("GET /spa/api/pixel (<img>)", "/spa/api/pixel", function (url, done) {
+        var img = new Image();
+        img.onload = function () { done("loaded"); };
+        img.onerror = function () { done("error"); };
+        img.src = url;
+        return img;
+      });
+    },
+    script: function () {
+      try { delete window.__spaScriptLoaded; } catch (e) { window.__spaScriptLoaded = undefined; }
+      runResource("GET /spa/api/script (<script>)", "/spa/api/script", function (url, done) {
+        var script = document.createElement("script");
+        script.onload = function () { done("loaded", function () { return window.__spaScriptLoaded ? "flag set" : "flag NOT set"; }); };
+        script.onerror = function () { done("error"); };
+        script.src = url;
+        document.head.appendChild(script);
+        return script;
+      });
+    },
+    style: function () {
+      runResource("GET /spa/api/style (<link rel=stylesheet>)", "/spa/api/style", function (url, done) {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.onload = function () { done("loaded"); };
+        link.onerror = function () { done("error"); };
+        link.href = url;
+        document.head.appendChild(link);
+        return link;
+      });
+    },
+    iframe: runIframe,
+    reload: function () { location.reload(); },
+    cross: runCross,
+    tamper: runTamper
   };
 
-  function showSession(data) {
-    var cmd = document.getElementById("cmd-session");
-    if (data.deflect_session) {
-      cmd.textContent = "docker compose run --rm kafka-cmd-tester -cmd challenge_session -host localhost -value 1.1.1.1 -session-id '" + data.deflect_session + "'";
+  // ---- copyable command blocks ----
+  function copyText(text, button) {
+    function done() { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1200); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { button.textContent = "Select it"; });
     } else {
-      cmd.textContent = "(no deflect_session cookie yet: reload the page once)";
+      button.textContent = "Select it";
     }
+  }
+
+  function cmdBlock(parent, text) {
+    var wrap = document.createElement("div");
+    wrap.className = "cmd";
+    var pre = document.createElement("pre");
+    pre.textContent = text;
+    var button = document.createElement("button");
+    button.textContent = "Copy";
+    button.addEventListener("click", function () { copyText(text, button); });
+    wrap.appendChild(pre);
+    wrap.appendChild(button);
+    parent.appendChild(wrap);
+  }
+
+  function caption(parent, text) {
+    var p = document.createElement("div");
+    p.className = "muted";
+    p.textContent = text;
+    parent.appendChild(p);
+  }
+
+  var kafka = "docker compose run --rm kafka-cmd-tester";
+  var host = location.hostname || "localhost";
+
+  function renderKafka() {
+    var box = document.getElementById("kafka-cmds");
+    box.textContent = "";
+    caption(box, "sha_inv (sha-inverse proof of work), whole site:");
+    cmdBlock(box, kafka + " -cmd challenge_all -host " + host);
+    caption(box, "altcha (solves on page load), whole site:");
+    cmdBlock(box, kafka + " -cmd altcha_challenge_all -host " + host);
+    caption(box, "altcha_click (one-click checkbox), whole site:");
+    cmdBlock(box, kafka + " -cmd altcha_challenge_all -host " + host + " -altcha-click");
+    caption(box, "this browser's session only (sha_inv; add the altcha_ prefix and optionally -altcha-click for the others):");
+    cmdBlock(box, kafka + " -cmd challenge_session -host " + host + " -value 1.1.1.1 -session-id '" +
+      (sessionId || "<click whoami first>") + "'");
+    caption(box, "one client IP (the address banjax sees: the docker gateway for a browser on this machine; see scripts/dev logs):");
+    cmdBlock(box, kafka + " -cmd challenge_ip -host " + host + " -value <client-ip>");
+    caption(box, "the sibling host, for test point 10 (the known gap):");
+    cmdBlock(box, kafka + " -cmd challenge_all -host " + siblingHost);
+    caption(box, "lift the challenge again:");
+    cmdBlock(box, kafka + " -cmd clear_rules -host " + host);
+  }
+
+  function renderMetrics() {
+    var box = document.getElementById("metrics-cmds");
+    cmdBlock(box, "tail -f logs/banjax/metrics.log");
+    caption(box, "or, without the mount:");
+    cmdBlock(box, "docker compose exec banjax tail -f /var/log/banjax/metrics.log");
+  }
+
+  function renderCurl() {
+    var box = document.getElementById("curl-cmds");
+    var proto = location.protocol === "https:" ? "https:" : "http:";
+    var base = (location.protocol === "http:" || location.protocol === "https:") ? location.origin : "http://localhost";
+    var k = proto === "https:" ? " -k" : "";
+    var origin = siblingOrigin || (proto + "//www.localhost");
+    var url = base + "/spa/api/feed";
+    var headersOnly = "curl -s -o /dev/null -D -" + k;
+    var withBody = "curl -s -i" + k;
+    var cases = [
+      { title: "plain curl", expect: "HTML challenge, 429, counted toward the ban",
+        cmd: headersOnly + " " + url },
+      { title: "X-Requested-With", expect: "JSON 403 challenge_required, not counted",
+        cmd: withBody + " -H 'X-Requested-With: XMLHttpRequest' " + url },
+      { title: "inconsistent Fetch Metadata (navigate mode, empty dest)", expect: "treated as a page request: HTML 429, counted",
+        cmd: headersOnly + " -H 'Sec-Fetch-Mode: navigate' -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Site: same-origin' " + url },
+      { title: "cors mode, empty dest", expect: "JSON 403 challenge_required, not counted",
+        cmd: withBody + " -H 'Sec-Fetch-Mode: cors' -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Site: same-origin' " + url },
+      { title: "websocket mode and dest", expect: "JSON 403 challenge_required, not counted",
+        cmd: withBody + " -H 'Sec-Fetch-Mode: websocket' -H 'Sec-Fetch-Dest: websocket' -H 'Sec-Fetch-Site: same-origin' " + url },
+      { title: "CORS preflight", expect: "X-Banjax-Decision: CORSPreflightException, never challenged; answered by the origin (204 with CORS headers)",
+        cmd: withBody + " -X OPTIONS -H 'Origin: " + origin + "' -H 'Access-Control-Request-Method: GET' " + url }
+    ];
+    cases.forEach(function (item) {
+      var div = document.createElement("div");
+      div.className = "curl";
+      var title = document.createElement("b");
+      title.textContent = item.title;
+      var expect = document.createElement("span");
+      expect.className = "muted expect";
+      expect.textContent = "Expect: " + item.expect;
+      div.appendChild(title);
+      div.appendChild(expect);
+      cmdBlock(div, item.cmd);
+      box.appendChild(div);
+    });
+  }
+
+  function showSession(data) {
+    sessionId = data.deflect_session || "";
+    renderKafka();
   }
 
   function startPolling() {
@@ -301,6 +699,15 @@
   document.getElementById("navigate").addEventListener("click", function () { location.reload(); });
   document.getElementById("clear-log").addEventListener("click", function () { logEl.textContent = ""; });
 
+  // the cross-origin tests need localhost <-> www.localhost
+  var siblingLine = document.getElementById("sibling-line");
+  if (siblingOrigin) {
+    siblingLine.textContent = "sibling: " + siblingOrigin + " (www.localhost is on the same self-signed certificate: accept it once if you use https)";
+  } else {
+    siblingLine.textContent = "disabled: open this page on localhost or www.localhost";
+    document.querySelectorAll("button.needs-sibling").forEach(function (button) { button.disabled = true; });
+  }
+
   // remember the auto-reload choice across reloads
   try { autoReload.checked = localStorage.getItem("spa-auto-reload") === "1"; } catch (e) {}
   autoReload.addEventListener("change", function () {
@@ -309,6 +716,9 @@
 
   var initialRoute = location.pathname.replace(/^\/spa\/app\/?/, "").replace(/^\/spa\/?$/, "") || "home";
   showRoute(initialRoute);
+  renderKafka();
+  renderMetrics();
+  renderCurl();
   actions.whoami();
   actions.feed();
   startPolling();

@@ -404,22 +404,78 @@ func TestIsNavigationSecFetchModeValues(t *testing.T) {
 	}
 }
 
-func TestIsXHR(t *testing.T) {
+// One case per rule in IsSubresource. Browser header sets are as sent by current Chromium
+// and Firefox; the inconsistent ones are what a browser never sends, so a client forging
+// part of a set is still counted.
+func TestIsSubresource(t *testing.T) {
+	sameOrigin := func(mode, dest string) map[string]string {
+		return map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": mode, "Sec-Fetch-Dest": dest}
+	}
+	with := func(headers map[string]string, name, value string) map[string]string {
+		out := map[string]string{name: value}
+		for k, v := range headers {
+			if k != name {
+				out[k] = v
+			}
+		}
+		return out
+	}
 	tests := []struct {
 		name    string
 		headers map[string]string
 		want    bool
 	}{
-		{"same-origin fetch()", map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Accept": "*/*"}, true},
+		// fetch() and XHR
+		{"same-origin fetch()", with(sameOrigin("cors", "empty"), "Accept", "*/*"), true},
+		{"same-origin fetch() in same-origin mode", sameOrigin("same-origin", "empty"), true},
+		{"fetch() with no-cors mode", sameOrigin("no-cors", "empty"), true},
 		{"cross-origin fetch()", map[string]string{"Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Origin": "https://www.example.com"}, true},
-		{"XHR with Sec-Fetch headers", map[string]string{"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "X-Requested-With": "XMLHttpRequest"}, true},
-		{"mixed-case Sec-Fetch-Dest", map[string]string{"Sec-Fetch-Dest": "  EMPTY "}, true},
-		{"fetch() asking for html is still an XHR", map[string]string{"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "Accept": "text/html"}, true},
-		{"chrome navigation", map[string]string{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Accept": chromeNavigationAccept}, false},
-		{"iframe navigation", map[string]string{"Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}, false},
-		{"<img> load", map[string]string{"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "image"}, false},
-		{"<script> load", map[string]string{"Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "script"}, false},
-		{"Sec-Fetch-Dest wins over X-Requested-With", map[string]string{"Sec-Fetch-Dest": "document", "X-Requested-With": "XMLHttpRequest"}, false},
+		{"cross-site fetch()", map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}, true},
+		{"XHR with Sec-Fetch headers", with(sameOrigin("cors", "empty"), "X-Requested-With", "XMLHttpRequest"), true},
+		{"mixed-case header values", map[string]string{"Sec-Fetch-Site": " Same-Origin", "Sec-Fetch-Mode": "CORS ", "Sec-Fetch-Dest": "  EMPTY "}, true},
+		{"fetch() asking for html is still a subresource", with(sameOrigin("cors", "empty"), "Accept", "text/html"), true},
+
+		// other subresources (gap: these used to get the HTML challenge and be counted)
+		{"<img> load", sameOrigin("no-cors", "image"), true},
+		{"<script> load", sameOrigin("no-cors", "script"), true},
+		{"module script", sameOrigin("cors", "script"), true},
+		{"stylesheet", sameOrigin("no-cors", "style"), true},
+		{"web font", sameOrigin("cors", "font"), true},
+		{"video", sameOrigin("no-cors", "video"), true},
+		{"worker script", sameOrigin("same-origin", "worker"), true},
+		{"json module import", sameOrigin("cors", "json"), true},
+
+		// WebSocket handshake: same answer in every browser
+		{"chromium WebSocket handshake", sameOrigin("websocket", "websocket"), true},
+		{"firefox WebSocket handshake", sameOrigin("websocket", "empty"), true},
+		{"websocket mode with an image destination", sameOrigin("websocket", "image"), false},
+		{"websocket destination without websocket mode", sameOrigin("cors", "websocket"), false},
+
+		// pages get the HTML challenge
+		{"chrome navigation", map[string]string{"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Sec-Fetch-User": "?1", "Accept": chromeNavigationAccept}, false},
+		{"same-origin link click", sameOrigin("navigate", "document"), false},
+		{"iframe navigation", sameOrigin("navigate", "iframe"), false},
+		{"frame", sameOrigin("navigate", "frame"), false},
+		{"<object> load", sameOrigin("no-cors", "object"), false},
+		{"<embed> load", sameOrigin("no-cors", "embed"), false},
+		{"unknown destination", sameOrigin("no-cors", "hologram"), false},
+		{"unknown mode", sameOrigin("nested-navigate", "empty"), false},
+
+		// inconsistent sets: a browser never sends these
+		{"empty destination with navigate mode", sameOrigin("navigate", "empty"), false},
+		{"document destination with cors mode", sameOrigin("cors", "document"), false},
+		{"missing Sec-Fetch-Dest", map[string]string{"Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors"}, false},
+		{"missing Sec-Fetch-Site", map[string]string{"Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}, false},
+		{"Sec-Fetch-Site none on a subresource", map[string]string{"Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}, false},
+		{"Sec-Fetch-User on a subresource", with(sameOrigin("cors", "empty"), "Sec-Fetch-User", "?1"), false},
+		{"empty Sec-Fetch-User on a subresource", with(sameOrigin("cors", "empty"), "Sec-Fetch-User", ""), false},
+		{"XHR with a lone empty Sec-Fetch-Dest", map[string]string{"Sec-Fetch-Dest": "empty", "X-Requested-With": "XMLHttpRequest"}, true},
+		{"lone empty Sec-Fetch-Dest without X-Requested-With", map[string]string{"Sec-Fetch-Dest": "empty"}, false},
+		{"page Sec-Fetch-Dest without Sec-Fetch-Mode", map[string]string{"Sec-Fetch-Dest": "document", "X-Requested-With": "XMLHttpRequest"}, false},
+		{"Sec-Fetch-Site without Sec-Fetch-Mode", map[string]string{"Sec-Fetch-Site": "same-origin", "X-Requested-With": "XMLHttpRequest"}, false},
+		{"Sec-Fetch-Dest wins over X-Requested-With", with(sameOrigin("navigate", "document"), "X-Requested-With", "XMLHttpRequest"), false},
+
+		// no Fetch Metadata: older browsers, or plain http to a non-localhost host
 		{"old browser jQuery XHR", map[string]string{"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}, true},
 		{"old browser, X-Requested-With lowercase", map[string]string{"X-Requested-With": " xmlhttprequest "}, true},
 		{"old browser fetch() without X-Requested-With", map[string]string{"Accept": "application/json"}, false},
@@ -431,8 +487,8 @@ func TestIsXHR(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsXHR(newClassifyRequest(http.MethodGet, tt.headers)); got != tt.want {
-				t.Errorf("IsXHR() = %v, want %v", got, tt.want)
+			if got := IsSubresource(newClassifyRequest(http.MethodGet, tt.headers)); got != tt.want {
+				t.Errorf("IsSubresource() = %v, want %v", got, tt.want)
 			}
 		})
 	}
