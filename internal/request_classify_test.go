@@ -162,9 +162,27 @@ func TestRequestClassification(t *testing.T) {
 			method:   http.MethodOptions,
 			siteHost: "example.com",
 			headers: map[string]string{
+				"Origin":                        "https://example.com",
 				"Access-Control-Request-Method": "",
 			},
 			wantPreflight: true,
+		},
+		{
+			name:     "OPTIONS with Access-Control-Request-Method but no Origin",
+			method:   http.MethodOptions,
+			siteHost: "example.com",
+			headers: map[string]string{
+				"Access-Control-Request-Method": "PUT",
+			},
+		},
+		{
+			name:     "OPTIONS with Access-Control-Request-Method and a blank Origin",
+			method:   http.MethodOptions,
+			siteHost: "example.com",
+			headers: map[string]string{
+				"Origin":                        "  ",
+				"Access-Control-Request-Method": "PUT",
+			},
 		},
 		{
 			name:     "GET carrying Access-Control-Request-Method",

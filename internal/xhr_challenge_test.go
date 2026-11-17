@@ -119,10 +119,16 @@ func newXHRHarness(t *testing.T, config *Config) *xhrHarness {
 // serve runs a request through decisionForNginx2 and the 403 counter, as decisionForNginx
 // does. Rate limit states are shared between calls on one harness.
 func (h *xhrHarness) serve(host string, headers map[string]string, cookies ...*http.Cookie) (*httptest.ResponseRecorder, *gin.Context, DecisionForNginxResult) {
+	return h.serveMethod(http.MethodGet, host, headers, cookies...)
+}
+
+// serveMethod is serve for a client request made with method (nginx proxies it unchanged).
+func (h *xhrHarness) serveMethod(method string, host string, headers map[string]string, cookies ...*http.Cookie) (*httptest.ResponseRecorder, *gin.Context, DecisionForNginxResult) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = buildDecisionForNginxTestContext(xhrTestIp, host, "/api/items", "ua", "").Request
+	c.Request.Method = method
 	for name, value := range headers {
 		c.Request.Header.Set(name, value)
 	}

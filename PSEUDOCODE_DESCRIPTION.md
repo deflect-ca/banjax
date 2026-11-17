@@ -309,6 +309,28 @@ else:
     return 401, challenge page + new cookie
 ```
 
+A CORS preflight skips every sha-inv and AltCha challenge in the decision order above (every
+`send_or_validate_challenge()` and `send_or_validate_altcha_challenge()`, not the password page):
+
+```python
+preflight = method == "OPTIONS" and "Access-Control-Request-Method" in headers and headers["Origin"].strip()
+# at each challenge in the order above:
+if preflight:
+    pass  # skip the challenge, fall through to the next check, like a protected IP skips a block
+# at the end, if nothing later decided:
+return access_granted()  # X-Banjax-Decision: CORSPreflightException, Cache-Control: no-cache,no-store
+```
+
+A browser sends no cookies on a preflight, so it could never pass a challenge, and the cross-origin
+call it is for would never be made, even for a visitor who solved the challenge. The origin answers
+the preflight with its own CORS policy; the call that follows carries the challenge cookie and is
+challenged as usual. A preflight is not a failed challenge: it is not reported as
+`ip_failed_challenge` and does not count toward either failure threshold. Because a skipped
+challenge falls through, a block or Allow checked later still decides (for example an expiring IP
+block behind a `challenge_all` for the host). Password pages, TooManyRequests and the regex rate
+limits (which see the OPTIONS line in the nginx log) still apply. The answer is marked
+`no-cache,no-store` so a cache whose key leaves out the method cannot replay the grant for a GET.
+
 If a client fails too many challenges (exceeding `too_many_failed_challenges_threshold`), they are
 blocked at the iptables level (or nginx level if the IP is in a per-site allowlist). This rate-limiting
 applies to both SHA-inverse and password challenges.

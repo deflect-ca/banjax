@@ -63,6 +63,8 @@ Banjax-go currently has six internal Decision types:
 - TooManyRequests
 - returns a plain 429 page. only produced by the regex rate limits.
 
+A CORS preflight (an `OPTIONS` request with `Access-Control-Request-Method` and a non-empty `Origin`) is never given a Challenge, AltChaChallenge or AltChaClickChallenge: browsers send no cookies on a preflight, so it could never pass one, and the cross-origin call after it would never be made. For a preflight, each challenge is skipped and the next check in the decision order runs, so a block or Allow found later still decides; if none does, banjax returns @access\_granted with `X-Banjax-Decision: CORSPreflightException` (marked `no-cache,no-store`) and the origin answers the preflight. The call that follows is challenged as usual. Preflights do not count as failed challenges. Blocks, bans, TooManyRequests and password pages still apply to them.
+
 The Decision lists are populated by:
 
 - The config file. This is useful for allowlisting or blocklisting known good or bad IPs.

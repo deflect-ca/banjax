@@ -63,9 +63,11 @@ func IsXHR(r *http.Request) bool {
 }
 
 // IsPreflight reports whether r is a CORS preflight: an OPTIONS request carrying
-// Access-Control-Request-Method. A plain OPTIONS request is not a preflight.
+// Access-Control-Request-Method and a non-empty Origin, which browsers always send on a
+// preflight. A plain OPTIONS request is not a preflight. Both headers can be forged, so
+// this lets a request skip a challenge (see skipChallenge in decisionForNginx2), never a block.
 func IsPreflight(r *http.Request) bool {
-	if r.Method != http.MethodOptions {
+	if r.Method != http.MethodOptions || strings.TrimSpace(r.Header.Get("Origin")) == "" {
 		return false
 	}
 	_, present := r.Header[http.CanonicalHeaderKey("Access-Control-Request-Method")]
