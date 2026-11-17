@@ -34,7 +34,7 @@ const (
 	// signature made under the old construction, which is the point: a client
 	// that only knows v1 can never be fooled into accepting a v2 signature, and
 	// vice versa.
-	DeflectChallengeContext = "deflect-challenge-v1"
+	DeflectChallengeContext = "mirror-challenge-v1"
 
 	DeflectChallengeHeader         = "X-RePress-Challenge"
 	DeflectChallengeResponseHeader = "X-RePress-Challenge-Response"
@@ -64,7 +64,7 @@ const (
 //
 // Layout, with no trailing newline:
 //
-//	deflect-challenge-v1 LF <host> LF <challenge>
+//	mirror-challenge-v1 LF <host> LF <challenge>
 //
 // This is a wire contract shared with supporting-containers/challenge-client.
 // Changing it means changing the version label too.

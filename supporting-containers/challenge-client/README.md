@@ -19,7 +19,7 @@ to a middlebox impersonating it.
 The signed message is **domain-bound**, with no trailing newline:
 
 ```
-deflect-challenge-v1 LF <host> LF <challenge>
+mirror-challenge-v1 LF <host> LF <challenge>
 ```
 
 The version label means a future construction can never be confused with this
@@ -171,7 +171,7 @@ script prepends it and skips PEM entirely:
   printf '%s' "$PUB_B64" | base64 -d
 } > pub.der
 
-printf 'deflect-challenge-v1\n%s\n%s' "$HOST" "$CHALLENGE" > msg.bin
+printf 'mirror-challenge-v1\n%s\n%s' "$HOST" "$CHALLENGE" > msg.bin
 printf '%s' "$SIG_B64" | base64 -d > sig.bin
 
 openssl pkeyutl -verify -pubin -inkey pub.der -keyform DER \
@@ -287,5 +287,5 @@ this check still passes while every subsequent byte flows through the attacker.
 
 Closing that requires folding something unique to the client's own TLS
 connection into the signed message (the server certificate's SPKI hash, or an
-RFC 5705 exporter). The `deflect-challenge-v1` label exists so a v2 can add it
+RFC 5705 exporter). The `mirror-challenge-v1` label exists so a v2 can add it
 unambiguously. Do not deploy this as an anti-MITM control until then.

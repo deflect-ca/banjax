@@ -534,15 +534,15 @@ func TestDeflectChallenge(t *testing.T) {
 	signature, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-RePress-Challenge-Response"))
 	assert.Nil(t, err, "undecodable signature")
 
-	message := []byte("deflect-challenge-v1\nlocalhost:8081\n" + challenge)
+	message := []byte("mirror-challenge-v1\nlocalhost:8081\n" + challenge)
 	assert.True(t, ed25519.Verify(publicKey, message, signature),
 		"the signature does not verify: this edge does not hold the domain's key")
 
 	// Negative cases. Without these, a verifier that always returned true would
 	// pass the assertion above.
-	assert.False(t, ed25519.Verify(publicKey, []byte("deflect-challenge-v1\nevil.example\n"+challenge), signature),
+	assert.False(t, ed25519.Verify(publicKey, []byte("mirror-challenge-v1\nevil.example\n"+challenge), signature),
 		"a signature verified against the wrong domain")
-	assert.False(t, ed25519.Verify(publicKey, []byte("deflect-challenge-v1\nlocalhost:8081\nother-nonce"), signature),
+	assert.False(t, ed25519.Verify(publicKey, []byte("mirror-challenge-v1\nlocalhost:8081\nother-nonce"), signature),
 		"a signature verified against the wrong nonce")
 
 	tampered := make([]byte, len(signature))

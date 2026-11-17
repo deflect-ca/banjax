@@ -25,7 +25,7 @@ Go through each section while designing; write down the answer for each that app
 
 - Randomness: `crypto/rand` only.
 - Comparisons of MACs, signatures, solutions: `hmac.Equal` or `subtle.ConstantTimeCompare`.
-- Signed messages are domain-separated (pattern: `deflect-challenge-v1\n<host>\n<challenge>` in deflect_challenge.go) so a signature for one purpose never verifies for another.
+- Signed messages are domain-separated (pattern: `mirror-challenge-v1\n<host>\n<challenge>` in deflect_challenge.go) so a signature for one purpose never verifies for another.
 - Tokens and cookies are bound to the client (IP, or UA where `use_user_agent_in_cookie` says so) and carry an expiry covered by the MAC.
 - Verify the MAC or signature before using any decoded field (length, expiry, binding).
 - Known debt, do not copy: `bytes.Equal` HMAC checks in `challenge_response.go` and `session_cookie.go`, `math/rand` session ids in `session_cookie.go`, `InsecureSkipVerify: true` in `kafka.go`.

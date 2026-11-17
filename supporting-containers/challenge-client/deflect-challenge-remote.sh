@@ -16,7 +16,7 @@
 #
 # The signed message is domain-bound, with no trailing newline:
 #
-#     deflect-challenge-v1 LF <host> LF <challenge>
+#     mirror-challenge-v1 LF <host> LF <challenge>
 #
 # This must match internal/deflect_challenge.go's DeflectChallengeMessage
 # exactly, byte for byte.
@@ -104,7 +104,7 @@ MAX_LENGTH="${MAX_LENGTH:-512}"
 # TRANSCRIPT=0 drops the full exchange dump and prints only the result rows.
 TRANSCRIPT="${TRANSCRIPT:-1}"
 
-CONTEXT="deflect-challenge-v1"
+CONTEXT="mirror-challenge-v1"
 
 # usage - the header comment from "Usage:" to the end of that block, which is
 # where the option list lives, so there is only ever one copy of it.
@@ -260,7 +260,7 @@ key_id_from_raw() {
 # -rawin is required: Ed25519 signs the whole message itself and cannot be
 # driven through -digest.
 verify() {
-    printf 'deflect-challenge-v1\n%s\n%s' "$2" "$3" > "$WORK/msg.bin"
+    printf 'mirror-challenge-v1\n%s\n%s' "$2" "$3" > "$WORK/msg.bin"
     openssl pkeyutl -verify -pubin -inkey "$1" -keyform DER \
         -rawin -in "$WORK/msg.bin" -sigfile "$4" >/dev/null 2>&1
 }
@@ -330,7 +330,7 @@ transcript() {
     fi
 
     # The crux of the protocol: three fields joined by LF, no trailing newline.
-    printf 'deflect-challenge-v1\n%s\n%s' "$host" "$nonce" > "$WORK/shown.bin"
+    printf 'mirror-challenge-v1\n%s\n%s' "$host" "$nonce" > "$WORK/shown.bin"
 
     printf '\n%ssigned message%s %s(%s bytes, verbatim -- no trailing newline)%s\n' \
         "$BOLD" "$RESET" "$DIM" "$(wc -c < "$WORK/shown.bin" | tr -d ' ')" "$RESET"
