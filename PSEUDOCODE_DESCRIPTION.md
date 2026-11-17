@@ -291,7 +291,8 @@ The lengths of the expiring lists are reported in the metrics log as `LenExpirin
 `LenExpiringBlocks` (IP and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
 (host), `LenExpiringUAChallenges` / `LenExpiringUABlocks` (User-Agent), and
 `LenExpiringSubnetChallenges` / `LenExpiringSubnetBlocks` (subnet). `LenExpiringTooManyRequests`
-(IP and IP+host).
+(IP and IP+host). `XHRChallenges` / `XHRChallengesBadCookie` count challenged subresource
+requests answered with the 403 JSON error since banjax started (see below).
 
 ### Challenge-response authentication (SHA-inverse and password-protected paths)
 
@@ -308,6 +309,76 @@ if cookie_contains_solved_challenge(cookie):
 else:
     return 401, challenge page + new cookie
 ```
+
+A CORS preflight skips every sha-inv and AltCha challenge in the decision order above (every
+`send_or_validate_challenge()` and `send_or_validate_altcha_challenge()`, not the password page):
+
+```python
+preflight = method == "OPTIONS" and "Access-Control-Request-Method" in headers and headers["Origin"].strip()
+# at each challenge in the order above:
+if preflight:
+    pass  # skip the challenge, fall through to the next check, like a protected IP skips a block
+# at the end, if nothing later decided:
+return access_granted()  # X-Banjax-Decision: CORSPreflightException, Cache-Control: no-cache,no-store
+```
+
+A browser sends no cookies on a preflight, so it could never pass a challenge, and the cross-origin
+call it is for would never be made, even for a visitor who solved the challenge. The origin answers
+the preflight with its own CORS policy; the call that follows carries the challenge cookie and is
+challenged as usual. A preflight is not a failed challenge: it is not reported as
+`ip_failed_challenge` and does not count toward either failure threshold. Because a skipped
+challenge falls through, a block or Allow checked later still decides (for example an expiring IP
+block behind a `challenge_all` for the host). Password pages, TooManyRequests and the regex rate
+limits (which see the OPTIONS line in the nginx log) still apply. The answer is marked
+`no-cache,no-store` so a cache whose key leaves out the method cannot replay the grant for a GET.
+
+A browser subresource request (one the browser will not render as a page) that fails a sha-inv or
+AltCha challenge gets a 403 JSON error in place of the HTML challenge page, and is not counted as a
+failed challenge:
+
+```python
+# in send_or_validate_challenge() and send_or_validate_altcha_challenge(), after the cookie checks fail:
+if is_subresource(request):
+    # no challenge cookie set, not reported as ip_failed_challenge, not counted toward
+    # too_many_failed_challenges_* or too_many_403_ban_*
+    metrics.XHRChallenges += 1
+    if challenge_cookie_present_but_invalid:
+        metrics.XHRChallengesBadCookie += 1
+    return 403, {"error": "challenge_required", "challenge": "sha_inv" | "altcha" | "altcha_click", "message": ...}
+    # X-Banjax-Decision: the trigger, as for the HTML page; Cache-Control: no-cache,no-store;
+    # CORS headers only for an Origin whose host is the requested host
+report_failed_challenge(); count_toward_ban()
+return 429, challenge page + new cookie
+
+def is_subresource(request):
+    mode, dest, site = Sec-Fetch-Mode, Sec-Fetch-Dest, Sec-Fetch-Site  # trimmed, lowercased
+    if not mode:
+        # older browsers, or plain http to a non-localhost host
+        if (dest and dest != "empty") or site or "Sec-Fetch-User" in headers:
+            return False  # partial set: no browser sends it (a lone Dest "empty" is tolerated)
+        return X-Requested-With == "xmlhttprequest"
+    if "Sec-Fetch-User" in headers or site in ("", "none"):
+        return False  # sent only on navigations
+    if mode not in ("cors", "no-cors", "same-origin", "websocket"):
+        return False  # navigate, or unknown
+    if dest not in SUBRESOURCE_DESTS:  # empty, image, script, style, font, audio, video, track,
+        return False                   # manifest, json, worker, sharedworker, serviceworker,
+                                       # audioworklet, paintworklet, report, xslt, websocket
+    if mode == "websocket":
+        return dest in ("websocket", "empty")  # Chromium sends websocket, Firefox empty
+    return dest != "websocket"
+```
+
+Exempting a request from the ban on headers a client can forge is accepted on purpose: a page can
+not show an HTML challenge to a background call, and counting it would ban a polling single-page
+app that is merely waiting for its user to reload. The check is strict so a client has to forge a
+whole consistent header set, and anything else (curl, an inconsistent set, an unknown destination)
+keeps the HTML challenge and the ban. `XHRChallenges` and `XHRChallengesBadCookie` in the metrics
+log are cumulative since start and show how often the exemption is used; a rising bad-cookie count
+means challenge cookies are being guessed without being counted. Page destinations (document,
+iframe, frame, embed, object) and navigations keep the HTML page. A cross-origin call to a sibling
+host cannot recover from a challenge yet: the challenge cookie is host-scoped, and the 403 carries
+no CORS headers for a sibling origin, so the calling script sees a network error.
 
 If a client fails too many challenges (exceeding `too_many_failed_challenges_threshold`), they are
 blocked at the iptables level (or nginx level if the IP is in a per-site allowlist). This rate-limiting

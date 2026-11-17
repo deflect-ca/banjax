@@ -12,6 +12,7 @@ RUN mkdir -p /opt/hello-world
 RUN mkdir -p /opt/hello-world/assets
 
 COPY ./hello-world.go /opt/hello-world/
+COPY ./spa.html /opt/hello-world/
 COPY ./go.mod /opt/hello-world/
 COPY ./go.sum /opt/hello-world/
 COPY ./assets/deflect_100.png /opt/hello-world/assets

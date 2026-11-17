@@ -298,6 +298,11 @@ func sendOrValidateAltChaChallenge(
 	} else {
 		result.AltChaChallengeResult = AltChaChallengeFailedNoCookie
 	}
+	// a subresource can't show the challenge page: a 403 JSON error, not counted as a failed challenge
+	if IsSubresource(c.Request) {
+		xhrChallenge(c, config, trigger, challengeType, result.AltChaChallengeResult == AltChaChallengeFailedBadCookie)
+		return result
+	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
 		tooManyFailedChallengesResult := tooManyFailedChallenges(

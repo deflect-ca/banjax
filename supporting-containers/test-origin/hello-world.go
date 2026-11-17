@@ -7,6 +7,8 @@
 package main
 
 import (
+	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -276,6 +278,129 @@ func handleEcho(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "request": report})
 }
 
+// spaPage is a small single-page app for testing how banjax challenges requests that
+// cannot show a challenge page: fetch(), XHR, <img>, <script>, <link rel=stylesheet>,
+// no-cors and cross-origin calls to /spa/api/*, plus an iframe and a reload that still
+// get the HTML challenge page. Per call it shows what banjax answered.
+//
+//go:embed spa.html
+var spaPage []byte
+
+// spaFramePage is what /spa/app/frame answers when banjax lets the request through:
+// a tiny page (not the SPA, which would start polling inside the iframe) that the
+// SPA's iframe test recognises by its marker element. A challenged iframe gets the
+// HTML challenge page instead, which has no such marker.
+const spaFramePage = `<!doctype html><html><head><meta charset="utf-8"><title>SPA frame</title></head>` +
+	`<body style="font:14px system-ui;margin:.5em"><p id="spa-frame-ok">Frame loaded: banjax let this iframe through to the origin.</p></body></html>`
+
+func serveSPA(c *gin.Context) {
+	c.Header("Cache-Control", "no-cache")
+	if c.Param("route") == "/frame" {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(spaFramePage))
+		return
+	}
+	c.Data(http.StatusOK, "text/html; charset=utf-8", spaPage)
+}
+
+// spaAPI is the JSON the SPA's API calls get. The API lives under /spa/api/
+// with no file extension because nginx sends *.json (and *.js) paths straight
+// to the origin, so they would never reach banjax.
+func spaAPI(c *gin.Context, body gin.H) {
+	c.Header("Cache-Control", "no-store")
+	body["ok"] = true
+	body["server_time"] = time.Now().UTC().Format("15:04:05")
+	c.JSON(http.StatusOK, body)
+}
+
+func handleSPAFeed(c *gin.Context) {
+	t := time.Now().UTC().Format("15:04:05")
+	spaAPI(c, gin.H{"items": []gin.H{
+		{"title": "Latest article", "time": t},
+		{"title": "Comment on your post", "time": t},
+		{"title": "Weekly digest", "time": t},
+	}})
+}
+
+func handleSPANotifications(c *gin.Context) {
+	spaAPI(c, gin.H{"unread": time.Now().Second() % 5})
+}
+
+func handleSPALike(c *gin.Context) {
+	spaAPI(c, gin.H{"liked": true})
+}
+
+func handleSPARoute(c *gin.Context) {
+	spaAPI(c, gin.H{"route": c.Param("route")})
+}
+
+// handleSPAWhoami reports the request headers the origin received, so you can
+// see what nginx passed through, and the deflect_session cookie for sending a
+// challenge_session command (the cookie is not readable from JavaScript).
+func handleSPAWhoami(c *gin.Context) {
+	session, _ := c.Cookie("deflect_session")
+	spaAPI(c, gin.H{
+		"deflect_session": session,
+		"host":            c.Request.Host,
+		"headers": gin.H{
+			"Sec-Fetch-Site": c.GetHeader("Sec-Fetch-Site"),
+			"Sec-Fetch-Mode": c.GetHeader("Sec-Fetch-Mode"),
+			"Sec-Fetch-Dest": c.GetHeader("Sec-Fetch-Dest"),
+			"Referer":        c.GetHeader("Referer"),
+			"Accept":         c.GetHeader("Accept"),
+		},
+	})
+}
+
+// onePixelPNG is a 1x1 transparent PNG for the <img> test.
+var onePixelPNG, _ = base64.StdEncoding.DecodeString(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
+
+// The three endpoints below are loaded by <img>, <script> and <link rel=stylesheet>.
+// Their paths have no file extension on purpose: nginx sends *.png, *.js and *.css
+// straight to the origin, so those requests would never reach banjax.
+func handleSPAPixel(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "image/png", onePixelPNG)
+}
+
+func handleSPAScript(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "application/javascript", []byte("window.__spaScriptLoaded = Date.now();\n"))
+}
+
+func handleSPAStyle(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, "text/css", []byte("#spa-style-probe { outline: 0; }\n"))
+}
+
+// spaCORS lets the SPA open on localhost call /spa/api/* on www.localhost and the other
+// way round (any scheme or port), with cookies, so the cross-origin test can force a
+// preflight. Any other Origin gets no CORS headers. A CORS preflight is answered here
+// with 204: banjax skips challenges for it and lets it reach the origin.
+func spaCORS(c *gin.Context) {
+	c.Header("Vary", "Origin")
+	if origin := c.GetHeader("Origin"); spaOriginAllowed(origin) {
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Credentials", "true")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, X-SPA-Test")
+		c.Header("Access-Control-Expose-Headers", "X-Banjax-Decision")
+	}
+	if c.Request.Method == http.MethodOptions {
+		c.AbortWithStatus(http.StatusNoContent)
+		return
+	}
+	c.Next()
+}
+
+func spaOriginAllowed(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	return u.Hostname() == "localhost" || u.Hostname() == "www.localhost"
+}
+
 func main() {
 	r := gin.Default()
 	r.Static("/assets", "./assets")
@@ -290,6 +415,19 @@ func main() {
 	r.POST("/api/resources/reset", handleResetResources)
 	r.Any("/echo", handleEcho)
 
+	r.GET("/spa", serveSPA)
+	r.GET("/spa/app/*route", serveSPA) // client-side routes, so a reload on one still works
+	api := r.Group("/spa/api", spaCORS)
+	api.OPTIONS("/*any", func(c *gin.Context) {}) // spaCORS answers it
+	api.GET("/feed", handleSPAFeed)
+	api.GET("/notifications", handleSPANotifications)
+	api.POST("/like", handleSPALike)
+	api.GET("/route/:route", handleSPARoute)
+	api.GET("/whoami", handleSPAWhoami)
+	api.GET("/pixel", handleSPAPixel)
+	api.GET("/script", handleSPAScript)
+	api.GET("/style", handleSPAStyle)
+
 	r.NoRoute(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
 		c.Header("Content-Type", "text/html; charset=utf-8")
@@ -298,6 +436,7 @@ func main() {
 		page = page + "<style>body{padding: 2em;background-color:rgb(236, 236, 226);}</style></head>"
 		page = page + "<body><img src=\"/assets/deflect_100.png\">"
 		page = page + "<h1>Requested URL: " + c.Request.URL.Path + "</h1>"
+		page = page + "<p><a href=\"/spa\">SPA test page</a>: fetch/XHR/img/script/style/iframe requests, for testing how banjax challenges requests that cannot show a page</p>"
 		page = page + "Banjax test-origin @ " + time.Now().UTC().Format("15:04:05") + " UTC+0</body>"
 		c.String(404, page)
 	})
