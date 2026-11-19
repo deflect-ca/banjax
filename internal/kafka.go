@@ -233,11 +233,11 @@ func handleCommand(
 	// handle commands
 	switch command.Name {
 	case "challenge_ip":
-		handleIPCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
+		handleHostIPCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
 		break
 	case "block_ip":
 		ttl := getBlockIpTtl(config, command.Host)
-		handleIPCommand(config, command, decisionLists, NginxBlock, ttl)
+		handleHostIPCommand(config, command, decisionLists, NginxBlock, ttl)
 		break
 	case "challenge_subnet":
 		handleSubnetCommand(config, command, decisionLists, Challenge, config.ExpiringDecisionTtlSeconds)
@@ -263,7 +263,7 @@ func handleCommand(
 		handleUACommand(config, command, decisionLists, NginxBlock, config.BlockIPTtlSeconds)
 		break
 	case "altcha_challenge_ip":
-		handleIPCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
+		handleHostIPCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
 		break
 	case "altcha_challenge_subnet":
 		handleSubnetCommand(config, command, decisionLists, altchaDecision, config.ExpiringDecisionTtlSeconds)
@@ -304,15 +304,28 @@ func altchaOptionsFor(command commandMessage, decision Decision) AltChaOptions {
 	return options
 }
 
-func handleIPCommand(
+// maxHostLength is the longest DNS name, so a malformed host can't grow the ip+host list keys.
+const maxHostLength = 253
+
+// handleHostIPCommand handles challenge_ip, block_ip and altcha_challenge_ip: the decision
+// applies to the ip only on command.Host, so a command about traffic to one site does not
+// challenge or block the ip on the other sites behind this banjax (the 403s of a block still
+// count towards too_many_403_ban_to_iptables_ban, which bans everywhere, as per-site blocks
+// do). A command without a host is dropped rather than applied everywhere.
+func handleHostIPCommand(
 	config *Config,
 	command commandMessage,
 	decisionLists *DynamicDecisionLists,
 	decision Decision,
 	expireDuration int,
 ) {
-	if len(command.Value) <= 4 {
-		log.Printf("KAFKA: command value looks malformed: %s\n", command.Value)
+	if command.Host == "" || len(command.Host) > maxHostLength {
+		log.Printf("KAFKA: command host is empty or too long, skip %s for %q\n", command.Name, command.Value)
+		return
+	}
+	ip, ok := CanonicalIp(command.Value)
+	if !ok {
+		log.Printf("KAFKA: command value is not a valid ip, skip %s for %q\n", command.Name, command.Value)
 		return
 	}
 
@@ -322,23 +335,24 @@ func handleIPCommand(
 	}
 
 	if config.Debug {
-		log.Printf("KAFKA: handleIPCommand %s %s %s %d\n",
-			command.Host, command.Value, decision, ttl)
+		log.Printf("KAFKA: handleHostIPCommand %s %s %s %d\n",
+			command.Host, ip, decision, ttl)
 	}
 
-	decisionLists.Update(
+	decisionLists.UpdateByHostIp(
 		config,
-		command.Value,
+		ip,
+		command.Host,
 		time.Now().Add(time.Duration(ttl)*time.Second),
 		decision,
 		true, // from baskerville, provide to http_server to distinguish from regex
-		command.Host,
 		altchaOptionsFor(command, decision),
 	)
 }
 
-// handleSubnetCommand is handleIPCommand for an IPv4 subnet in CIDR notation, so one command
-// covers e.g. a botnet rotating through a /24 instead of one command per ip.
+// handleSubnetCommand stores a decision for an IPv4 subnet in CIDR notation, so one command
+// covers e.g. a botnet rotating through a /24 instead of one command per ip. Unlike the ip
+// commands it applies on every host.
 func handleSubnetCommand(
 	config *Config,
 	command commandMessage,
@@ -503,10 +517,15 @@ func handleClearRulesCommand(
 			cleared = true
 		}
 	} else if command.Value != "" {
-		if config.Debug {
-			log.Printf("KAFKA: clear_rules ip %s\n", command.Value)
+		// the ip commands store the canonical form; anything else is removed as given
+		ip := command.Value
+		if canonical, ok := CanonicalIp(ip); ok {
+			ip = canonical
 		}
-		decisionLists.RemoveByIp(command.Value)
+		if config.Debug {
+			log.Printf("KAFKA: clear_rules ip %s\n", ip)
+		}
+		decisionLists.RemoveByIp(ip)
 		cleared = true
 	}
 

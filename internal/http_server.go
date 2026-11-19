@@ -250,8 +250,15 @@ func RunHttpServer(
 			})
 			return
 		}
+		if canonical, ok := CanonicalIp(ip); ok {
+			ip = canonical
+		}
 		banned, _ := banner.IPSetList()
 		expiringDecision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
+		// a challenge_ip/block_ip from kafka is stored per host; report the most serious
+		if hostIpDecision, hostIpOk := dynamicDecisionLists.CheckAnyByHostIp(ip); hostIpOk && (!ok || hostIpDecision.Decision > expiringDecision.Decision) {
+			expiringDecision, ok = hostIpDecision, true
+		}
 		if !ok {
 			// not found in expiring list, but maybe still banned at ipset level
 			c.JSON(200, gin.H{
@@ -397,8 +404,16 @@ func unbanHandler(
 			})
 			return
 		}
+		// the kafka ip commands store the canonical form
+		if canonical, ok := CanonicalIp(ip); ok {
+			ip = canonical
+		}
 		// query decision list, check ban type
 		decision, ok := checkExpiringDecisionLists(c, ip, dynamicDecisionLists)
+		// a challenge_ip/block_ip from kafka is stored per host; report the most serious
+		if hostIpDecision, hostIpOk := dynamicDecisionLists.CheckAnyByHostIp(ip); hostIpOk && (!ok || hostIpDecision.Decision > decision.Decision) {
+			decision, ok = hostIpDecision, true
+		}
 		if !ok {
 			// a globally allowlisted ip is only ever rate limited per host
 			decision, ok = dynamicDecisionLists.CheckAnyByIpHost(ip)
@@ -428,7 +443,8 @@ func unbanHandler(
 				return
 			}
 		}
-		// if found, remove from expiring lists (ip and ip+host), whether its nginx or iptables ban
+		// if found, remove from expiring lists (ip, kafka ip+host and allowlist ip+host), whether
+		// its nginx or iptables ban
 		if ok {
 			dynamicDecisionLists.RemoveByIp(ip)
 		}
@@ -1540,7 +1556,8 @@ func decisionForNginx2(
 	_, disabled := config.SitesToDisableBaskerville[requestedHost]
 
 	// The expiring decision list is applied narrowest-scope first: session id, then user
-	// agent, then a challenge_all-triggered host-wide challenge, then ip (or a subnet covering it).
+	// agent, then a challenge_all-triggered host-wide challenge, then ip (a kafka decision for
+	// the ip on this host, the ip's own decision, or a subnet covering it).
 
 	// 1. session id
 	sessionId, _ := c.Cookie(SessionCookieName)
@@ -1762,10 +1779,21 @@ func decisionForNginx2(
 	// changing the decision.
 	// XXX i forget if that comment is stale^
 	ipExpiringDecision, ipOk := dynamicDecisionLists.Check("", clientIp)
+	// challenge_ip/block_ip/altcha_challenge_ip from kafka apply only on the host they name.
+	// They keep the X-Banjax-Decision strings they had when they applied on every host. The
+	// more serious of this and the ip's own decision (regex rules, failed challenges) wins, as
+	// it did when both shared one entry; on a tie the narrower kafka decision, with its AltCha
+	// settings, is used.
+	hostIpExpiringDecision, hostIpOk := dynamicDecisionLists.CheckByHostIp(clientIp, requestedHost)
 	// a block_subnet/challenge_subnet applies as if it were sent for every ip in the subnet,
 	// so like Update it only takes over from the ip's own decision when it is more serious
 	expiringChallengeResult, expiringAltChaChallengeResult, expiringBlockResult := ExpiringChallenge, ExpiringAltChaChallenge, ExpiringBlock
 	subnetExpiringDecision, subnetOk := dynamicDecisionLists.CheckBySubnet(clientIp)
+	// skipped here rather than after ranking, where it would hide the ip's own decision
+	if hostIpOk && hostIpExpiringDecision.fromBaskerville && disabled {
+		log.Printf("DIS-BASK: domain %s disabled baskerville, skip expiring host ip decision for %s", requestedHost, clientIp)
+		hostIpOk = false
+	}
 	if protectedIp {
 		// Blocks never apply to a protected ip, so they are dropped before the ip and subnet
 		// decisions are ranked: a block (the ip's own, stored before it was protected, or one
@@ -1774,10 +1802,17 @@ func decisionForNginx2(
 			skipDenial("expiring_ip_list", ipExpiringDecision.Decision)
 			ipOk = false
 		}
+		if hostIpOk && hostIpExpiringDecision.Decision.IsDenial() {
+			skipDenial("expiring_host_ip_list", hostIpExpiringDecision.Decision)
+			hostIpOk = false
+		}
 		if subnetOk && subnetExpiringDecision.Decision.IsDenial() {
 			skipDenial("expiring_subnet_list", subnetExpiringDecision.Decision)
 			subnetExpiringDecision, subnetOk = dynamicDecisionLists.CheckBySubnetNonDenial(clientIp)
 		}
+	}
+	if hostIpOk && (!ipOk || hostIpExpiringDecision.Decision >= ipExpiringDecision.Decision) {
+		ipExpiringDecision, ipOk = hostIpExpiringDecision, true
 	}
 	if subnetOk && (!ipOk || subnetExpiringDecision.Decision > ipExpiringDecision.Decision) {
 		ipExpiringDecision, ipOk = subnetExpiringDecision, true

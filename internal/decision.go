@@ -559,6 +559,7 @@ func NewDynamicDecisionLists() *DynamicDecisionLists {
 		expiringDecisionListsUA:        make(uaToExpiringDecision),
 		expiringDecisionListsSubnet:    make(subnetToExpiringDecision),
 		expiringDecisionListsIpHost:    make(ipHostToExpiringDecision),
+		expiringDecisionListsHostIp:    make(ipHostToExpiringDecision),
 	}
 
 	lists := &DynamicDecisionLists{
@@ -839,6 +840,17 @@ func ParseSubnet(s string) (netip.Prefix, error) {
 	return subnet.Masked(), nil
 }
 
+// CanonicalIp returns s in the form nginx sends X-Client-IP (trimmed, IPv4-mapped IPv6 as IPv4,
+// IPv6 compressed and lowercase), so an ip from kafka or the admin API matches the list keys.
+// It reports false for anything but a single address without a zone.
+func CanonicalIp(s string) (string, bool) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil || addr.Zone() != "" {
+		return "", false
+	}
+	return addr.Unmap().String(), true
+}
+
 func (h *DynamicDecisionLists) UpdateBySubnet(
 	config *Config,
 	subnet netip.Prefix,
@@ -999,6 +1011,89 @@ func (h *DynamicDecisionLists) CheckByIpHost(ip string, host string) (ExpiringDe
 	return expiringDecision, ok
 }
 
+// UpdateByHostIp stores a challenge_ip, block_ip or altcha_challenge_ip decision from kafka,
+// which applies to the ip only on the host the command names. It is kept apart from
+// expiringDecisionListsIpHost (allowlist rate limits): a block there would stop a later
+// TooManyRequests from being stored (only a more serious decision replaces an entry), and
+// that list is read only for globally allowlisted ips, which never reach the kafka decisions.
+func (h *DynamicDecisionLists) UpdateByHostIp(
+	config *Config,
+	ip string,
+	host string,
+	expires time.Time,
+	newDecision Decision,
+	fromBaskerville bool,
+	altcha AltChaOptions, // AltCha settings, zero value for the config defaults
+) {
+	if newDecision.IsDenial() && config.IsProtectedIP(ip) {
+		log.Println("updateExpiringDecisionListsHostIp: not blocking or rate limiting protected ip", newDecision, ip, host)
+		return
+	}
+
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	key := ipHostKey{ip, host}
+	existingExpiringDecision, ok := h.value.expiringDecisionListsHostIp[key]
+	if ok && time.Now().Before(existingExpiringDecision.Expires) {
+		if !existingExpiringDecision.supersededBy(newDecision, altcha) {
+			if config.Debug {
+				log.Println("updateExpiringDecisionListsHostIp: not with less serious", existingExpiringDecision.Decision, newDecision, ip, host)
+			}
+			return
+		}
+	}
+	if config.Debug {
+		log.Println("updateExpiringDecisionListsHostIp: update with existing and new: ", existingExpiringDecision.Decision, newDecision, ip, host)
+	}
+
+	h.value.expiringDecisionListsHostIp[key] = ExpiringDecision{
+		newDecision,
+		expires,
+		ip,
+		fromBaskerville,
+		host,
+		altcha,
+		false, // not from failed challenges
+	}
+}
+
+// CheckByHostIp returns the unexpired kafka decision for ip on host (see UpdateByHostIp).
+func (h *DynamicDecisionLists) CheckByHostIp(ip string, host string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	key := ipHostKey{ip, host}
+	expiringDecision, ok := h.value.expiringDecisionListsHostIp[key]
+	if ok {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsHostIp, key)
+			ok = false
+		}
+	}
+	return expiringDecision, ok
+}
+
+// CheckAnyByHostIp returns the most serious unexpired kafka decision for ip on any host, for
+// the admin API.
+func (h *DynamicDecisionLists) CheckAnyByHostIp(ip string) (ExpiringDecision, bool) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	var found ExpiringDecision
+	foundOk := false
+	for key, expiringDecision := range h.value.expiringDecisionListsHostIp {
+		if key.ip != ip || time.Now().Sub(expiringDecision.Expires) > 0 {
+			continue
+		}
+		if !foundOk || expiringDecision.Decision > found.Decision {
+			found = expiringDecision
+			foundOk = true
+		}
+	}
+	return found, foundOk
+}
+
 // CheckAnyByIpHost returns an unexpired per-host decision for the ip on any host.
 func (h *DynamicDecisionLists) CheckAnyByIpHost(ip string) (ExpiringDecision, bool) {
 	h.mutex.Lock()
@@ -1056,6 +1151,13 @@ func (h *DynamicDecisionLists) CheckByDomain(domain string) []BannedEntry {
 			add("ip_host", key.ip, "", expiringDecision)
 		}
 	}
+	// challenge_ip / block_ip / altcha_challenge_ip: listed as "ip", as before they were
+	// scoped to the host
+	for key, expiringDecision := range h.value.expiringDecisionListsHostIp {
+		if key.host == domain {
+			add("ip", key.ip, "", expiringDecision)
+		}
+	}
 	// challenge_all / altcha_challenge_all: applies to every client of the site
 	if expiringDecision, ok := h.value.expiringDecisionListsHost[domain]; ok {
 		add("host", "", "", expiringDecision)
@@ -1076,6 +1178,11 @@ func (h *DynamicDecisionLists) RemoveByIp(ip string) {
 	for key := range h.value.expiringDecisionListsIpHost {
 		if key.ip == ip {
 			delete(h.value.expiringDecisionListsIpHost, key)
+		}
+	}
+	for key := range h.value.expiringDecisionListsHostIp {
+		if key.ip == ip {
+			delete(h.value.expiringDecisionListsHostIp, key)
 		}
 	}
 	// log.Printf("deleted IP %v from expiring lists", ip)
@@ -1129,6 +1236,7 @@ func (h *DynamicDecisionLists) Clear() {
 	clear(h.value.expiringDecisionListsUA)
 	clear(h.value.expiringDecisionListsSubnet)
 	clear(h.value.expiringDecisionListsIpHost)
+	clear(h.value.expiringDecisionListsHostIp)
 }
 
 func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiringBlocks int, lenExpiringSitewideChallenges int, lenExpiringSitewideBlocks int, lenExpiringUAChallenges int, lenExpiringUABlocks int, lenExpiringSubnetChallenges int, lenExpiringSubnetBlocks int) {
@@ -1144,12 +1252,19 @@ func (h *DynamicDecisionLists) Metrics() (lenExpiringChallenges int, lenExpiring
 	lenExpiringSubnetChallenges = 0
 	lenExpiringSubnetBlocks = 0
 
-	for _, expiringDecision := range h.value.expiringDecisionLists {
+	// challenge_ip / block_ip count here as they did before they were scoped to a host
+	countIp := func(expiringDecision ExpiringDecision) {
 		if expiringDecision.Decision == Challenge {
 			lenExpiringChallenges += 1
 		} else if (expiringDecision.Decision == NginxBlock) || (expiringDecision.Decision == IptablesBlock) {
 			lenExpiringBlocks += 1
 		}
+	}
+	for _, expiringDecision := range h.value.expiringDecisionLists {
+		countIp(expiringDecision)
+	}
+	for _, expiringDecision := range h.value.expiringDecisionListsHostIp {
+		countIp(expiringDecision)
 	}
 
 	for _, expiringDecision := range h.value.expiringDecisionListsHost {
@@ -1221,6 +1336,12 @@ func (h *DynamicDecisionLists) removeExpired() {
 			delete(h.value.expiringDecisionListsIpHost, key)
 		}
 	}
+
+	for key, expiringDecision := range h.value.expiringDecisionListsHostIp {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsHostIp, key)
+		}
+	}
 }
 
 // Number of TooManyRequests decisions, whether keyed on the ip alone or on ip+host.
@@ -1244,7 +1365,7 @@ func (h *DynamicDecisionLists) MetricsTooManyRequests() (lenExpiringTooManyReque
 }
 
 // Number of AltChaChallenge and of AltChaClickChallenge decisions across the ip, session,
-// host, UA and subnet lists.
+// host, UA, subnet and kafka ip+host lists.
 func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChallenges int, lenExpiringAltChaClickChallenges int) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -1273,6 +1394,10 @@ func (h *DynamicDecisionLists) MetricsAltChaChallenges() (lenExpiringAltChaChall
 	}
 
 	for _, expiringDecision := range h.value.expiringDecisionListsSubnet {
+		countAltCha(expiringDecision)
+	}
+
+	for _, expiringDecision := range h.value.expiringDecisionListsHostIp {
 		countAltCha(expiringDecision)
 	}
 
@@ -1390,7 +1515,8 @@ type dynamicDecisionLists struct {
 	expiringDecisionListsHost      hostToExpiringDecision
 	expiringDecisionListsUA        uaToExpiringDecision
 	expiringDecisionListsSubnet    subnetToExpiringDecision
-	expiringDecisionListsIpHost    ipHostToExpiringDecision
+	expiringDecisionListsIpHost    ipHostToExpiringDecision // allowlist rate limits (TooManyRequests)
+	expiringDecisionListsHostIp    ipHostToExpiringDecision // kafka challenge_ip, block_ip, altcha_challenge_ip
 }
 
 func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string {
@@ -1399,7 +1525,7 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v\n\nexpiring_ip_host:\n%v",
+	return fmt.Sprintf("per_site:\n%v\n\nglobal:\n%v\n\nexpiring:\n%v\n\nexpiring_sitewide:\n%v\n\nexpiring_ua:\n%v\n\nexpiring_subnet:\n%v\n\nexpiring_ip_host:\n%v\n\nexpiring_host_ip:\n%v",
 		sc.perSiteDecisionLists,
 		sc.globalDecisionLists,
 		d.value.expiringDecisionLists,
@@ -1407,5 +1533,6 @@ func FormatDecisionLists(s *StaticDecisionLists, d *DynamicDecisionLists) string
 		d.value.expiringDecisionListsUA,
 		d.value.expiringDecisionListsSubnet,
 		d.value.expiringDecisionListsIpHost,
+		d.value.expiringDecisionListsHostIp,
 	)
 }
