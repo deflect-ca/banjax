@@ -213,9 +213,11 @@ banjax-go can optionally send and receive messages over a Kafka bus. We use this
 communicate with our Baskerville ML anomaly detection system.
 
 Messages sent on `kafka_command_topic` (from Baskerville to banjax-go):
-* `{"name": "challenge_ip", "value": "1.2.3.4"}`
-  * Tells banjax-go to challenge this IP the next time it's seen.
-* `{"name": "altcha_challenge_ip", "value": "1.2.3.4"}`
+* `{"name": "challenge_ip", "value": "1.2.3.4", "host": "example.com"}`
+  * Tells banjax-go to challenge this IP the next time it requests `example.com`. Requests from
+    the IP to other hosts are not affected. `block_ip` works the same way with an nginx block.
+    A command without a `host` is dropped.
+* `{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"}`
   * Same, with the AltCha challenge. `altcha_challenge_subnet`, `altcha_challenge_session`,
     `altcha_challenge_ua` and `altcha_challenge_all` mirror their `challenge_*` counterparts.
     With `"altcha_click": true` they store an AltChaClickChallenge (one-click checkbox) instead.

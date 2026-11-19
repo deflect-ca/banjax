@@ -131,7 +131,7 @@ func TestHotReload(t *testing.T) {
 		f.reload(t, hotReloadBaseConfig)
 
 		checks := map[string]func() (ExpiringDecision, bool){
-			"ip":                   func() (ExpiringDecision, bool) { return f.dynamicDecisionLists.Check("", "192.0.2.1") },
+			"ip":                   func() (ExpiringDecision, bool) { return f.dynamicDecisionLists.CheckByHostIp("192.0.2.1", host) },
 			"session":              func() (ExpiringDecision, bool) { return f.dynamicDecisionLists.Check("session-a", "") },
 			"host":                 func() (ExpiringDecision, bool) { return f.dynamicDecisionLists.CheckByHost(host) },
 			"user agent":           func() (ExpiringDecision, bool) { return f.dynamicDecisionLists.CheckByUA("SomeBot", host) },
