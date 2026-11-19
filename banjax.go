@@ -190,26 +190,14 @@ func main() {
 		for range sighup_channel {
 			log.Println("HOT-RELOAD: got SIGHUP; reloading config")
 
-			err := configHolder.Reload()
-			if err != nil {
-				log.Println("failed to reload config:", err)
-				continue
-			}
-
-			config := configHolder.Get()
-
-			staticDecisionLists.UpdateFromConfig(config)
-			dynamicDecisionLists.Clear()
-			internal.UnbanProtectedIPs(config, banner)
-			// On error the previous paths stay in force, so nothing that was protected
-			// becomes reachable because of a bad edit.
-			if err := passwordProtectedPaths.UpdateFromConfig(config); err != nil {
-				log.Println("HOT-RELOAD: password protected paths update failed, keeping the previous ones:", err)
-			}
-			// This is what mints a keypair for a domain that has just turned the
-			// deflect challenge on. Non-fatal for the same reason as above.
-			if err := deflectChallengeKeys.UpdateFromConfig(config); err != nil {
-				log.Println("HOT-RELOAD: deflect challenge key update failed:", err)
+			if err := internal.HotReload(
+				configHolder,
+				staticDecisionLists,
+				passwordProtectedPaths,
+				deflectChallengeKeys,
+				banner,
+			); err != nil {
+				log.Println("HOT-RELOAD:", err)
 			}
 		}
 	}()

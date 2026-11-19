@@ -46,7 +46,7 @@ authoritative description of the decision order and Kafka commands.
 5. Kafka command in `handleCommand` (validate and clamp fields) plus a flag and README entry in `supporting-containers/kafka-cmd-tester`.
 6. Cleanup: `POST /unban` and the Kafka `clear_rules` command must be able to remove what you add.
 7. Metrics (`Metrics*` on the decision lists, `WriteMetricsToEncoder`).
-8. SIGHUP reload (`banjax.go`): it reloads config, refreshes static lists and clears all expiring decisions; state captured at startup elsewhere keeps old values.
+8. SIGHUP reload (`internal.HotReload`, called from `banjax.go`): it reloads config and refreshes static lists; expiring decisions are kept until their TTL (customers trigger reloads at any time), so config-driven exemptions must be checked per request, not when a decision is stored. State captured at startup elsewhere keeps old values.
 9. README and `PSEUDOCODE_DESCRIPTION.md`.
 
 ## Conventions seen in this code

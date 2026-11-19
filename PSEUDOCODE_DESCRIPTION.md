@@ -129,6 +129,12 @@ The IP-based decision lists are populated from:
   * the regex-based rate-limiting rules explained in more detail below.
   * commands received over the Kafka connection. This is how Baskerville communicates with banjax.
 
+A SIGHUP reload rebuilds only the lists that come from the config file. The decisions added at run time
+(regex rules, Kafka commands, failed challenge bans) are kept until their own expiry, or until `POST /unban`
+or `clear_rules` removes them. The protected IP, per-site allowlist and `sites_to_disable_baskerville`
+exemptions are checked per request, so they apply to kept decisions as soon as the reload adds them
+(`sites_to_disable_baskerville` only skips decisions that came from Baskerville).
+
 The static User-Agent decision lists (`per_site_user_agent_decision_lists` and
 `global_user_agent_decision_lists`) are loaded from the config file only. Each entry is either a plain
 substring match or a regex pattern (detected automatically by the presence of regex metacharacters).

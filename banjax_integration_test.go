@@ -313,27 +313,33 @@ func TestRegexesWithRatesChallengeme(t *testing.T) {
 			regex: .*challengeme.*
 			rule: "instant challenge"
 	*/
+	// fresh ips each run: the challenge given below outlives the deferred reload, so a fixed
+	// ip would still be challenged when the test runs again within the ttl
+	challenged, fresh := randomXClientIP(), randomXClientIP()
 	prefix := "/auth_request?path="
 	httpTester(t, []TestResource{
 		// first test should pass
-		{"GET", prefix + "/1?challengeme", 200, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/1?challengeme", 200, challenged, nil},
 	})
 
 	time.Sleep(2 * time.Second)
 	httpTester(t, []TestResource{
 		// later should fail
-		{"GET", prefix + "/2?challengeme", 429, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/2?challengeme", 429, challenged, nil},
 	})
 
 	/*
-		removed
+		removed: the challenge already given lasts until its own ttl
+		(expiring_decision_ttl_seconds), since a reload keeps expiring decisions,
+		but the rule no longer challenges anyone new
 	*/
 	reloadConfig(fixtureConfigTestReload, 1, t)
 	httpTester(t, []TestResource{
 		{"GET", "/info", 200, nil, []string{"2022-02-03"}},
+		{"GET", prefix + "/3?challengeme", 429, challenged, nil},
 		// regexes_with_rates (rule removed)
-		{"GET", prefix + "/3?challengeme", 200, ClientIP("9.9.9.9"), nil},
-		{"GET", prefix + "/4?challengeme", 200, ClientIP("9.9.9.9"), nil},
+		{"GET", prefix + "/4?challengeme", 200, fresh, nil},
+		{"GET", prefix + "/5?challengeme", 200, fresh, nil},
 	})
 }
 
