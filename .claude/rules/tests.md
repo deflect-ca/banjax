@@ -16,7 +16,7 @@ Name one case per moving part that applies:
 - exemptions: protected IPs, per-site allowlist, `sites_to_disable_baskerville`
 - cookies: binding (IP or UA), expiry, tampered value
 - Kafka input: malformed, out of range, IPv6 or too-broad subnet
-- reload, `/unban` and `clear_rules` cleanup
+- `/unban` and `clear_rules` cleanup; a reload keeps expiring decisions
 - the exact `X-Banjax-Decision` string, and fail-open versus fail-closed
 
 Break-it check: break the guarded line, see the test fail, restore. A test that cannot fail is deleted.

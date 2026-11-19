@@ -1190,6 +1190,14 @@ func (h *DynamicDecisionLists) removeExpired() {
 		}
 	}
 
+	// Sessions Baskerville flagged rarely come back to be dropped by Check, and nothing
+	// else empties this map now that a reload keeps the expiring decisions.
+	for sessionId, expiringDecision := range h.value.expiringDecisionListsSessionId {
+		if time.Now().Sub(expiringDecision.Expires) > 0 {
+			delete(h.value.expiringDecisionListsSessionId, sessionId)
+		}
+	}
+
 	for host, expiringDecision := range h.value.expiringDecisionListsHost {
 		if time.Now().Sub(expiringDecision.Expires) > 0 {
 			delete(h.value.expiringDecisionListsHost, host)

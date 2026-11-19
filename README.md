@@ -70,7 +70,7 @@ The Decision lists are populated by:
 - A Kafka topic. This is how Baskerville sends its ML-informed commands to Banjax-go.
 - A rate limit on the number of failed challenges an IP submits. Bots will generally fail a bunch of challenges, and we want to block them after a while rather than serve them an unlimited number of challenge pages.
 
-Decisions added at run-time (from the log tailer, Kafka, or the failed challenge rate limit) expire after some configurable amount of time.
+Decisions added at run-time (from the log tailer, Kafka, or the failed challenge rate limit) expire after some configurable amount of time. A config reload (SIGHUP) keeps them: each one lasts until its own expiry, unless `POST /unban` or the Kafka `clear_rules` command removes it first. `protected_ips`, the per-site allowlists and `sites_to_disable_baskerville` (which skips only Baskerville decisions, not regex or failed challenge ones) are checked on every request, so a reload that adds an entry takes effect at once for decisions already stored.
 
 <img width="1384" alt="Banjax-flowchart" src="https://github.com/user-attachments/assets/ca28fc7f-bd28-49a1-8bbb-473cfdf759dd" />
 
