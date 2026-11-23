@@ -154,7 +154,7 @@ func TestKafkaBlockCommandsSkipProtectedIP(t *testing.T) {
 
 	lists := NewDynamicDecisionLists()
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "10.0.0.1", Host: "example.com"}, lists)
-	_, ok := lists.Check("", "10.0.0.1")
+	_, ok := lists.CheckByHostIp("10.0.0.1", "example.com")
 	assert.False(t, ok)
 
 	handleCommand(config, commandMessage{Name: "block_session", Value: "10.0.0.1", SessionId: "session-a", Host: "example.com"}, lists)
@@ -163,7 +163,7 @@ func TestKafkaBlockCommandsSkipProtectedIP(t *testing.T) {
 
 	// a challenge after a refused block still applies
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "10.0.0.1", Host: "example.com"}, lists)
-	decision, ok := lists.Check("", "10.0.0.1")
+	decision, ok := lists.CheckByHostIp("10.0.0.1", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, decision.Decision)
 }

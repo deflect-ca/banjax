@@ -42,9 +42,12 @@ docker compose run --rm kafka-cmd-tester -cmd clear_rules -ua 'curl/7.68.0' -hos
 docker compose run --rm kafka-cmd-tester -cmd clear_rules -value 192.168.65.0/24
 ```
 
+`block_ip`/`challenge_ip`/`altcha_challenge_ip` only challenge or block the
+IP on the `-host` they were sent for; the same IP is unaffected on other hosts.
+
 `block_subnet`/`challenge_subnet` work like `block_ip`/`challenge_ip` (same
 TTL config), but `-value` is an IPv4 subnet in CIDR notation and the decision
-covers every IP in it. Banjax normalizes it to the network address
+covers every IP in it, on every host. Banjax normalizes it to the network address
 (`192.168.65.7/24` becomes `192.168.65.0/24`) and ignores IPv6 subnets and
 anything broader than `/16`. A `clear_rules` `-value` containing a `/` clears
 that subnet entry instead of a single IP.
@@ -88,13 +91,13 @@ host's sitewide challenge). `-ua` alone clears the UA on every host.
 Preview the JSON without sending anything with `-dry-run`:
 
 ```sh
-docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -dry-run
+docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -host localhost -dry-run
 ```
 
 Send the same message a few times, e.g. to test TTL expiry or rate limiting:
 
 ```sh
-docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -count 3 -interval 5s
+docker compose run --rm kafka-cmd-tester -cmd block_ip -value 192.168.65.1 -host localhost -count 3 -interval 5s
 ```
 
 By default it uses SSL client cert auth against the dev kafka cluster
@@ -122,7 +125,7 @@ read that file).
 | Flag | Purpose |
 | --- | --- |
 | `-cmd` | required: `block_ip`, `challenge_ip`, `block_subnet`, `challenge_subnet`, `block_session`, `challenge_session`, `challenge_all`, `block_ua`, `challenge_ua`, `altcha_challenge_ip`, `altcha_challenge_subnet`, `altcha_challenge_session`, `altcha_challenge_all`, `altcha_challenge_ua`, or `clear_rules` |
-| `-host` | site; required for `*_all` and `*_ua` commands, optional for `clear_rules` |
+| `-host` | site; required for `*_ip`, `*_all` and `*_ua` commands, optional for `clear_rules` |
 | `-value` | IP address (IPv4 CIDR for `*_subnet`); required for `*_ip`, `*_subnet` and `*_session` commands (including the `altcha_challenge_*` ones), optional for `clear_rules` |
 | `-session-id` | required for `*_session` commands, optional for `clear_rules` |
 | `-ua` | exact User-Agent string; required for `*_ua` commands, optional for `clear_rules` (at least one of `-host`/`-value`/`-session-id`/`-ua` is required) |

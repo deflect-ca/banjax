@@ -53,8 +53,9 @@ type commandSpec struct {
 }
 
 var commandSpecs = map[string]commandSpec{
-	"block_ip":          {requireValue: true},
-	"challenge_ip":      {requireValue: true},
+	// banjax drops *_ip commands without a host: they only apply on that host
+	"block_ip":          {requireValue: true, requireHost: true},
+	"challenge_ip":      {requireValue: true, requireHost: true},
 	"block_subnet":      {requireValue: true},
 	"challenge_subnet":  {requireValue: true},
 	"block_session":     {requireValue: true, requireSessionId: true},
@@ -64,7 +65,7 @@ var commandSpecs = map[string]commandSpec{
 	"challenge_ua":      {requireHost: true, requireUA: true},
 	// altcha_challenge_* take the same fields as their challenge_* counterparts,
 	// but banjax serves the altcha challenge instead of the sha-inverse one
-	"altcha_challenge_ip":      {requireValue: true},
+	"altcha_challenge_ip":      {requireValue: true, requireHost: true},
 	"altcha_challenge_subnet":  {requireValue: true},
 	"altcha_challenge_session": {requireValue: true, requireSessionId: true},
 	"altcha_challenge_all":     {requireHost: true},
@@ -95,7 +96,7 @@ func envOr(key, fallback string) string {
 
 func main() {
 	cmdName := flag.String("cmd", "", "command name, one of: "+strings.Join(supportedCommandNames(), ", "))
-	host := flag.String("host", "", "host (site), required for *_all and *_ua commands, optional for clear_rules")
+	host := flag.String("host", "", "host (site), required for *_ip, *_all and *_ua commands, optional for clear_rules")
 	value := flag.String("value", "", "IP address (IPv4 CIDR for *_subnet), required for *_ip, *_subnet and *_session commands, optional for clear_rules")
 	sessionId := flag.String("session-id", "", "session id, required for *_session commands, optional for clear_rules")
 	ua := flag.String("ua", "", "exact User-Agent string, required for *_ua commands, optional for clear_rules")
