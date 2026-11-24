@@ -109,6 +109,24 @@ func TestDynamicDecisionLists_RemoveExpired_SweepsHostMap(t *testing.T) {
 	assert.True(t, liveStillThere)
 }
 
+func TestDynamicDecisionLists_RemoveExpired_SweepsSessionMap(t *testing.T) {
+	config := &Config{}
+	decisionLists := NewDynamicDecisionLists()
+
+	decisionLists.UpdateBySessionId(config, "192.0.2.1", "expired-session", time.Now().Add(-time.Second), Challenge, true, "example.com", AltChaOptions{})
+	decisionLists.UpdateBySessionId(config, "192.0.2.1", "live-session", time.Now().Add(time.Minute), Challenge, true, "example.com", AltChaOptions{})
+
+	decisionLists.removeExpired()
+
+	decisionLists.mutex.Lock()
+	_, expiredStillThere := decisionLists.value.expiringDecisionListsSessionId["expired-session"]
+	_, liveStillThere := decisionLists.value.expiringDecisionListsSessionId["live-session"]
+	decisionLists.mutex.Unlock()
+
+	assert.False(t, expiredStillThere)
+	assert.True(t, liveStillThere)
+}
+
 func TestDynamicDecisionLists_Metrics_CountsHostEntries(t *testing.T) {
 	config := &Config{}
 	decisionLists := NewDynamicDecisionLists()

@@ -27,7 +27,7 @@ func TestHandleCommand_ChallengeIP_DefaultTtl(t *testing.T) {
 
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 
-	expiringDecision, ok := decisionLists.Check("", "1.2.3.4")
+	expiringDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -39,7 +39,7 @@ func TestHandleCommand_ChallengeIP_TTLOverride(t *testing.T) {
 
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "example.com", TTL: 15}, decisionLists)
 
-	expiringDecision, ok := decisionLists.Check("", "1.2.3.4")
+	expiringDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, Challenge, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -51,7 +51,7 @@ func TestHandleCommand_BlockIP_DefaultTtl(t *testing.T) {
 
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 
-	expiringDecision, ok := decisionLists.Check("", "1.2.3.4")
+	expiringDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(600*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -67,12 +67,12 @@ sites_to_block_ip_ttl_seconds:
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "5.6.7.8", Host: "other.com"}, decisionLists)
 
-	siteDecision, ok := decisionLists.Check("", "1.2.3.4")
+	siteDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(1200*time.Second), siteDecision.Expires, 5*time.Second)
 
 	// a host without a site-specific ttl falls back to block_ip_ttl_seconds
-	otherDecision, ok := decisionLists.Check("", "5.6.7.8")
+	otherDecision, ok := decisionLists.CheckByHostIp("5.6.7.8", "other.com")
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(600*time.Second), otherDecision.Expires, 5*time.Second)
 }
@@ -157,7 +157,7 @@ sites_to_block_ip_ttl_seconds:
 
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com", TTL: 15}, decisionLists)
 
-	expiringDecision, ok := decisionLists.Check("", "1.2.3.4")
+	expiringDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, expiringDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(15*time.Second), expiringDecision.Expires, 5*time.Second)
@@ -169,7 +169,7 @@ func TestHandleCommand_NonPositiveTTLUsesDefault(t *testing.T) {
 
 	handleCommand(config, commandMessage{Name: "challenge_all", Host: "example.com", TTL: -1}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_ua", Host: "example.com", UA: "curl/7.68.0", TTL: 0}, decisionLists)
-	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", TTL: -1}, decisionLists)
+	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "example.com", TTL: -1}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_session", SessionId: "session-a", TTL: -1}, decisionLists)
 
 	sessionDecision, ok := decisionLists.Check("session-a", "")
@@ -184,7 +184,7 @@ func TestHandleCommand_NonPositiveTTLUsesDefault(t *testing.T) {
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), uaDecision.Expires, 5*time.Second)
 
-	ipDecision, ok := decisionLists.Check("", "1.2.3.4")
+	ipDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), ipDecision.Expires, 5*time.Second)
 }
@@ -443,6 +443,8 @@ func assertDecisionListsEmpty(t *testing.T, decisionLists *DynamicDecisionLists)
 	assert.Empty(t, decisionLists.value.expiringDecisionListsHost)
 	assert.Empty(t, decisionLists.value.expiringDecisionListsUA)
 	assert.Empty(t, decisionLists.value.expiringDecisionListsSubnet)
+	assert.Empty(t, decisionLists.value.expiringDecisionListsIpHost)
+	assert.Empty(t, decisionLists.value.expiringDecisionListsHostIp)
 }
 
 func TestHandleCommand_DisabledBaskerville_DropsCommands(t *testing.T) {
@@ -482,7 +484,7 @@ func TestHandleCommand_DisabledBaskerville_OtherHostsUnaffected(t *testing.T) {
 	handleCommand(config, commandMessage{Name: "challenge_all", Host: "enabled.com"}, decisionLists)
 	handleCommand(config, commandMessage{Name: "block_ua", Host: "enabled.com", UA: "curl/7.68.0"}, decisionLists)
 
-	_, ipOk := decisionLists.Check("", "1.2.3.4")
+	_, ipOk := decisionLists.CheckByHostIp("1.2.3.4", "enabled.com")
 	_, hostOk := decisionLists.CheckByHost("enabled.com")
 	_, uaOk := decisionLists.CheckByUA("curl/7.68.0", "enabled.com")
 	assert.True(t, ipOk)
@@ -714,7 +716,7 @@ func TestHandleCommand_AltChaMaxNumber(t *testing.T) {
 				handleCommand(config, command, decisionLists)
 			}
 
-			ipDecision, ipOk := decisionLists.Check("", "1.2.3.4")
+			ipDecision, ipOk := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 			subnetDecision, subnetOk := decisionLists.CheckBySubnet("5.6.7.8")
 			sessionDecision, sessionOk := decisionLists.Check("session-a", "")
 			hostDecision, hostOk := decisionLists.CheckByHost("example.com")
@@ -775,7 +777,7 @@ func TestHandleCommand_AltChaClick(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"}`), decisionLists)
 		handleCommand(config, decode(`{"name": "altcha_challenge_ua", "ua": "bot/1.0", "host": "example.com", "altcha_click": false}`), decisionLists)
-		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+		ipDecision, _ := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 		uaDecision, _ := decisionLists.CheckByUA("bot/1.0", "example.com")
 		assert.Equal(t, AltChaChallenge, ipDecision.Decision)
 		assert.Equal(t, AltChaChallenge, uaDecision.Decision)
@@ -805,7 +807,7 @@ func TestHandleCommand_AltChaClick(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "block_ip", "value": "1.2.3.4", "host": "example.com"}`), decisionLists)
 		handleCommand(config, decode(`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com", "altcha_click": true}`), decisionLists)
-		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+		ipDecision, _ := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 		assert.Equal(t, NginxBlock, ipDecision.Decision)
 	})
 }
@@ -831,7 +833,8 @@ func TestHandleCommand_AltChaForceNew(t *testing.T) {
 	t.Run("absent means any valid cookie passes", func(t *testing.T) {
 		decisionLists := NewDynamicDecisionLists()
 		handleCommand(config, decode(`{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"}`), decisionLists)
-		ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+		ipDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
+		assert.True(t, ok)
 		assert.Equal(t, int64(0), ipDecision.altcha.NotBefore)
 	})
 

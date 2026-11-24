@@ -49,7 +49,8 @@ decision = global_user_agent_decision_lists[client_user_agent]
 # [...] same as above
 
 # The expiring decision lists are checked narrowest scope first: session id,
-# then User-Agent, then host, then IP (or a subnet covering it). Note that a
+# then User-Agent, then host, then IP (its Kafka entry for this host, its own entry, or a
+# subnet covering it). Note that a
 # "baskerville is disabled for this site" skip does not return; it falls through
 # to the next check below.
 # Wherever Challenge is handled below, AltChaChallenge is handled the same way, with
@@ -81,10 +82,14 @@ decision = expiring_host_decision_lists[requested_host]
 if decision == Challenge:
     # [...] same as above, falling through to the IP check below
 
-decision = expiring_decision_lists[client_ip]
+decision = expiring_decision_lists[client_ip]  # regex rules, failed challenges
+# challenge_ip/block_ip/altcha_challenge_ip only apply on the host they were sent for; on a
+# tie with the IP's own entry the Kafka entry (and its AltCha settings) is used
+decision = max(expiring_host_ip_decision_lists[client_ip, requested_host], decision)
 # a block_subnet/challenge_subnet acts as if sent for every IP in the subnet,
-# so the most severe of the IP's own entry and any covering subnet entry wins
+# so the most severe of the IP's entries and any covering subnet entry wins
 decision = max(decision, expiring_decision_lists_subnet[subnet containing client_ip])
+# protected IPs: blocks are dropped from all three before they are ranked
 if decision == Allow:
     return access_granted()
 if decision == Challenge:
@@ -128,6 +133,12 @@ The IP-based decision lists are populated from:
     and `global_decision_lists`. This is useful for allowlisting or blocklisting known good or bad IPs.
   * the regex-based rate-limiting rules explained in more detail below.
   * commands received over the Kafka connection. This is how Baskerville communicates with banjax.
+
+A SIGHUP reload rebuilds only the lists that come from the config file. The decisions added at run time
+(regex rules, Kafka commands, failed challenge bans) are kept until their own expiry, or until `POST /unban`
+or `clear_rules` removes them. The protected IP, per-site allowlist and `sites_to_disable_baskerville`
+exemptions are checked per request, so they apply to kept decisions as soon as the reload adds them
+(`sites_to_disable_baskerville` only skips decisions that came from Baskerville).
 
 The static User-Agent decision lists (`per_site_user_agent_decision_lists` and
 `global_user_agent_decision_lists`) are loaded from the config file only. Each entry is either a plain
@@ -215,12 +226,12 @@ It's probably a good idea to add per-block logging and caching behavior to the a
 
 Baskerville (or `supporting-containers/kafka-cmd-tester` during development) sends JSON command
 messages on `kafka_command_topic`. Each command writes into one of the five expiring decision lists
-checked above:
+checked above (the IP commands use the IP+host list, which is checked together with the IP list):
 
 | Command | Keyed on | Decision | List |
 | --- | --- | --- | --- |
-| `challenge_ip` | `value` (IP) | Challenge | IP |
-| `block_ip` | `value` (IP) | NginxBlock | IP |
+| `challenge_ip` | `value` (IP) + `host` | Challenge | IP+host |
+| `block_ip` | `value` (IP) + `host` | NginxBlock | IP+host |
 | `challenge_subnet` | `value` (IPv4 CIDR) | Challenge | subnet |
 | `block_subnet` | `value` (IPv4 CIDR) | NginxBlock | subnet |
 | `challenge_session` | `session_id` | Challenge | session id |
@@ -228,7 +239,7 @@ checked above:
 | `challenge_ua` | `ua` + `host` | Challenge | User-Agent |
 | `block_ua` | `ua` + `host` | NginxBlock | User-Agent |
 | `challenge_all` | `host` | Challenge | host |
-| `altcha_challenge_ip` | `value` (IP) | AltChaChallenge | IP |
+| `altcha_challenge_ip` | `value` (IP) + `host` | AltChaChallenge | IP+host |
 | `altcha_challenge_subnet` | `value` (IPv4 CIDR) | AltChaChallenge | subnet |
 | `altcha_challenge_session` | `session_id` | AltChaChallenge | session id |
 | `altcha_challenge_ua` | `ua` + `host` | AltChaChallenge | User-Agent |
@@ -273,6 +284,21 @@ is cleared only on `host` when one is given, and on every host otherwise. The `/
 the same thing for a single `ip`, `host`, `ua` (optionally scoped by `host`), or `subnet` form field.
 Clearing an IP does not clear a subnet covering it, and vice versa.
 
+`challenge_ip`, `block_ip` and `altcha_challenge_ip` challenge or block the IP only on the `host`
+they were sent for; requests from the same IP to other hosts are not affected. They are still
+reported as `ExpiringChallenge` / `ExpiringAltChaChallenge` / `ExpiringAltChaClickChallenge` /
+`ExpiringBlock`, and listed by `/banned?domain=<host>` as type `ip`. On the command's host they are
+ranked with the IP's own entry (regex rules, failed challenges, which still apply on every host)
+and any covering subnet entry, and the most severe wins. A command without a `host`, with a `host`
+longer than 253 characters, or whose `value` is not a single IP address (an IPv6 zone is rejected)
+is dropped. The IP is stored in the form nginx sends it (an IPv4-mapped IPv6 value such as
+`::ffff:1.2.3.4` becomes `1.2.3.4`, IPv6 is compressed and lowercase), and `clear_rules` `value`,
+`/unban` `ip` and `/is_banned` normalize the IP the same way. Clearing an IP removes its entries on
+every host, even when `clear_rules` also has a `host`. On a site in `sites_to_disable_baskerville`
+these entries are skipped before the ranking, so they never hide the IP's own entry. With
+`too_many_403_ban_to_iptables_ban` on, the 403s a host-scoped `block_ip` produces still count
+towards the iptables ban, which applies to every host, as they do for per-site blocks.
+
 `challenge_ua` / `block_ua` without a `host` are dropped.
 
 Each command's lifetime comes from the config (`expiring_decision_ttl_seconds` for challenges,
@@ -288,7 +314,7 @@ This includes `clear_rules`: one whose `host` is such a site is dropped as a who
 `value` / `ua` / `session_id` fields.
 
 The lengths of the expiring lists are reported in the metrics log as `LenExpiringChallenges` /
-`LenExpiringBlocks` (IP and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
+`LenExpiringBlocks` (IP, IP+host from the Kafka IP commands, and session id), `LenExpiringSitewideChallenges` / `LenExpiringSitewideBlocks`
 (host), `LenExpiringUAChallenges` / `LenExpiringUABlocks` (User-Agent), and
 `LenExpiringSubnetChallenges` / `LenExpiringSubnetBlocks` (subnet). `LenExpiringTooManyRequests`
 (IP and IP+host).

@@ -209,6 +209,7 @@ use_user_agent_in_cookie:
 # difficulty of sha-inv page, setting above 10 might cause solving to fail
 sha_inv_expected_zero_bits: 10
 session_cookie_not_verify: true
+# TTL of kafka block_ip, block_subnet and block_ua; block_ip blocks the ip only on the command's host
 block_ip_ttl_seconds: 10
 block_session_ttl_seconds: 10
 # Matched like password_protected_path_exceptions (decoded, dot segments resolved,

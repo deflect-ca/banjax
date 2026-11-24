@@ -289,7 +289,7 @@ func TestHandleCommand_AltChaChallenge(t *testing.T) {
 	handleCommand(config, commandMessage{Name: "altcha_challenge_ua", UA: "curl/7.68.0", Host: "example.com"}, decisionLists)
 	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com"}, decisionLists)
 
-	ipDecision, ok := decisionLists.Check("", "1.2.3.4")
+	ipDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, AltChaChallenge, ipDecision.Decision)
 	assert.WithinDuration(t, time.Now().Add(300*time.Second), ipDecision.Expires, 5*time.Second)
@@ -325,7 +325,7 @@ func TestHandleCommand_AltChaClickChallenge(t *testing.T) {
 	handleCommand(config, commandMessage{Name: "altcha_challenge_ua", UA: "curl/7.68.0", Host: "example.com", AltChaClick: true}, decisionLists)
 	handleCommand(config, commandMessage{Name: "altcha_challenge_all", Host: "example.com", AltChaClick: true}, decisionLists)
 
-	ipDecision, _ := decisionLists.Check("", "1.2.3.4")
+	ipDecision, _ := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.Equal(t, AltChaClickChallenge, ipDecision.Decision)
 	subnetDecision, _ := decisionLists.CheckBySubnet("5.6.7.8")
 	assert.Equal(t, AltChaClickChallenge, subnetDecision.Decision)
@@ -348,13 +348,13 @@ func TestHandleCommand_AltChaChallenge_NotDowngradedByChallenge(t *testing.T) {
 	handleCommand(config, commandMessage{Name: "altcha_challenge_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 	handleCommand(config, commandMessage{Name: "challenge_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 
-	ipDecision, ok := decisionLists.Check("", "1.2.3.4")
+	ipDecision, ok := decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, AltChaChallenge, ipDecision.Decision)
 
 	handleCommand(config, commandMessage{Name: "block_ip", Value: "1.2.3.4", Host: "example.com"}, decisionLists)
 
-	ipDecision, ok = decisionLists.Check("", "1.2.3.4")
+	ipDecision, ok = decisionLists.CheckByHostIp("1.2.3.4", "example.com")
 	assert.True(t, ok)
 	assert.Equal(t, NginxBlock, ipDecision.Decision)
 }

@@ -70,7 +70,7 @@ The Decision lists are populated by:
 - A Kafka topic. This is how Baskerville sends its ML-informed commands to Banjax-go.
 - A rate limit on the number of failed challenges an IP submits. Bots will generally fail a bunch of challenges, and we want to block them after a while rather than serve them an unlimited number of challenge pages.
 
-Decisions added at run-time (from the log tailer, Kafka, or the failed challenge rate limit) expire after some configurable amount of time.
+Decisions added at run-time (from the log tailer, Kafka, or the failed challenge rate limit) expire after some configurable amount of time. A config reload (SIGHUP) keeps them: each one lasts until its own expiry, unless `POST /unban` or the Kafka `clear_rules` command removes it first. `protected_ips`, the per-site allowlists and `sites_to_disable_baskerville` (which skips only Baskerville decisions, not regex or failed challenge ones) are checked on every request, so a reload that adds an entry takes effect at once for decisions already stored.
 
 <img width="1384" alt="Banjax-flowchart" src="https://github.com/user-attachments/assets/ca28fc7f-bd28-49a1-8bbb-473cfdf759dd" />
 
@@ -213,9 +213,11 @@ banjax-go can optionally send and receive messages over a Kafka bus. We use this
 communicate with our Baskerville ML anomaly detection system.
 
 Messages sent on `kafka_command_topic` (from Baskerville to banjax-go):
-* `{"name": "challenge_ip", "value": "1.2.3.4"}`
-  * Tells banjax-go to challenge this IP the next time it's seen.
-* `{"name": "altcha_challenge_ip", "value": "1.2.3.4"}`
+* `{"name": "challenge_ip", "value": "1.2.3.4", "host": "example.com"}`
+  * Tells banjax-go to challenge this IP the next time it requests `example.com`. Requests from
+    the IP to other hosts are not affected. `block_ip` works the same way with an nginx block.
+    A command without a `host` is dropped.
+* `{"name": "altcha_challenge_ip", "value": "1.2.3.4", "host": "example.com"}`
   * Same, with the AltCha challenge. `altcha_challenge_subnet`, `altcha_challenge_session`,
     `altcha_challenge_ua` and `altcha_challenge_all` mirror their `challenge_*` counterparts.
     With `"altcha_click": true` they store an AltChaClickChallenge (one-click checkbox) instead.

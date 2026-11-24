@@ -18,7 +18,7 @@ A test earns its place by failing when the feature's behavior regresses. Coverag
    - exemptions: protected IPs (`withProtectedIPs`), the per-site allowlist, `sites_to_disable_baskerville` for Baskerville-originated decisions
    - cookies: bound to IP (or UA when configured), expired, tampered or truncated value, cookie from another host
    - Kafka input: malformed JSON fields, missing host, out-of-range numbers (clamped?), IPv6 or broader-than-/16 subnet
-   - lifecycle: config reload, `POST /unban`, Kafka `clear_rules` remove what the feature added
+   - lifecycle: `POST /unban` and Kafka `clear_rules` remove what the feature added; a config reload keeps expiring decisions until their TTL, so anything config-driven must still apply to them
    - output: the exact `X-Banjax-Decision` string, status code and `X-Accel-Redirect`
    - failure direction: what happens on error or panic (fail open versus fail closed)
 2. Write one named case per kept item. The case name is the behavior in a sentence ("protected ip is never counted").
