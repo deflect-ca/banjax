@@ -302,6 +302,9 @@ type MetricsLogLine struct {
 	LenIpToRegexStates               int
 	LenFailedChallengeStates         int
 	LenAltChaFailedChallengeStates   int
+	// challenged subresource requests answered with the 403 JSON error, since start (see xhrChallengeCounters)
+	XHRChallenges          uint64
+	XHRChallengesBadCookie uint64
 }
 
 func WriteMetricsToEncoder(
@@ -334,6 +337,8 @@ func WriteMetricsToEncoder(
 		LenIpToRegexStates:               lenRegexStates,
 		LenFailedChallengeStates:         lenFailedChallengeStates,
 		LenAltChaFailedChallengeStates:   lenAltChaFailedChallengeStates,
+		XHRChallenges:                    xhrChallengeCounters.total.Load(),
+		XHRChallengesBadCookie:           xhrChallengeCounters.badCookie.Load(),
 	}
 
 	err := metricsLogEncoder.Encode(metricsLogLine)

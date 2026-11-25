@@ -842,6 +842,11 @@ func sendOrValidateShaChallenge(
 			return sendOrValidateShaChallengeResult
 		}
 	}
+	// a subresource can't show the challenge page: a 403 JSON error, not counted as a failed challenge
+	if IsSubresource(c.Request) {
+		xhrChallenge(c, config, trigger, "sha_inv", sendOrValidateShaChallengeResult.ShaChallengeResult == ShaChallengeFailedBadCookie)
+		return sendOrValidateShaChallengeResult
+	}
 	ReportPassedFailedBannedMessage(config, "ip_failed_challenge", clientIp, requestedHost)
 	if failAction == Block {
 		tooManyFailedChallengesResult := tooManyFailedChallenges(
@@ -1046,6 +1051,7 @@ const (
 	ExpiringSubnetAltChaClickChallenge
 	SiteWideAltChaClickChallenge
 	SiteWideAltChaClickChallengeException
+	CORSPreflightException // a CORS preflight skipped a sha-inv or AltCha challenge and was granted
 	NoMention
 	NotSet
 )
@@ -1101,6 +1107,7 @@ var DecisionListResultToString = map[DecisionListResult]string{
 	ExpiringSubnetAltChaClickChallenge:    "ExpiringSubnetAltChaClickChallenge",
 	SiteWideAltChaClickChallenge:          "SiteWideAltChaClickChallenge",
 	SiteWideAltChaClickChallengeException: "SiteWideAltChaClickChallengeException",
+	CORSPreflightException:                "CORSPreflightException",
 	NoMention:                             "NoMention",
 	NotSet:                                "NotSet",
 }
@@ -1155,6 +1162,7 @@ type DecisionForNginxResult struct {
 	AltChaOptions                 *AltChaOptions // difficulty of the AltCha challenge, nil if none
 	TooManyFailedChallengesResult *RateLimitResult
 	TooMany403Result              *RateLimitResult // nil unless the response was a 403 counted by too_many_403_ban_to_iptables_ban
+	XHRChallenge                  bool             `json:",omitempty"` // challenged XHR answered with the 403 JSON error
 	ClientUserAgent               string
 }
 
@@ -1169,6 +1177,10 @@ func countTooMany403s(
 	banner BannerInterface,
 ) {
 	if !config.TooMany403BanToIptablesBan || c.Writer.Status() != http.StatusForbidden {
+		return
+	}
+	// a challenged XHR's 403 is not a block (see xhrChallenge)
+	if isXHRChallenge(c) {
 		return
 	}
 	result := tooMany403s(
@@ -1207,6 +1219,7 @@ func decisionForNginx(
 			altchaFailedChallengeStates,
 			banner,
 		)
+		decisionForNginxResult.XHRChallenge = isXHRChallenge(c)
 		countTooMany403s(c, config, &decisionForNginxResult, tooMany403States, staticDecisionLists, banner)
 		if config.Debug {
 			bytes, err := json.MarshalIndent(decisionForNginxResult, "", "  ")
@@ -1261,6 +1274,24 @@ func decisionForNginx2(
 		}
 		if decisionForNginxResult.DecisionListResult == NotSet {
 			decisionForNginxResult.DecisionListResult = ProtectedIPException
+		}
+		return true
+	}
+	// A CORS preflight (IsPreflight) skips every sha-inv and AltCha challenge: a browser sends
+	// no cookies on one, so it could never pass, and the cross-origin call after it (which
+	// carries the cookie and is challenged as usual) would never be made. Like skipDenial it
+	// breaks out of its switch and falls through, so a block or Allow checked later still
+	// decides; if nothing does, access is granted as CORSPreflightException. Password pages
+	// are not skipped. no-store: a cache key without the method (such as nginx's
+	// proxy_cache_key "$remote_addr $host $cookie_...") must not replay the grant for a GET.
+	preflight := IsPreflight(c.Request)
+	skipChallenge := func() bool {
+		if !preflight {
+			return false
+		}
+		c.Header("Cache-Control", "no-cache,no-store")
+		if decisionForNginxResult.DecisionListResult == NotSet {
+			decisionForNginxResult.DecisionListResult = CORSPreflightException
 		}
 		return true
 	}
@@ -1341,6 +1372,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = PerSiteAccessGranted
 			return
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			// log.Println("challenge from per-site lists")
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
@@ -1356,6 +1390,9 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			trigger := altchaResult(decision, PerSiteAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
@@ -1393,6 +1430,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = PerSiteUAAccessGranted
 			return
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
@@ -1407,6 +1447,9 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			trigger := altchaResult(uaDecision, PerSiteUAAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
@@ -1458,6 +1501,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = GlobalAccessGranted
 			return
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			// log.Println("challenge from global lists")
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
@@ -1473,6 +1519,9 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			trigger := altchaResult(decision, GlobalAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
@@ -1510,6 +1559,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = GlobalUAAccessGranted
 			return
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			sendOrValidateShaChallengeResult := sendOrValidateShaChallenge(
 				config,
 				c,
@@ -1524,6 +1576,9 @@ func decisionForNginx2(
 			decisionForNginxResult.TooManyFailedChallengesResult = &sendOrValidateShaChallengeResult.TooManyFailedChallengesResult
 			return
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			trigger := altchaResult(uaDecisionGlobal, GlobalUAAltChaChallenge)
 			sendOrValidateAltChaChallengeResult := sendOrValidateAltChaChallenge(
 				config,
@@ -1570,6 +1625,9 @@ func decisionForNginx2(
 				decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 				return
 			case Challenge:
+				if skipChallenge() {
+					break
+				}
 				// apply exception to both challenge from baskerville and regex banner
 				if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 					accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1595,6 +1653,9 @@ func decisionForNginx2(
 					return
 				}
 			case AltChaChallenge, AltChaClickChallenge:
+				if skipChallenge() {
+					break
+				}
 				if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 					accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 					decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1651,6 +1712,9 @@ func decisionForNginx2(
 	} else {
 		switch uaExpiringDecision.Decision {
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1674,6 +1738,9 @@ func decisionForNginx2(
 				return
 			}
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1721,6 +1788,8 @@ func decisionForNginx2(
 	hostExpiringDecision, hostOk := dynamicDecisionLists.CheckByHost(requestedHost)
 	if !hostOk {
 		// log.Println("no mention in expiring sitewide list")
+	} else if (hostExpiringDecision.Decision == Challenge || hostExpiringDecision.Decision.IsAltCha()) && skipChallenge() {
+		// a preflight falls through to the ip check
 	} else if hostExpiringDecision.Decision == Challenge {
 		if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 			accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1828,6 +1897,9 @@ func decisionForNginx2(
 			decisionForNginxResult.DecisionListResult = ExpiringAccessGranted
 			return
 		case Challenge:
+			if skipChallenge() {
+				break
+			}
 			// apply exception to both challenge from baskerville and regex banner
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
@@ -1853,6 +1925,9 @@ func decisionForNginx2(
 				return
 			}
 		case AltChaChallenge, AltChaClickChallenge:
+			if skipChallenge() {
+				break
+			}
 			if checkPerSiteShaInvPathExceptions(config, requestedHost, requestedPath) {
 				accessGranted(c, config, DecisionListResultToString[PerSiteShaInvPathException], -1.0, "", IntegrityCheckPayloadWrapper{})
 				decisionForNginxResult.DecisionListResult = PerSiteShaInvPathException
@@ -1908,7 +1983,7 @@ func decisionForNginx2(
 
 	// sitewide_altcha_list: sitewide_sha_inv_list for the AltCha challenge, checked first so a
 	// site listed in both gets AltCha. Same fail actions and path exceptions.
-	if sitewideAltCha, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok {
+	if sitewideAltCha, ok := staticDecisionLists.CheckSitewideAltCha(requestedHost); ok && !skipChallenge() {
 		if passwordProtectedPaths.IsException(requestedHost, requestedPath) {
 			exception := altchaResult(sitewideAltCha.Decision(), SiteWideAltChaChallengeException)
 			decisionForNginxResult.DecisionListResult = exception
@@ -1940,6 +2015,8 @@ func decisionForNginx2(
 	failAction, ok := staticDecisionLists.CheckSitewideShaInv(requestedHost)
 	if !ok {
 		// log.Println("no mention in sitewide list")
+	} else if skipChallenge() {
+		// a preflight is granted below
 	} else {
 		// log.Println("challenge from sitewide list")
 		// Reuse the exception from password prot for site-wide sha inv exceptions path
